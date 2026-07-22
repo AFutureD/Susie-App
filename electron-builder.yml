@@ -1,0 +1,32 @@
+appId: ltd.inston.susie
+productName: Susie
+artifactName: ${productName}-${version}-${arch}.${ext}
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - '!dist/**/*.map'
+asar: true
+# codex CLI 二进制必须解包到 asar 之外才能 spawn
+asarUnpack:
+  - '**/node_modules/@openai/codex*/**'
+npmRebuild: false
+mac:
+  category: public.app-category.productivity
+  darkModeSupport: true
+  icon: build/icon.icns
+  # 有 Developer ID 证书时自动签名+公证：
+  # 环境变量 APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID（notarytool）
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+dmg:
+  sign: false
