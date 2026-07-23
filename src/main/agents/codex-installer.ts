@@ -49,7 +49,7 @@ interface CodexManifest {
 
 /**
  * codex 二进制按需下载器。二进制不随应用分发（~300MB），
- * 从 npm registry 拉取与 @openai/codex-sdk 匹配的版本到 <dataDir>/<version>/。
+ * 从 npm registry 拉取 @openai/codex 锁定的版本到 <dataDir>/<version>/。
  * 解析顺序：已下载 → 开发环境 node_modules → PATH。
  */
 export class CodexInstaller {

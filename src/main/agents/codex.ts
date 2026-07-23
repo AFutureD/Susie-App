@@ -1,7 +1,16 @@
-import { Codex, type ModelReasoningEffort, type Thread, type ThreadOptions } from '@openai/codex-sdk'
+import {
+  Codex,
+  TransportClosedError,
+  type Notification,
+  type ReasoningEffort,
+  type Thread,
+  type ThreadItem,
+  type TurnCompletedNotification,
+  type TurnHandle,
+} from '@susie/codex-app-server'
 import type { MessagePart } from '../../shared/messages'
 import type { Logger } from '../util/logger'
-import { fetchCodexModels } from './codex-models'
+import { mapAppServerModels } from './codex-models'
 import { mapThreadItem } from './codex-map'
 import type { AgentModelOption, AgentRuntime, AgentTurn } from './types'
 
@@ -12,7 +21,7 @@ export interface CodexRuntimeOptions {
   mcpName: string
   model: string | null
   /** 思考深度；null 用 codex 默认 */
-  thinkingLevel: ModelReasoningEffort | null
+  thinkingLevel: ReasoningEffort | null
   /** /model 候选白名单（assistant 配置）；空则经 app-server 动态枚举 */
   models: string[]
   /** codex 可执行文件路径（CodexInstaller 解析）；'codex' 表示交给 PATH */
@@ -22,75 +31,67 @@ export interface CodexRuntimeOptions {
   log?: Logger
 }
 
-/** SDK 的 env 选项是整体替换而非合并，这里手动继承进程环境并前置 pathDir */
-function envWithPathDir(pathDir: string): Record<string, string> {
-  const env: Record<string, string> = {}
-  for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined) env[key] = value
-  }
-  const current = env['PATH'] ?? ''
-  env['PATH'] = current === '' ? pathDir : `${pathDir}:${current}`
-  return env
-}
-
 /**
- * Codex 运行时（@openai/codex-sdk，`codex exec` JSONL 协议）。
- *
- * 与 Python 版（app-server SDK）的功能差异：
- * - SDK 无模型接口 → 枚举走 codex-models.ts 的 app-server 探针（配置 models 非空时作白名单覆盖）；
- *   切换模型 = 重建 thread（新会话）；
- * - 无系统指令入参 → 指令并入会话首个 prompt；
- * - 无 steer → 活跃 turn 期间来新消息时先取消当前 turn 再发新 turn。
+ * Codex 运行时（@susie/codex-app-server，`codex app-server` JSON-RPC 协议，对位 Python
+ * openai_codex CodexSDKRuntime）：
+ * - 常驻 app-server 连接；系统指令走 thread/start 的 baseInstructions（不再拼进首个 prompt）；
+ * - 活跃 turn 期间来新消息 → turn/steer 并入当前 turn（返回空流，输出走原 turn）；
+ * - cancel → turn/interrupt；切换模型只改后续 turn 的 model 覆盖，不重建会话。
  */
 export class CodexRuntime implements AgentRuntime {
   private readonly options: CodexRuntimeOptions
-  private readonly codex: Codex
-  private readonly childEnv: Record<string, string> | undefined
+  private codex: Codex | null = null
   private thread: Thread | null = null
-  private pendingInstruction: string | null = null
-  private lastInstruction: string | null = null
+  private activeTurn: TurnHandle | null = null
+  /** turn 启动临界区：保证 steer-or-start 判定原子，避免同一 thread 并发 turn/start */
+  private startLock: Promise<void> = Promise.resolve()
   private model: string | null
+  private lastInstruction: string | null = null
   private modelOptions: AgentModelOption[] | null = null
-  private active: AbortController | null = null
 
   constructor(options: CodexRuntimeOptions) {
     this.options = options
     this.model = options.model
-    this.childEnv = options.codexPathDir === null ? undefined : envWithPathDir(options.codexPathDir)
-    this.codex = new Codex({
-      codexPathOverride: options.codexPath,
-      ...(this.childEnv === undefined ? {} : { env: this.childEnv }),
-      config:
-        options.mcpUrl === null
-          ? {}
-          : {
-              mcp_servers: {
-                // default_tools_approval_mode=approve：无人值守下自动批准 susie 自己的
-                // MCP 工具（send_message 等）；否则 exec 非交互模式会直接取消审批请求。
-                [options.mcpName]: { url: options.mcpUrl, default_tools_approval_mode: 'approve' },
-              },
-            },
-    })
   }
 
-  private threadOptions(): ThreadOptions {
-    return {
-      workingDirectory: this.options.cwd,
-      skipGitRepoCheck: true,
-      approvalPolicy: 'never',
-      sandboxMode: 'workspace-write',
-      networkAccessEnabled: true,
-      ...(this.model === null ? {} : { model: this.model }),
-      ...(this.options.thinkingLevel === null ? {} : { modelReasoningEffort: this.options.thinkingLevel }),
+  private ensureCodex(): Codex {
+    if (this.codex !== null) return this.codex
+
+    const configOverrides: string[] = ['sandbox_workspace_write.network_access=true']
+    if (this.options.mcpUrl !== null) {
+      const name = this.options.mcpName
+      configOverrides.push(
+        `mcp_servers.${name}.enable=true`,
+        `mcp_servers.${name}.url=${this.options.mcpUrl}`,
+        // 无人值守下自动批准 susie 自己的 MCP 工具（send_message 等）
+        `mcp_servers.${name}.default_tools_approval_mode=approve`,
+      )
     }
+
+    this.codex = new Codex({
+      codexPath: this.options.codexPath,
+      configOverrides,
+      cwd: this.options.cwd,
+      pathDirs: this.options.codexPathDir === null ? [] : [this.options.codexPathDir],
+      clientName: 'susie',
+      clientTitle: 'Susie',
+      onStderrLine: (line) => this.options.log?.info(`codex stderr: ${line}`),
+    })
+    return this.codex
   }
 
-  newSession(instruction?: string | null): Promise<string> {
-    void this.cancel()
-    this.thread = this.codex.startThread(this.threadOptions())
-    this.pendingInstruction = instruction ?? null
+  async newSession(instruction?: string | null): Promise<string> {
+    await this.cancel()
+    const codex = this.ensureCodex()
+    this.thread = await codex.threadStart({
+      cwd: this.options.cwd,
+      baseInstructions: instruction ?? null,
+      model: this.model,
+      sandbox: 'workspace-write',
+      approvalMode: 'auto_review',
+    })
     this.lastInstruction = instruction ?? null
-    return Promise.resolve(this.thread.id ?? 'pending')
+    return this.thread.id
   }
 
   async listModels(): Promise<AgentModelOption[]> {
@@ -100,14 +101,12 @@ export class CodexRuntime implements AgentRuntime {
     return (await this.fetchModelOptions()) ?? []
   }
 
-  /** app-server 探针结果按 runtime 实例缓存；失败返回 null（调用方降级） */
+  /** model/list 结果按 runtime 实例缓存；失败返回 null（调用方降级） */
   private async fetchModelOptions(): Promise<AgentModelOption[] | null> {
     if (this.modelOptions !== null) return this.modelOptions
     try {
-      this.modelOptions = await fetchCodexModels({
-        codexPath: this.options.codexPath,
-        ...(this.childEnv === undefined ? {} : { env: this.childEnv }),
-      })
+      const response = await this.ensureCodex().models()
+      this.modelOptions = mapAppServerModels(response.data)
       return this.modelOptions
     } catch (error) {
       this.options.log?.error(`codex 模型枚举失败：${error instanceof Error ? error.message : String(error)}`)
@@ -119,79 +118,113 @@ export class CodexRuntime implements AgentRuntime {
     return Promise.resolve(this.model)
   }
 
-  /** 切换模型会重建会话（exec 协议下 thread 选项在创建时固定） */
+  /** 切换模型只更新后续 turn 的 model 覆盖（对位 Python set_model），会话保持 */
   async setModel(value: string): Promise<boolean> {
     if (this.options.models.length > 0) {
       if (!this.options.models.includes(value)) return false
     } else {
-      // 枚举可用时按候选校验（对位 Python set_model）；探针失败则放行，交给下轮 turn 报错
+      // 枚举可用时按候选校验；探针失败则放行，交给下轮 turn 报错
       const options = await this.fetchModelOptions()
       if (options !== null && !options.some((option) => option.value === value)) return false
     }
     this.model = value
-    this.thread = this.codex.startThread(this.threadOptions())
-    this.pendingInstruction = this.lastInstruction
     return true
   }
 
-  cancel(): Promise<void> {
-    this.active?.abort()
-    return Promise.resolve()
+  async cancel(): Promise<void> {
+    const turn = this.activeTurn
+    if (turn === null) return
+    try {
+      await turn.interrupt()
+    } catch (error) {
+      this.options.log?.info(`codex turn interrupt 失败（turn 可能已结束）：${String(error)}`)
+    }
   }
 
   async *prompt(text: string): AsyncGenerator<AgentTurn> {
-    if (this.thread === null) {
-      await this.newSession(this.lastInstruction)
+    // steer-or-start 临界区：并发 prompt 时后到者要么 steer，要么等前者 turn/start 完成
+    let release: () => void = () => {}
+    const previous = this.startLock
+    this.startLock = new Promise((resolve) => {
+      release = resolve
+    })
+    await previous
+
+    let turn: TurnHandle
+    try {
+      if (this.activeTurn !== null) {
+        try {
+          await this.activeTurn.steer(text)
+          this.options.log?.info(`codex turn ${this.activeTurn.id} steer：新消息已并入当前 turn`)
+          return
+        } catch (error) {
+          // 竞态：turn 恰好已结束 → 降级为新 turn
+          this.options.log?.info(`codex steer 失败（turn 已结束），改为新 turn：${String(error)}`)
+        }
+      }
+
+      if (this.thread === null) await this.newSession(this.lastInstruction)
+      const thread = this.thread
+      if (thread === null) throw new Error('codex thread unavailable')
+
+      turn = await thread.turn(text, {
+        model: this.model,
+        ...(this.options.thinkingLevel === null ? {} : { effort: this.options.thinkingLevel }),
+      })
+      this.activeTurn = turn
+    } finally {
+      release()
     }
-    const thread = this.thread
-    if (thread === null) throw new Error('codex thread unavailable')
-
-    // 活跃 turn 期间来了新消息：取消旧 turn（exec 协议不支持 steer）
-    this.active?.abort()
-
-    const input = this.pendingInstruction === null ? text : `${this.pendingInstruction}\n\n${text}`
-    this.pendingInstruction = null
-
-    const controller = new AbortController()
-    this.active = controller
 
     const parts: MessagePart[] = []
     try {
-      const { events } = await thread.runStreamed(input, { signal: controller.signal })
-      for await (const event of events) {
-        switch (event.type) {
-          case 'item.completed':
-            parts.push(...mapThreadItem(event.item))
-            yield { status: 'in_progress', parts: [...parts], error: null }
-            break
-          case 'turn.completed':
-            yield { status: 'completed', parts: [...parts], error: null }
-            return
-          case 'turn.failed':
-            yield { status: 'failed', parts: [...parts], error: event.error?.message ?? 'turn failed' }
-            return
-          case 'error':
-            yield { status: 'failed', parts: [...parts], error: event.message }
-            return
-          default:
-            break
+      for await (const notification of turn.stream()) {
+        const mapped = this.mapNotification(notification, parts)
+        if (mapped !== null) {
+          yield mapped
+          if (mapped.status !== 'in_progress') return
         }
       }
-      // 事件流意外结束
+      // 事件流意外结束（未见 turn/completed）
       yield { status: 'completed', parts: [...parts], error: null }
     } catch (error) {
-      if (controller.signal.aborted) {
-        yield { status: 'cancelled', parts: [...parts], error: null }
+      if (error instanceof TransportClosedError) {
+        yield { status: 'failed', parts: [...parts], error: error.message }
         return
       }
       yield { status: 'failed', parts: [...parts], error: error instanceof Error ? error.message : String(error) }
     } finally {
-      if (this.active === controller) this.active = null
+      if (this.activeTurn === turn) this.activeTurn = null
     }
+  }
+
+  private mapNotification(notification: Notification, parts: MessagePart[]): AgentTurn | null {
+    if (notification.method === 'item/completed') {
+      const item = (notification.params as { item?: ThreadItem }).item
+      if (item !== undefined) parts.push(...mapThreadItem(item))
+      return { status: 'in_progress', parts: [...parts], error: null }
+    }
+    if (notification.method === 'turn/completed') {
+      const payload = notification.params as unknown as TurnCompletedNotification
+      switch (payload.turn.status) {
+        case 'completed':
+          return { status: 'completed', parts: [...parts], error: null }
+        case 'interrupted':
+          return { status: 'cancelled', parts: [...parts], error: null }
+        case 'failed':
+          return { status: 'failed', parts: [...parts], error: payload.turn.error?.message ?? 'turn failed' }
+        default:
+          return null
+      }
+    }
+    return null
   }
 
   async dispose(): Promise<void> {
     await this.cancel()
+    this.codex?.close()
+    this.codex = null
     this.thread = null
+    this.activeTurn = null
   }
 }

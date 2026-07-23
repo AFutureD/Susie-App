@@ -196,16 +196,10 @@ export class ChatManager {
       if (handled) return
     }
 
-    try {
-      await this.runAssistantTurn(entry, message)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      this.deps.log.error(`chat ${key} agent 处理异常：${detail}`)
-      await this.replyText(message, `Error: ${detail}`)
-    }
+    this.runAssistantTurn(entry, message)
   }
 
-  private async runAssistantTurn(entry: ChatEntry, message: ChatMessage): Promise<void> {
+  private runAssistantTurn(entry: ChatEntry, message: ChatMessage): void {
     const promptText = partsToPromptText(message.parts)
     if (promptText === '') {
       this.deps.log.info(`chat ${entry.key} 消息无可用内容（文本/附件均为空），跳过 agent`)
@@ -223,37 +217,48 @@ export class ChatManager {
     const channel = this.deps.getChannel(message.channelId)
     const stopTyping = channel?.beginTyping(message.chatId) ?? (() => {})
 
-    try {
-      for await (const turn of entry.runtime.prompt(content)) {
-        if (turn.status === 'cancelled') {
-          this.deps.log.info(`chat ${entry.key} agent turn 被取消，本条消息不再回复`)
-          continue
-        }
-        if (turn.status !== 'completed' && turn.status !== 'failed') continue
+    // turn 消费在队列临界区外进行：活跃 turn 期间到达的新消息能立即进入 runtime.prompt，
+    // codex 会把它 steer 进当前 turn（返回空流），ACP 则在 runtime 内部串行排队
+    const consume = async () => {
+      try {
+        for await (const turn of entry.runtime.prompt(content)) {
+          if (turn.status === 'cancelled') {
+            this.deps.log.info(`chat ${entry.key} agent turn 被取消，本条消息不再回复`)
+            continue
+          }
+          if (turn.status !== 'completed' && turn.status !== 'failed') continue
 
-        const parts = [...turn.parts]
-        if (turn.status === 'failed') {
-          const detail = turn.error ?? 'agent turn failed'
-          this.deps.log.error(`chat ${entry.key} agent turn 失败：${detail}`)
-          parts.push({ kind: 'text', text: `Error: ${detail}` })
-        }
-        if (parts.length === 0) {
-          this.deps.log.info(`chat ${entry.key} agent turn 完成但无直接输出（agent 可能已自行调用 send_message 回复）`)
-          continue
-        }
+          const parts = [...turn.parts]
+          if (turn.status === 'failed') {
+            const detail = turn.error ?? 'agent turn failed'
+            this.deps.log.error(`chat ${entry.key} agent turn 失败：${detail}`)
+            parts.push({ kind: 'text', text: `Error: ${detail}` })
+          }
+          if (parts.length === 0) {
+            this.deps.log.info(
+              `chat ${entry.key} agent turn 完成但无直接输出（agent 可能已自行调用 send_message 回复）`,
+            )
+            continue
+          }
 
-        const assistant = this.currentAssistant(entry.assistantId)
-        const forwardTo = assistant?.forward_to
-        await this.sendMessage({
-          channelId: message.channelId,
-          chatId: message.chatId,
-          parts,
-          receiver: forwardTo !== undefined && forwardTo !== '' ? forwardTo : null,
-        })
+          const assistant = this.currentAssistant(entry.assistantId)
+          const forwardTo = assistant?.forward_to
+          await this.sendMessage({
+            channelId: message.channelId,
+            chatId: message.chatId,
+            parts,
+            receiver: forwardTo !== undefined && forwardTo !== '' ? forwardTo : null,
+          })
+        }
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.deps.log.error(`chat ${entry.key} agent 处理异常：${detail}`)
+        await this.replyText(message, `Error: ${detail}`)
+      } finally {
+        stopTyping()
       }
-    } finally {
-      stopTyping()
     }
+    void consume()
   }
 
   private async ensureChat(channelId: string, chatId: string, assistantId: string): Promise<ChatEntry> {

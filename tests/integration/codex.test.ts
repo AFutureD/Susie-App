@@ -68,6 +68,53 @@ describe.skipIf(!enabled)('codex integration', () => {
     await runtime.dispose()
   })
 
+  it('steers a mid-turn message into the active turn', { timeout: 240_000 }, async () => {
+    const runtime = new CodexRuntime({
+      cwd: mkdtempSync(path.join(tmpdir(), 'susie-codex-steer-')),
+      mcpUrl: null,
+      mcpName: 'susie_mcp_server',
+      model: null,
+      thinkingLevel: null,
+      models: [],
+      ...resolveCodex(),
+    })
+    await runtime.newSession('You are a test probe. Follow instructions exactly.')
+
+    const turnsA: AgentTurn[] = []
+    const consumeA = (async () => {
+      for await (const turn of runtime.prompt(
+        'Run the shell command `sleep 10` first. After it finishes, follow whatever instruction my next message gives. Do not reply before then.',
+      )) {
+        turnsA.push(turn)
+      }
+    })()
+    await new Promise((resolve) => setTimeout(resolve, 5000))
+
+    const turnsB: AgentTurn[] = []
+    for await (const turn of runtime.prompt('Reply with exactly: zanzibar')) turnsB.push(turn)
+    await consumeA
+
+    const textOf = (turns: AgentTurn[]) =>
+      turns
+        .flatMap((turn) => turn.parts)
+        .filter((part) => part.kind === 'text')
+        .map((part) => (part as { text: string }).text)
+        .join('\n')
+        .toLowerCase()
+
+    if (turnsB.length === 0) {
+      // steer 路径：第二条消息并入活跃 turn，输出走第一条消息的流
+      const last = turnsA[turnsA.length - 1]
+      expect(last?.status).toBe('completed')
+      expect(textOf(turnsA)).toContain('zanzibar')
+    } else {
+      // 竞态回退：turn A 恰好已结束，第二条消息成为独立 turn（行为同样正确）
+      expect(turnsB[turnsB.length - 1]?.status).toBe('completed')
+      expect(textOf(turnsB)).toContain('zanzibar')
+    }
+    await runtime.dispose()
+  })
+
   it('calls susie mcp send_message end-to-end', { timeout: 240_000 }, async () => {
     const sent: { channelId: string; chatId: string; content: string }[] = []
     const fake: StoredMessage = {

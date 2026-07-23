@@ -10,7 +10,7 @@
     "react/exhaustive-deps": "warn",
     "no-console": "off"
   },
-  "ignorePatterns": ["dist", "release", "node_modules", "test-results"],
+  "ignorePatterns": ["dist", "release", "node_modules", "test-results", "packages/codex-app-server/src/generated"],
   "overrides": [
     {
       "files": ["**/*.d.ts"],

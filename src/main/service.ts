@@ -208,7 +208,10 @@ export class SusieService {
       if (agentId === CODEX_AGENT_ID) {
         const codex = this.codexInstaller.resolve()
         if (codex === null) return []
-        return await fetchCodexModels({ codexPath: codex.executablePath })
+        return await fetchCodexModels({
+          codexPath: codex.executablePath,
+          pathDirs: codex.pathDir === null ? [] : [codex.pathDir],
+        })
       }
       const manifest = this.acpRegistry.installedManifest(agentId)
       if (manifest === null) return []

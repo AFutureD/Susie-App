@@ -5,3 +5,4 @@ test-results/
 build/
 package-lock.json
 *.md
+packages/codex-app-server/src/generated/

@@ -9,6 +9,9 @@
   "engines": {
     "node": ">=22"
   },
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
@@ -63,6 +66,6 @@
     "zod": "^4.4.3"
   },
   "dependencies": {
-    "@openai/codex-sdk": "^0.145.0"
+    "@openai/codex": "0.145.0"
   }
 }

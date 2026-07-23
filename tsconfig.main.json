@@ -8,6 +8,7 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
+    "packages/codex-app-server/src/**/*",
     "tests/**/*",
     "tsdown.config.ts",
     "vite.config.ts",

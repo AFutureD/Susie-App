@@ -53,6 +53,8 @@ export class AcpRuntime implements AgentRuntime {
   private modelOptions: AgentModelOption[] = []
   private model: string | null = null
   private turn: TurnState | null = null
+  /** turn 串行链：并发 prompt 时后到者等待前一 turn 结束（ACP 不支持同 session 并发 prompt） */
+  private turnChain: Promise<void> = Promise.resolve()
 
   constructor(options: AcpRuntimeOptions) {
     this.options = options
@@ -292,38 +294,51 @@ export class AcpRuntime implements AgentRuntime {
   }
 
   async *prompt(text: string): AsyncGenerator<AgentTurn> {
-    const connection = await this.ensureConnected()
-    if (this.sessionId === null) await this.newSession(null)
-    const sessionId = this.sessionId
-    if (sessionId === null) throw new Error('acp session unavailable')
-
-    const state: TurnState = { text: '', thought: '', toolCalls: new Map(), plan: '' }
-    this.turn = state
+    // chat-manager 的 turn 消费在队列临界区外（codex steer 需要并发到达 prompt）；
+    // ACP 同一 session 不支持并发 prompt，这里串行化保持既有先来后到行为
+    const previous = this.turnChain
+    let release: () => void = () => {}
+    this.turnChain = new Promise((resolve) => {
+      release = resolve
+    })
+    await previous
 
     try {
-      const response = (await this.raceExit(
-        connection.prompt({
-          sessionId,
-          prompt: [{ type: 'text', text }],
-        } as Parameters<ClientSideConnection['prompt']>[0]),
-      )) as unknown as { stopReason?: string }
+      const connection = await this.ensureConnected()
+      if (this.sessionId === null) await this.newSession(null)
+      const sessionId = this.sessionId
+      if (sessionId === null) throw new Error('acp session unavailable')
 
-      const parts = assembleParts(state)
-      if (response.stopReason === 'cancelled') {
-        yield { status: 'cancelled', parts, error: null }
-      } else if (response.stopReason === 'refusal') {
-        yield { status: 'failed', parts, error: 'agent refused the request' }
-      } else {
-        yield { status: 'completed', parts, error: null }
-      }
-    } catch (error) {
-      yield {
-        status: 'failed',
-        parts: assembleParts(state),
-        error: error instanceof Error ? error.message : String(error),
+      const state: TurnState = { text: '', thought: '', toolCalls: new Map(), plan: '' }
+      this.turn = state
+
+      try {
+        const response = (await this.raceExit(
+          connection.prompt({
+            sessionId,
+            prompt: [{ type: 'text', text }],
+          } as Parameters<ClientSideConnection['prompt']>[0]),
+        )) as unknown as { stopReason?: string }
+
+        const parts = assembleParts(state)
+        if (response.stopReason === 'cancelled') {
+          yield { status: 'cancelled', parts, error: null }
+        } else if (response.stopReason === 'refusal') {
+          yield { status: 'failed', parts, error: 'agent refused the request' }
+        } else {
+          yield { status: 'completed', parts, error: null }
+        }
+      } catch (error) {
+        yield {
+          status: 'failed',
+          parts: assembleParts(state),
+          error: error instanceof Error ? error.message : String(error),
+        }
+      } finally {
+        this.turn = null
       }
     } finally {
-      this.turn = null
+      release()
     }
   }
 
