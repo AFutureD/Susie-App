@@ -11,6 +11,21 @@ export interface CodexRuntimeOptions {
   model: string | null
   /** /model 候选（来自 assistant 配置） */
   models: string[]
+  /** codex 可执行文件路径（CodexInstaller 解析）；'codex' 表示交给 PATH */
+  codexPath: string
+  /** vendor codex-path 目录（rg 等辅助工具）；spawn 时前置到 PATH */
+  codexPathDir: string | null
+}
+
+/** SDK 的 env 选项是整体替换而非合并，这里手动继承进程环境并前置 pathDir */
+function envWithPathDir(pathDir: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) env[key] = value
+  }
+  const current = env['PATH'] ?? ''
+  env['PATH'] = current === '' ? pathDir : `${pathDir}:${current}`
+  return env
 }
 
 /**
@@ -34,6 +49,8 @@ export class CodexRuntime implements AgentRuntime {
     this.options = options
     this.model = options.model
     this.codex = new Codex({
+      codexPathOverride: options.codexPath,
+      ...(options.codexPathDir === null ? {} : { env: envWithPathDir(options.codexPathDir) }),
       config:
         options.mcpUrl === null
           ? {}

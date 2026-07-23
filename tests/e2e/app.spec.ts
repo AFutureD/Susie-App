@@ -93,7 +93,7 @@ test('Raw 编辑器：非法配置被拒绝，不影响运行态', async () => {
 test('Agent 页：Codex 检测可用，ACP registry 列表渲染', async () => {
   await win.getByRole('link', { name: 'Agent' }).click()
   await expect(win.getByText('Codex', { exact: true })).toBeVisible()
-  await expect(win.getByText(/可用（(sdk|codex-cli) .+）|未检测到 codex/)).toBeVisible()
+  await expect(win.getByText(/可用（.+）|未安装/)).toBeVisible()
   await expect(win.getByText('ACP Registry')).toBeVisible()
 })
 

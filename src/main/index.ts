@@ -10,6 +10,7 @@ import { watchConfigFile } from './config/watcher'
 import { appFlags, isDev } from './env'
 import { broadcast, registerIpcHandlers } from './ipc'
 import { lifecycle } from './lifecycle'
+import { serviceLogger, setupLogging } from './logging'
 import { SusieService } from './service'
 import { createTray } from './tray'
 import { withTimeout } from './util/async'
@@ -26,12 +27,19 @@ if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
   app.setName('Susie')
-  log.initialize()
-  log.transports.file.level = 'info'
-  log.errorHandler.startCatching()
+  setupLogging()
 
   const configStore = ConfigStore.init(getConfigPath())
-  configStore.onState((state) => broadcast('config:state', state))
+  // 配置热加载失败只体现在 state.lastError（last-good 降级），必须留日志痕迹
+  // 初值取启动时的 lastError——启动错误由 whenReady 里的 config error 日志负责，避免重复
+  let lastLoggedConfigError: string | null = configStore.state().lastError
+  configStore.onState((state) => {
+    broadcast('config:state', state)
+    if (state.lastError !== null && state.lastError !== lastLoggedConfigError) {
+      log.error(`config 加载失败（沿用 last-good 配置）：${state.lastError}`)
+    }
+    lastLoggedConfigError = state.lastError
+  })
 
   const userData = app.getPath('userData')
   const service = new SusieService(
@@ -40,13 +48,14 @@ if (!app.requestSingleInstanceLock()) {
       historyDb: path.join(userData, 'history.db'),
       attachmentsDir: path.join(userData, 'attachments'),
       acpDataDir: path.join(userData, 'acp'),
+      codexDataDir: path.join(userData, 'codex'),
     },
     {
       channelStatuses: (statuses) => broadcast('channel:status', statuses),
       historyMessage: (message) => broadcast('history:message', message),
       agentsProgress: (progress) => broadcast('agents:progress', progress),
     },
-    (message) => log.info(message),
+    serviceLogger,
   )
 
   let serviceStopped = false
@@ -91,7 +100,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     registerIpcHandlers(configStore, service)
     createTray()
-    watchConfigFile(configStore)
+    watchConfigFile(configStore, serviceLogger)
 
     if (appFlags.headless) {
       updateDockVisibility()
@@ -102,7 +111,7 @@ if (!app.requestSingleInstanceLock()) {
     const state = configStore.state()
     log.info(`Susie started (version=${app.getVersion()}, dev=${isDev}, headless=${appFlags.headless})`)
     log.info(`config: ${state.configPath} (v${state.version}, channels=${Object.keys(state.config.channels).length})`)
-    if (state.lastError) log.warn(`config error: ${state.lastError}`)
+    if (state.lastError) log.error(`config error: ${state.lastError}`)
     for (const note of state.migrations) log.warn(`config migration: ${note}`)
 
     await service.start()

@@ -2,8 +2,8 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { pipeline } from 'node:stream/promises'
-import type { AcpAgentRow } from '../../shared/messages'
+import type { AcpAgentRow, AgentProgress } from '../../shared/messages'
+import { downloadWithProgress } from './download'
 
 const REGISTRY_URL = 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'
 const REGISTRY_TTL_MS = 60 * 60 * 1000
@@ -37,8 +37,6 @@ export interface InstalledManifest {
   env: Record<string, string>
 }
 
-export type AcpProgress = { id: string; phase: 'downloading' | 'extracting' | 'done' | 'error'; detail: string | null }
-
 export function platformKey(): string {
   const osKey = process.platform === 'darwin' ? 'darwin' : process.platform === 'linux' ? 'linux' : 'windows'
   const archKey = process.arch === 'arm64' ? 'aarch64' : 'x86_64'
@@ -51,10 +49,10 @@ export function platformKey(): string {
  */
 export class AcpRegistryManager {
   private readonly dataDir: string
-  private readonly onProgress: (progress: AcpProgress) => void
+  private readonly onProgress: (progress: AgentProgress) => void
   private cache: { agents: RegistryAgent[]; fetchedAt: number } | null = null
 
-  constructor(dataDir: string, onProgress: (progress: AcpProgress) => void = () => {}) {
+  constructor(dataDir: string, onProgress: (progress: AgentProgress) => void = () => {}) {
     this.dataDir = dataDir
     this.onProgress = onProgress
   }
@@ -152,15 +150,12 @@ export class AcpRegistryManager {
   }
 
   private async installBinary(agent: RegistryAgent, binary: RegistryBinary): Promise<InstalledManifest> {
-    this.onProgress({ id: agent.id, phase: 'downloading', detail: binary.archive })
-
-    const response = await fetch(binary.archive)
-    if (!response.ok || response.body === null) throw new Error(`下载失败：HTTP ${response.status}`)
-
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'susie-acp-'))
     const archiveName = new URL(binary.archive).pathname.split('/').at(-1) ?? 'archive'
     const archivePath = path.join(tmpDir, archiveName)
-    await pipeline(response.body, fs.createWriteStream(archivePath))
+    await downloadWithProgress(binary.archive, archivePath, (received, total) => {
+      this.onProgress({ id: agent.id, phase: 'downloading', detail: archiveName, received, total })
+    })
 
     this.onProgress({ id: agent.id, phase: 'extracting', detail: archiveName })
     const versionDir = path.join(this.agentDir(agent.id), agent.version)

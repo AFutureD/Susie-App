@@ -218,6 +218,18 @@ export class ConfigStore {
     })
   }
 
+  /** 与相邻 binding 交换位置。bindings 按声明顺序匹配，顺序即优先级。 */
+  moveBinding(index: number, direction: 'up' | 'down', expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      const target = direction === 'up' ? index - 1 : index + 1
+      const moved = draft.bindings[index]
+      const neighbor = draft.bindings[target]
+      if (moved === undefined || neighbor === undefined) throw new Error(`binding 序号越界：${index}`)
+      draft.bindings[index] = neighbor
+      draft.bindings[target] = moved
+    })
+  }
+
   /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。 */
   saveRaw(text: string, expectedVersion: number): ConfigMutationResult {
     if (expectedVersion !== this.version) return conflict(this.version, expectedVersion)

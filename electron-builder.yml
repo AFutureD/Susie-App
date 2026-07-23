@@ -7,10 +7,18 @@ directories:
 files:
   - dist/**
   - '!dist/**/*.map'
+  # codex 二进制（~300MB/平台）不随包分发，改为运行时按需下载（CodexInstaller）；
+  # 只保留 @openai/codex 的 package.json 元数据用于确定下载版本
+  - '!**/node_modules/@openai/codex-darwin-arm64/**'
+  - '!**/node_modules/@openai/codex-darwin-x64/**'
+  - '!**/node_modules/@openai/codex-linux-arm64/**'
+  - '!**/node_modules/@openai/codex-linux-x64/**'
+  - '!**/node_modules/@openai/codex-win32-arm64/**'
+  - '!**/node_modules/@openai/codex-win32-x64/**'
+# 应用不做多语言：Electron 框架 220 个 Chromium 语言包（~47MB）只留中文
+electronLanguages:
+  - zh_CN
 asar: true
-# codex CLI 二进制必须解包到 asar 之外才能 spawn
-asarUnpack:
-  - '**/node_modules/@openai/codex*/**'
 npmRebuild: false
 mac:
   category: public.app-category.productivity

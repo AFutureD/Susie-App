@@ -203,6 +203,37 @@ assistant_id = "ops"
     if (!result.ok) expect(result.message).toContain('ops')
   })
 
+  it('moves a binding up/down and rejects out-of-range moves', () => {
+    const configPath = tempConfigPath()
+    writeFileSync(
+      configPath,
+      `
+[[assistants]]
+id = "default"
+
+[[bindings]]
+channel = "a"
+assistant_id = "default"
+
+[[bindings]]
+channel = "b"
+assistant_id = "default"
+`,
+    )
+    const store = ConfigStore.init(configPath)
+
+    expect(store.moveBinding(1, 'up', store.currentVersion).ok).toBe(true)
+    expect(store.current.bindings.map((b) => b.channel)).toEqual(['b', 'a'])
+
+    expect(store.moveBinding(0, 'down', store.currentVersion).ok).toBe(true)
+    expect(store.current.bindings.map((b) => b.channel)).toEqual(['a', 'b'])
+
+    const versionBefore = store.currentVersion
+    expect(store.moveBinding(0, 'up', versionBefore).ok).toBe(false)
+    expect(store.moveBinding(1, 'down', versionBefore).ok).toBe(false)
+    expect(store.currentVersion).toBe(versionBefore)
+  })
+
   it('rejects invalid raw text without touching state', () => {
     const store = ConfigStore.init(tempConfigPath())
     const versionBefore = store.currentVersion

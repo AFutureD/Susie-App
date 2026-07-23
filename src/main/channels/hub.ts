@@ -1,6 +1,7 @@
 import type { ChannelSettings, Config, TelegramBotChannelSettings } from '../../shared/config'
 import type { ChannelStatus } from '../../shared/messages'
 import type { ConfigRef, ConfigStore, Unsubscribe } from '../config/store'
+import type { Logger } from '../util/logger'
 import { TelegramBotChannel, type InboundEnvelope } from './telegram-bot'
 
 export interface ChannelHubDeps {
@@ -9,7 +10,7 @@ export interface ChannelHubDeps {
   onMessage: (envelope: InboundEnvelope) => void
   onStatuses: (statuses: ChannelStatus[]) => void
   onChannelRemoved: (channelId: string) => void
-  log: (message: string) => void
+  log: Logger
 }
 
 /** 需要重启通道的字段；其余字段（白名单/群策略等）经 ConfigRef 读穿即刻生效 */
@@ -72,7 +73,7 @@ export class ChannelHub {
       }
       const prev = this.runningSettings.get(id)
       if (prev !== undefined && restartRequired(prev, settings)) {
-        this.deps.log(`channel ${id}: restart-required 字段变更，重启`)
+        this.deps.log.info(`channel ${id}: restart-required 字段变更，重启`)
         void this.teardown(id, { notifyRemoved: false }).then(() => this.spawn(id))
       } else {
         this.runningSettings.set(id, settings)
@@ -90,24 +91,27 @@ export class ChannelHub {
     const settings = this.deps.store.current.channels[id]
     if (settings === undefined || !settings.enabled) return
 
+    this.deps.log.info(`channel ${id}: 启动`)
     const channel = new TelegramBotChannel({
       id,
       settingsRef: this.deps.store.ref(`channels.${id}`) as ConfigRef<TelegramBotChannelSettings>,
       attachmentsDir: this.deps.attachmentsDir,
       onMessage: this.deps.onMessage,
       onStatus: () => this.pushStatuses(),
+      log: this.deps.log,
     })
     this.channels.set(id, channel)
     this.runningSettings.set(id, settings)
 
     void channel.start().catch((error: unknown) => {
-      this.deps.log(`channel ${id} 启动失败：${error instanceof Error ? error.message : String(error)}`)
+      this.deps.log.error(`channel ${id} 启动失败：${error instanceof Error ? error.message : String(error)}`)
     })
   }
 
   private async teardown(id: string, options: { notifyRemoved: boolean }): Promise<void> {
     const channel = this.channels.get(id)
     if (channel === undefined) return
+    this.deps.log.info(`channel ${id}: 停止${options.notifyRemoved ? '（配置已删除）' : ''}`)
     this.channels.delete(id)
     this.runningSettings.delete(id)
     await channel.stop()

@@ -222,10 +222,16 @@ function AssistantForm({
 
 function BindingsSection({ state }: { state: ConfigState }) {
   const intl = useIntl()
-  const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<number | 'new' | null>(null)
+  const bindings = state.config.bindings
 
   const deleteBinding = async (index: number) => {
     const result = await susie.invoke('config:delete-binding', { index, expectedVersion: state.version })
+    if (!result.ok) window.alert(result.message)
+  }
+
+  const moveBinding = async (index: number, direction: 'up' | 'down') => {
+    const result = await susie.invoke('config:move-binding', { index, direction, expectedVersion: state.version })
     if (!result.ok) window.alert(result.message)
   }
 
@@ -234,20 +240,37 @@ function BindingsSection({ state }: { state: ConfigState }) {
       <h2 className="mb-3 text-base font-semibold">{intl.formatMessage({ id: 'bindings.title' })}</h2>
       <p className="mb-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'bindings.hint' })}</p>
       <div className="flex flex-col gap-2">
-        {state.config.bindings.map((binding, index) => (
-          <BindingRow
-            key={`${index}@${state.version}`}
-            index={index}
-            initial={binding}
-            state={state}
-            onDelete={() => void deleteBinding(index)}
-          />
+        {bindings.length === 0 && editing !== 'new' && (
+          <div className="rounded-xl border border-dashed border-line bg-raised/50 p-6 text-sm text-ink-muted">
+            {intl.formatMessage({ id: 'bindings.empty' })}
+          </div>
+        )}
+
+        {bindings.map((binding, index) => (
+          <div key={`${index}@${state.version}`} className="rounded-xl border border-line bg-raised px-4 py-3">
+            {editing === index ? (
+              <BindingForm index={index} initial={binding} state={state} onDone={() => setEditing(null)} />
+            ) : (
+              <BindingSummary
+                binding={binding}
+                index={index}
+                total={bindings.length}
+                state={state}
+                onMove={(direction) => void moveBinding(index, direction)}
+                onEdit={() => setEditing(index)}
+                onDelete={() => void deleteBinding(index)}
+              />
+            )}
+          </div>
         ))}
-        {adding ? (
-          <BindingRow index={null} state={state} onDone={() => setAdding(false)} />
+
+        {editing === 'new' ? (
+          <div className="rounded-xl border border-line bg-raised px-4 py-3">
+            <BindingForm index={null} state={state} onDone={() => setEditing(null)} />
+          </div>
         ) : (
           <div>
-            <Button variant="primary" onClick={() => setAdding(true)}>
+            <Button variant="primary" onClick={() => setEditing('new')}>
               {intl.formatMessage({ id: 'bindings.add' })}
             </Button>
           </div>
@@ -257,18 +280,111 @@ function BindingsSection({ state }: { state: ConfigState }) {
   )
 }
 
-function BindingRow({
+function BindingSummary({
+  binding,
+  index,
+  total,
+  state,
+  onMove,
+  onEdit,
+  onDelete,
+}: {
+  binding: ChatBinding
+  index: number
+  total: number
+  state: ConfigState
+  onMove: (direction: 'up' | 'down') => void
+  onEdit: () => void
+  onDelete: () => void
+}) {
+  const intl = useIntl()
+  // channel 引用允许悬空（删除频道不清理绑定）；assistant 引用由 schema 保证存在
+  const channelMissing = !(binding.channel in state.config.channels)
+
+  return (
+    <div className="flex items-center gap-3">
+      <span className="w-5 shrink-0 text-center font-mono text-xs text-ink-muted/70">{index + 1}</span>
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+        <span
+          className={`text-sm font-semibold ${channelMissing ? 'text-red-500' : ''}`}
+          title={
+            channelMissing ? intl.formatMessage({ id: 'bindings.missingChannel' }, { id: binding.channel }) : undefined
+          }
+        >
+          {binding.channel}
+        </span>
+        {binding.chat_ids.map((chatId, chatIndex) => (
+          <span
+            key={`${chatId}-${chatIndex}`}
+            className={`rounded bg-ink/5 px-1.5 py-0.5 text-[11px] text-ink-muted ${chatId === CHAT_ALL ? '' : 'font-mono'}`}
+          >
+            {chatId === CHAT_ALL ? intl.formatMessage({ id: 'bindings.chat.all' }) : chatId}
+          </span>
+        ))}
+        <span className="text-xs text-ink-muted/70">→</span>
+        <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
+          {binding.assistant_id}
+        </span>
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        <div className="flex items-center">
+          <MoveButton
+            direction="up"
+            disabled={index === 0}
+            label={intl.formatMessage({ id: 'bindings.moveUp' })}
+            onClick={() => onMove('up')}
+          />
+          <MoveButton
+            direction="down"
+            disabled={index === total - 1}
+            label={intl.formatMessage({ id: 'bindings.moveDown' })}
+            onClick={() => onMove('down')}
+          />
+        </div>
+        <Button onClick={onEdit}>{intl.formatMessage({ id: 'common.edit' })}</Button>
+        <Button variant="danger" onClick={onDelete}>
+          {intl.formatMessage({ id: 'common.delete' })}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function MoveButton({
+  direction,
+  disabled,
+  label,
+  onClick,
+}: {
+  direction: 'up' | 'down'
+  disabled: boolean
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      title={label}
+      aria-label={label}
+      className="rounded-md px-1.5 py-1 text-sm text-ink-muted transition-colors hover:bg-line/50 disabled:opacity-30 disabled:hover:bg-transparent"
+    >
+      {direction === 'up' ? '↑' : '↓'}
+    </button>
+  )
+}
+
+function BindingForm({
   index,
   initial,
   state,
-  onDelete,
   onDone,
 }: {
   index: number | null
   initial?: ChatBinding
   state: ConfigState
-  onDelete?: () => void
-  onDone?: () => void
+  onDone: () => void
 }) {
   const intl = useIntl()
   const channelIds = Object.keys(state.config.channels)
@@ -302,49 +418,44 @@ function BindingRow({
       window.alert(result.message)
       return
     }
-    onDone?.()
+    onDone()
   }
 
   const channelOptions = channel !== '' && !channelIds.includes(channel) ? [channel, ...channelIds] : channelIds
 
   return (
-    <div className="flex items-end gap-2 rounded-lg border border-line bg-raised p-3">
-      <Field label={intl.formatMessage({ id: 'bindings.field.channel' })}>
-        <Select value={channel} onChange={(event) => setChannel(event.target.value)}>
-          {channelOptions.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <div className="flex-1">
+    <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)_minmax(0,1fr)] gap-3">
+        <Field label={intl.formatMessage({ id: 'bindings.field.channel' })}>
+          <Select value={channel} onChange={(event) => setChannel(event.target.value)}>
+            {channelOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+        </Field>
         <Field
           label={intl.formatMessage({ id: 'bindings.field.chats' })}
           hint={intl.formatMessage({ id: 'bindings.field.chats.hint' })}
         >
           <TextInput value={chatIds} onChange={(event) => setChatIds(event.target.value)} />
         </Field>
+        <Field label={intl.formatMessage({ id: 'bindings.field.assistant' })}>
+          <Select value={assistantId} onChange={(event) => setAssistantId(event.target.value)}>
+            {assistantIds.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </Select>
+        </Field>
       </div>
-      <Field label={intl.formatMessage({ id: 'bindings.field.assistant' })}>
-        <Select value={assistantId} onChange={(event) => setAssistantId(event.target.value)}>
-          {assistantIds.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      <div className="flex gap-2 pb-0.5">
+      <div className="flex gap-2">
         <Button variant="primary" disabled={busy || !dirty || channel === ''} onClick={() => void save()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
-        {onDelete && (
-          <Button variant="danger" onClick={onDelete}>
-            {intl.formatMessage({ id: 'common.delete' })}
-          </Button>
-        )}
-        {onDone && <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>}
+        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
       </div>
     </div>
   )

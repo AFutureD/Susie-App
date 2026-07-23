@@ -1,14 +1,10 @@
-import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
-import { createRequire } from 'node:module'
-import path from 'node:path'
-
-const require = createRequire(import.meta.url)
 import type { AssistantConfig } from '../shared/config'
-import type { AgentsOverview, ChannelStatus, MessagePart, StoredMessage } from '../shared/messages'
+import type { AgentProgress, AgentsOverview, ChannelStatus, MessagePart, StoredMessage } from '../shared/messages'
 import { AcpRuntime } from './agents/acp'
-import { AcpRegistryManager, type AcpProgress } from './agents/acp-registry'
+import { AcpRegistryManager } from './agents/acp-registry'
 import { CodexRuntime } from './agents/codex'
+import { CODEX_AGENT_ID, CodexInstaller } from './agents/codex-installer'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
 import { getWorkspaceDir } from './config/paths'
@@ -17,11 +13,12 @@ import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
 import { ChatManager } from './core/chat-manager'
 import { HistoryStore } from './history/store'
 import { SusieMcpServer } from './mcp/server'
+import type { Logger } from './util/logger'
 
 export interface ServiceEmit {
   channelStatuses: (statuses: ChannelStatus[]) => void
   historyMessage: (message: StoredMessage) => void
-  agentsProgress: (progress: AcpProgress) => void
+  agentsProgress: (progress: AgentProgress) => void
 }
 
 export interface ServicePaths {
@@ -31,6 +28,8 @@ export interface ServicePaths {
   attachmentsDir: string
   /** ACP registry 缓存目录 */
   acpDataDir: string
+  /** codex 二进制下载目录 */
+  codexDataDir: string
 }
 
 /**
@@ -44,14 +43,24 @@ export class SusieService {
   readonly chatManager: ChatManager
   readonly mcp: SusieMcpServer
   readonly acpRegistry: AcpRegistryManager
+  readonly codexInstaller: CodexInstaller
 
-  private readonly log: (message: string) => void
+  private readonly log: Logger
 
-  constructor(store: ConfigStore, paths: ServicePaths, emit: ServiceEmit, log: (message: string) => void) {
+  constructor(store: ConfigStore, paths: ServicePaths, emit: ServiceEmit, log: Logger) {
     this.log = log
     this.history = new HistoryStore(paths.historyDb)
-    this.mcp = new SusieMcpServer()
-    this.acpRegistry = new AcpRegistryManager(paths.acpDataDir, emit.agentsProgress)
+    this.mcp = new SusieMcpServer(log)
+
+    // 安装进度平时只推 UI；失败必须同时留日志痕迹
+    const agentsProgress = (progress: AgentProgress): void => {
+      if (progress.phase === 'error') {
+        this.log.error(`agent ${progress.id} 安装失败：${progress.detail ?? '未知原因'}`)
+      }
+      emit.agentsProgress(progress)
+    }
+    this.acpRegistry = new AcpRegistryManager(paths.acpDataDir, agentsProgress)
+    this.codexInstaller = new CodexInstaller(paths.codexDataDir, agentsProgress)
 
     this.chatManager = new ChatManager({
       store,
@@ -76,9 +85,9 @@ export class SusieService {
   async start(): Promise<void> {
     try {
       const url = await this.mcp.start(SUSIE_MCP_PORT)
-      this.log(`mcp server: ${url}`)
+      this.log.info(`mcp server: ${url}`)
     } catch (error) {
-      this.log(
+      this.log.error(
         `mcp server 启动失败（agent 将无法反向操作 susie）：${error instanceof Error ? error.message : String(error)}`,
       )
     }
@@ -88,6 +97,7 @@ export class SusieService {
         const parts: MessagePart[] = []
         if (content !== '') parts.push({ kind: 'text', text: content })
         for (const file of files) parts.push({ kind: 'file', path: file })
+        // 失败会被 SusieMcpServer 的 tool 层统一记 error 日志并回给 agent
         return this.chatManager.sendMessage({ channelId, chatId, parts })
       },
       listMessages: ({ channelId, chatId, num, dateStart, dateEnd }) =>
@@ -99,15 +109,15 @@ export class SusieService {
   }
 
   async stop(): Promise<void> {
-    this.log('service stopping: chats')
+    this.log.info('service stopping: chats')
     this.chatManager.dispose()
-    this.log('service stopping: hub')
+    this.log.info('service stopping: hub')
     await this.hub.stopAll()
-    this.log('service stopping: mcp')
+    this.log.info('service stopping: mcp')
     await this.mcp.stop()
-    this.log('service stopping: history')
+    this.log.info('service stopping: history')
     this.history.close()
-    this.log('service stopped')
+    this.log.info('service stopped')
   }
 
   /** agent_id === 'codex' 用 Codex SDK；其余按 ACP registry 已安装的 agent 解析 */
@@ -115,13 +125,19 @@ export class SusieService {
     const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
     fs.mkdirSync(cwd, { recursive: true })
 
-    if (assistant.agent_id === 'codex') {
+    if (assistant.agent_id === CODEX_AGENT_ID) {
+      const codex = this.codexInstaller.resolve()
+      if (codex === null) {
+        throw new Error('codex 未安装——请到 Agent 页下载 codex 后重试')
+      }
       return new CodexRuntime({
         cwd,
         mcpUrl: this.mcp.url,
         mcpName: SUSIE_MCP_NAME,
         model: assistant.model ?? null,
         models: assistant.models ?? [],
+        codexPath: codex.executablePath,
+        codexPathDir: codex.pathDir,
       })
     }
 
@@ -141,32 +157,38 @@ export class SusieService {
   }
 
   async agentsOverview(): Promise<AgentsOverview> {
-    const codex = detectCodexCli()
+    const resolved = this.codexInstaller.resolve()
     let acp: AgentsOverview['acp'] = []
     try {
       acp = await this.acpRegistry.overview()
     } catch (error) {
-      this.log(`ACP registry 不可用：${error instanceof Error ? error.message : String(error)}`)
+      this.log.error(`ACP registry 不可用：${error instanceof Error ? error.message : String(error)}`)
     }
-    return { codex, acp }
-  }
-}
-
-export function detectCodexCli(): { available: boolean; version: string | null } {
-  // @openai/codex-sdk 自带 codex 二进制（@openai/codex 依赖），SDK 路径始终可用；
-  // 这里报告的是 SDK 捆绑版本，供 Agent 页展示。
-  try {
-    const pkgPath = path.join(path.dirname(require.resolve('@openai/codex-sdk/package.json')), 'package.json')
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { dependencies?: Record<string, string> }
-    const bundled = pkg.dependencies?.['@openai/codex'] ?? null
-    if (bundled !== null) return { available: true, version: `sdk ${bundled}` }
-  } catch {
-    // fallthrough 到 PATH 检测
+    return {
+      codex: {
+        available: resolved !== null,
+        source: resolved?.source ?? null,
+        version: resolved?.version ?? null,
+        targetVersion: this.codexInstaller.targetVersion(),
+      },
+      acp,
+    }
   }
 
-  const probe = spawnSync('codex', ['--version'], { encoding: 'utf-8' })
-  if (probe.status === 0) {
-    return { available: true, version: probe.stdout.trim() }
+  /** codex 走内置下载器，其余按 ACP registry 处理 */
+  async installAgent(id: string): Promise<void> {
+    if (id === CODEX_AGENT_ID) {
+      await this.codexInstaller.install()
+      return
+    }
+    await this.acpRegistry.install(id)
   }
-  return { available: false, version: null }
+
+  uninstallAgent(id: string): void {
+    if (id === CODEX_AGENT_ID) {
+      this.codexInstaller.uninstall()
+      return
+    }
+    this.acpRegistry.uninstall(id)
+  }
 }

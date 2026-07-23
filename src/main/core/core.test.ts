@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import type { ChatBinding } from '../../shared/config'
-import { resolveBinding } from './chat-manager'
+import { describe, expect, it, vi } from 'vitest'
+import type { AssistantConfig, ChatBinding, Config } from '../../shared/config'
+import { partsToPlainText, type ChatMessage, type StoredMessage } from '../../shared/messages'
+import type { AgentRuntime } from '../agents/types'
+import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-bot'
+import type { ConfigStore } from '../config/store'
+import type { HistoryStore } from '../history/store'
+import { ChatManager, resolveBinding } from './chat-manager'
 import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
 
 describe('parseCommandText', () => {
@@ -69,5 +74,116 @@ describe('resolveBinding', () => {
 
   it('falls back to the default assistant when nothing matches', () => {
     expect(resolveBinding(bindings, 'zzz', 'P:1').assistant_id).toBe('default')
+  })
+})
+
+// ---------- ChatManager 失败反馈 ----------
+
+function makeManager(createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>) {
+  const config: Config = {
+    channels: {},
+    assistants: [{ id: 'default', agent_id: 'codex' }],
+    bindings: [],
+  }
+  const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
+  const history = {
+    record: (message: ChatMessage) => ({ ...message, rowid: 1 }) as StoredMessage,
+  } as unknown as HistoryStore
+
+  const sent: ChatMessage[] = []
+  const channel = {
+    sendMessage: (message: ChatMessage) => {
+      sent.push(message)
+      return Promise.resolve({ ...message, id: '1' })
+    },
+    beginTyping: () => () => {},
+  } as unknown as TelegramBotChannel
+
+  const errors: string[] = []
+  const manager = new ChatManager({
+    store,
+    history,
+    mcpName: 'susie',
+    getChannel: () => channel,
+    createRuntime,
+    onHistoryMessage: () => {},
+    log: { info: () => {}, error: (message) => errors.push(message) },
+  })
+  return { manager, sent, errors }
+}
+
+function inbound(text: string): InboundEnvelope {
+  return {
+    message: {
+      id: '10',
+      channelId: 'tg',
+      chatId: 'P:1',
+      receiver: null,
+      replyTo: null,
+      out: false,
+      sender: 'user',
+      timestamp: 1,
+      parts: [{ kind: 'text', text }],
+    },
+    chatName: null,
+  }
+}
+
+function stubRuntime(overrides: Partial<AgentRuntime>): AgentRuntime {
+  return {
+    newSession: () => Promise.resolve('s'),
+    listModels: () => Promise.resolve([]),
+    currentModel: () => Promise.resolve(null),
+    setModel: () => Promise.resolve(false),
+    cancel: () => Promise.resolve(),
+    // oxlint-disable-next-line require-yield -- 默认桩：被 overrides 替换
+    async *prompt() {
+      throw new Error('not implemented')
+    },
+    dispose: () => Promise.resolve(),
+    ...overrides,
+  }
+}
+
+describe('ChatManager failure feedback', () => {
+  it('replies in channel and logs an error when no agent takes the message', async () => {
+    const { manager, sent, errors } = makeManager(() => Promise.reject(new Error('codex 未安装')))
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('codex 未安装')
+    expect(errors.some((line) => line.includes('无 agent 承接') && line.includes('codex 未安装'))).toBe(true)
+  })
+
+  it('replies in channel and logs an error when the agent turn fails', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'failed' as const, parts: [], error: 'boom' }
+      },
+    })
+    const { manager, sent, errors } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('Error: boom')
+    expect(errors.some((line) => line.includes('turn 失败') && line.includes('boom'))).toBe(true)
+  })
+
+  it('replies in channel and logs an error when the runtime throws mid-turn', async () => {
+    const runtime = stubRuntime({
+      // oxlint-disable-next-line require-yield -- 模拟 prompt 首次迭代即抛错
+      async *prompt() {
+        throw new Error('agent process died')
+      },
+    })
+    const { manager, sent, errors } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('agent process died')
+    expect(errors.some((line) => line.includes('处理异常') && line.includes('agent process died'))).toBe(true)
   })
 })

@@ -40,8 +40,26 @@ export interface ChannelStatus {
 }
 
 /** Agent 安装态（Agent 管理页） */
+/** agent 安装进度事件（codex 下载器与 ACP registry 共用） */
+export interface AgentProgress {
+  id: string
+  phase: 'downloading' | 'extracting' | 'done' | 'error'
+  detail: string | null
+  /** downloading 阶段已接收字节数 */
+  received?: number
+  /** 总字节数；服务端未返回 content-length 时为 null */
+  total?: number | null
+}
+
 export interface AgentsOverview {
-  codex: { available: boolean; version: string | null }
+  codex: {
+    available: boolean
+    /** 二进制来源：本地下载 / 开发 node_modules / PATH；不可用为 null */
+    source: 'installed' | 'dev' | 'path' | null
+    version: string | null
+    /** SDK 期望的 codex 版本（下载目标） */
+    targetVersion: string | null
+  }
   acp: AcpAgentRow[]
 }
 

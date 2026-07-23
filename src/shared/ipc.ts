@@ -2,7 +2,7 @@
 // 新增通道：在 Schema 里加类型，并同步登记到下方的通道清单（preload 按清单做运行时白名单）。
 
 import type { AssistantConfig, ChannelSettings, ChatBinding, ConfigMutationResult, ConfigState } from './config'
-import type { AgentsOverview, ChannelStatus, ChatInfo, StoredMessage } from './messages'
+import type { AgentProgress, AgentsOverview, ChannelStatus, ChatInfo, StoredMessage } from './messages'
 
 export interface AppInfo {
   name: string
@@ -39,6 +39,10 @@ export interface IpcInvokeSchema {
     res: ConfigMutationResult
   }
   'config:delete-binding': { req: { index: number; expectedVersion: number }; res: ConfigMutationResult }
+  'config:move-binding': {
+    req: { index: number; direction: 'up' | 'down'; expectedVersion: number }
+    res: ConfigMutationResult
+  }
   'config:preview-template': {
     req: { template: string }
     res: { ok: true; rendered: string } | { ok: false; message: string }
@@ -58,7 +62,7 @@ export interface IpcInvokeSchema {
   'agents:install': { req: { id: string }; res: ActionResult }
   'agents:uninstall': { req: { id: string }; res: ActionResult }
 
-  'logs:tail': { req: { lines?: number }; res: { path: string; lines: string[] } }
+  'logs:tail': { req: { lines?: number; file?: 'main' | 'error' }; res: { path: string; lines: string[] } }
 }
 
 export const IPC_INVOKE_CHANNELS = [
@@ -74,6 +78,7 @@ export const IPC_INVOKE_CHANNELS = [
   'config:delete-assistant',
   'config:upsert-binding',
   'config:delete-binding',
+  'config:move-binding',
   'config:preview-template',
   'channel:statuses',
   'history:chats',
@@ -91,7 +96,7 @@ export interface IpcEventSchema {
   'config:state': ConfigState
   'channel:status': ChannelStatus[]
   'history:message': StoredMessage
-  'agents:progress': { id: string; phase: 'downloading' | 'extracting' | 'done' | 'error'; detail: string | null }
+  'agents:progress': AgentProgress
 }
 
 export const IPC_EVENT_CHANNELS = [

@@ -6,6 +6,7 @@ import type { TelegramBotChannelSettings } from '../../shared/config'
 import type { ChannelStatus, ChatMessage } from '../../shared/messages'
 import type { ConfigRef } from '../config/store'
 import { withDeadline, withTimeout } from '../util/async'
+import type { Logger } from '../util/logger'
 import { decodeChatId, encodeChatId } from './chat-id'
 import { isInboundAllowed } from './telegram-policy'
 import { renderMessageHtml, renderMessagePlain } from './telegram-render'
@@ -26,6 +27,7 @@ export interface TelegramBotChannelDeps {
   attachmentsDir: string
   onMessage: (envelope: InboundEnvelope) => void
   onStatus: (status: ChannelStatus) => void
+  log: Logger
 }
 
 function displayName(user: User | undefined): string | null {
@@ -60,7 +62,12 @@ export class TelegramBotChannel {
   }
 
   private setStatus(state: ChannelStatus['state'], detail: string | null = null): void {
+    const prev = this.state
     this.state = { id: this.id, state, detail }
+    // 状态徽标只在 UI 上；error 状态必须同时留日志（按状态转变去重，防 polling 重试刷屏）
+    if (state === 'error' && (prev.state !== 'error' || prev.detail !== detail)) {
+      this.deps.log.error(`channel ${this.id}: ${detail ?? 'error'}`)
+    }
     this.deps.onStatus(this.state)
   }
 
@@ -91,8 +98,11 @@ export class TelegramBotChannel {
         if (last !== undefined) {
           await bot.getUpdates({ offset: last.update_id + 1, limit: 1, timeout: 0 })
         }
-      } catch {
+      } catch (error) {
         // 丢弃积压失败不阻塞启动
+        this.deps.log.info(
+          `channel ${this.id}: 丢弃积压消息失败（不影响启动）：${error instanceof Error ? error.message : String(error)}`,
+        )
       }
     }
 
@@ -100,7 +110,9 @@ export class TelegramBotChannel {
       try {
         this.handleInbound(message)
       } catch (error) {
-        this.setStatus('running', `入站处理异常：${error instanceof Error ? error.message : String(error)}`)
+        const detail = error instanceof Error ? error.message : String(error)
+        this.deps.log.error(`channel ${this.id}: 入站处理异常，消息被丢弃：${detail}`)
+        this.setStatus('running', `入站处理异常：${detail}`)
       }
     })
 
@@ -172,8 +184,11 @@ export class TelegramBotChannel {
       try {
         const sent = await bot.sendMessage(target.rawChatId, html, { ...base, parse_mode: 'HTML' })
         sentId = String(sent.message_id)
-      } catch {
+      } catch (error) {
         // HTML 实体问题降级为纯文本
+        this.deps.log.info(
+          `channel ${this.id}: HTML 渲染被 Telegram 拒绝，降级纯文本重发：${error instanceof Error ? error.message : String(error)}`,
+        )
         const sent = await bot.sendMessage(target.rawChatId, renderMessagePlain(message.parts), base)
         sentId = String(sent.message_id)
       }
@@ -194,16 +209,23 @@ export class TelegramBotChannel {
 
   private handleInbound(message: Message): void {
     // topic 创建事件与 topic 首条标题消息忽略（对位 Python 逻辑）
-    if (message.forum_topic_created !== undefined) return
+    if (message.forum_topic_created !== undefined) {
+      this.deps.log.info(`channel ${this.id}: 忽略 topic 创建事件（chat=${message.chat.id}）`)
+      return
+    }
     if (
       message.reply_to_message?.forum_topic_created !== undefined &&
       message.reply_to_message.forum_topic_created.name === message.text
     ) {
+      this.deps.log.info(`channel ${this.id}: 忽略 topic 标题回显消息（chat=${message.chat.id}）`)
       return
     }
 
     const settings = this.deps.settingsRef.current
-    if (settings === undefined) return
+    if (settings === undefined) {
+      this.deps.log.info(`channel ${this.id}: 配置已不存在，入站消息被丢弃（chat=${message.chat.id}）`)
+      return
+    }
 
     const from = message.from
     const allowed = isInboundAllowed(settings, {
@@ -213,14 +235,28 @@ export class TelegramBotChannel {
       rawChatId: String(message.chat.id),
       mentioned: this.isMentioned(message),
     })
-    if (!allowed) return
+    if (!allowed) {
+      this.deps.log.info(
+        `channel ${this.id}: 入站消息被准入策略过滤（chat=${message.chat.id}, type=${message.chat.type}, from=${from?.id ?? '?'}${from?.is_bot === true ? ', bot' : ''}）——检查 whitelist/groups 配置`,
+      )
+      return
+    }
 
     const chatId = encodeChatId(message.chat.type, message.chat.id, message.message_thread_id ?? null)
-    if (chatId === '') return
+    if (chatId === '') {
+      this.deps.log.info(`channel ${this.id}: 不支持的 chat 类型 "${message.chat.type}"（chat=${message.chat.id}），消息忽略`)
+      return
+    }
 
-    void this.buildChatMessage(message, chatId).then((chatMessage) => {
-      this.deps.onMessage({ message: chatMessage, chatName: chatTitle(message.chat) })
-    })
+    void this.buildChatMessage(message, chatId)
+      .then((chatMessage) => {
+        this.deps.onMessage({ message: chatMessage, chatName: chatTitle(message.chat) })
+      })
+      .catch((error: unknown) => {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.deps.log.error(`channel ${this.id}: 入站消息构建失败，消息被丢弃：${detail}`)
+        this.setStatus('running', `入站处理异常：${detail}`)
+      })
   }
 
   private async buildChatMessage(message: Message, chatId: string): Promise<ChatMessage> {
@@ -243,7 +279,10 @@ export class TelegramBotChannel {
       if (ogaPath !== null) {
         const converted = convertVoiceIfPossible(ogaPath)
         parts.push({ kind: 'file', path: converted ?? ogaPath })
-        if (converted === null) parts.push({ kind: 'text', text: '(voice message attached)' })
+        if (converted === null) {
+          this.deps.log.info(`channel ${this.id}: ffmpeg 不可用，语音未转 wav，按原始 oga 传给 agent`)
+          parts.push({ kind: 'text', text: '(voice message attached)' })
+        }
       }
     }
 
@@ -272,7 +311,11 @@ export class TelegramBotChannel {
       const dir = path.join(this.deps.attachmentsDir, kind)
       fs.mkdirSync(dir, { recursive: true })
       return await bot.downloadFile(fileId, dir)
-    } catch {
+    } catch (error) {
+      // 附件丢失后消息仍会继续处理，agent 看不到该文件——必须留痕
+      this.deps.log.error(
+        `channel ${this.id}: 附件下载失败（${kind}, file_id=${fileId}），消息将缺少该附件：${error instanceof Error ? error.message : String(error)}`,
+      )
       return null
     }
   }

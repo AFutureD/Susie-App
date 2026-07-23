@@ -6,6 +6,7 @@ import { assistantSchema, bindingSchema, channelSettingsSchema, type ConfigMutat
 import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
 import type { ConfigStore } from './config/store'
 import { appFlags } from './env'
+import { errorLog } from './logging'
 import { previewTemplate } from './replier/templates'
 import type { SusieService } from './service'
 
@@ -77,6 +78,9 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
     return config.upsertBinding(payload.index, binding.data, payload.expectedVersion)
   })
   handle('config:delete-binding', (payload) => config.deleteBinding(payload.index, payload.expectedVersion))
+  handle('config:move-binding', (payload) =>
+    config.moveBinding(payload.index, payload.direction, payload.expectedVersion),
+  )
 
   handle('config:preview-template', (payload) => previewTemplate(payload.template))
 
@@ -109,7 +113,7 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   handle('agents:overview', () => service.agentsOverview())
   handle('agents:install', async (payload) => {
     try {
-      await service.acpRegistry.install(payload.id)
+      await service.installAgent(payload.id)
       return { ok: true }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -117,7 +121,7 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   })
   handle('agents:uninstall', (payload) => {
     try {
-      service.acpRegistry.uninstall(payload.id)
+      service.uninstallAgent(payload.id)
       return { ok: true }
     } catch (error) {
       return { ok: false, message: error instanceof Error ? error.message : String(error) }
@@ -125,7 +129,8 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   })
 
   handle('logs:tail', (payload) => {
-    const file = log.transports.file.getFile().path
+    const logger = payload.file === 'error' ? errorLog : log
+    const file = logger.transports.file.getFile().path
     try {
       const text = fs.readFileSync(file, 'utf-8')
       const lines = text.split('\n')

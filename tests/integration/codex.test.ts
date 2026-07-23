@@ -3,14 +3,21 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { CodexRuntime } from '../../src/main/agents/codex'
+import { CodexInstaller } from '../../src/main/agents/codex-installer'
 import type { AgentTurn } from '../../src/main/agents/types'
 import { SusieMcpServer, type McpBridge } from '../../src/main/mcp/server'
 import type { StoredMessage } from '../../src/shared/messages'
 
-// 真实 codex 集成测试（走 @openai/codex-sdk 捆绑的 codex 二进制与本机登录态）。
+// 真实 codex 集成测试（走 node_modules 里的 codex 二进制与本机登录态）。
 // 默认跳过；SUSIE_CODEX_IT=1 时启用：npm run test:codex
 
 const enabled = process.env['SUSIE_CODEX_IT'] === '1'
+
+function resolveCodex(): { codexPath: string; codexPathDir: string | null } {
+  const resolved = new CodexInstaller(mkdtempSync(path.join(tmpdir(), 'susie-codex-data-'))).resolve()
+  if (resolved === null) throw new Error('codex 不可用：node_modules 与 PATH 均未找到')
+  return { codexPath: resolved.executablePath, codexPathDir: resolved.pathDir }
+}
 
 async function lastTurn(runtime: CodexRuntime, prompt: string): Promise<AgentTurn> {
   let last: AgentTurn | null = null
@@ -29,6 +36,7 @@ describe.skipIf(!enabled)('codex integration', () => {
       mcpName: 'susie_mcp_server',
       model: null,
       models: [],
+      ...resolveCodex(),
     })
     await runtime.newSession('You are a test probe. Follow instructions exactly.')
 
@@ -76,6 +84,7 @@ describe.skipIf(!enabled)('codex integration', () => {
         mcpName: 'susie_mcp_server',
         model: null,
         models: [],
+        ...resolveCodex(),
       })
       await runtime.newSession(null)
 

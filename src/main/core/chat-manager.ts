@@ -11,6 +11,7 @@ import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-b
 import type { ConfigStore, Unsubscribe } from '../config/store'
 import type { HistoryStore } from '../history/store'
 import { renderPrompt, renderSystemInstruction } from '../replier/templates'
+import type { Logger } from '../util/logger'
 import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
@@ -44,7 +45,7 @@ export interface ChatManagerDeps {
   getChannel: (id: string) => TelegramBotChannel | undefined
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>
   onHistoryMessage: (message: StoredMessage) => void
-  log: (message: string) => void
+  log: Logger
 }
 
 export class ChatManager {
@@ -57,7 +58,12 @@ export class ChatManager {
   constructor(deps: ChatManagerDeps) {
     this.deps = deps
     // binding 变化 → 全部会话下次消息时按新 binding 重建
-    this.unsubs.push(deps.store.subscribePath('bindings', () => this.disposeAll()))
+    this.unsubs.push(
+      deps.store.subscribePath('bindings', () => {
+        this.deps.log.info('bindings 变更：所有会话失效，下条消息按新绑定重建')
+        this.disposeAll()
+      }),
+    )
   }
 
   /** 通道入站回调 */
@@ -72,6 +78,9 @@ export class ChatManager {
       // 自己亲自回复了：闭嘴两分钟并取消进行中的 turn
       const entry = this.chats.get(key)
       if (entry !== undefined) {
+        this.deps.log.info(
+          `chat ${key} 检测到本人亲自回复：${IGNORE_AFTER_SELF_REPLY_MS / 1000}s 内不再自动响应，进行中的 turn 已取消`,
+        )
         entry.ignoreUntil = Date.now() + IGNORE_AFTER_SELF_REPLY_MS
         void entry.runtime.cancel()
       }
@@ -124,21 +133,30 @@ export class ChatManager {
   private enqueue(key: string, fn: () => Promise<void>): void {
     const prev = this.queues.get(key) ?? Promise.resolve()
     const next = prev.then(fn).catch((error: unknown) => {
-      this.deps.log(`chat ${key} 处理失败：${error instanceof Error ? error.message : String(error)}`)
+      this.deps.log.error(`chat ${key} 处理失败：${error instanceof Error ? error.message : String(error)}`)
     })
     this.queues.set(key, next)
   }
 
   private async process(message: ChatMessage): Promise<void> {
+    const key = chatKey(message.channelId, message.chatId)
+
     let entry: ChatEntry
     try {
       entry = await this.ensureChat(message.channelId, message.chatId)
     } catch (error) {
-      await this.replyText(message, `Error: ${error instanceof Error ? error.message : String(error)}`)
+      const detail = error instanceof Error ? error.message : String(error)
+      this.deps.log.error(`chat ${key} 无 agent 承接：${detail}`)
+      await this.replyText(message, `Error: ${detail}`)
       return
     }
 
-    if (Date.now() < entry.ignoreUntil) return
+    if (Date.now() < entry.ignoreUntil) {
+      this.deps.log.info(
+        `chat ${key} 处于本人回复后的免打扰窗口（剩余 ${Math.ceil((entry.ignoreUntil - Date.now()) / 1000)}s），消息不处理`,
+      )
+      return
+    }
 
     const plain = partsToPlainText(message.parts)
     const parsed = parseCommandText(plain)
@@ -154,12 +172,21 @@ export class ChatManager {
       if (handled) return
     }
 
-    await this.runAssistantTurn(entry, message)
+    try {
+      await this.runAssistantTurn(entry, message)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      this.deps.log.error(`chat ${key} agent 处理异常：${detail}`)
+      await this.replyText(message, `Error: ${detail}`)
+    }
   }
 
   private async runAssistantTurn(entry: ChatEntry, message: ChatMessage): Promise<void> {
     const promptText = partsToPromptText(message.parts)
-    if (promptText === '') return
+    if (promptText === '') {
+      this.deps.log.info(`chat ${entry.key} 消息无可用内容（文本/附件均为空），跳过 agent`)
+      return
+    }
 
     const content = renderPrompt({
       channelId: message.channelId,
@@ -174,13 +201,22 @@ export class ChatManager {
 
     try {
       for await (const turn of entry.runtime.prompt(content)) {
+        if (turn.status === 'cancelled') {
+          this.deps.log.info(`chat ${entry.key} agent turn 被取消，本条消息不再回复`)
+          continue
+        }
         if (turn.status !== 'completed' && turn.status !== 'failed') continue
 
         const parts = [...turn.parts]
-        if (turn.status === 'failed' && turn.error !== null) {
-          parts.push({ kind: 'text', text: `Error: ${turn.error}` })
+        if (turn.status === 'failed') {
+          const detail = turn.error ?? 'agent turn failed'
+          this.deps.log.error(`chat ${entry.key} agent turn 失败：${detail}`)
+          parts.push({ kind: 'text', text: `Error: ${detail}` })
         }
-        if (parts.length === 0) continue
+        if (parts.length === 0) {
+          this.deps.log.info(`chat ${entry.key} agent turn 完成但无直接输出（agent 可能已自行调用 send_message 回复）`)
+          continue
+        }
 
         const assistant = this.currentAssistant(entry.assistantId)
         const forwardTo = assistant?.forward_to
@@ -205,7 +241,7 @@ export class ChatManager {
     const assistant = this.currentAssistant(binding.assistant_id)
     if (assistant === undefined) throw new Error(`assistant 不存在：${binding.assistant_id}`)
 
-    this.deps.log(`chat ${channelId}/${chatId} 绑定 assistant "${assistant.id}" (agent: ${assistant.agent_id})`)
+    this.deps.log.info(`chat ${channelId}/${chatId} 绑定 assistant "${assistant.id}" (agent: ${assistant.agent_id})`)
 
     const runtime = await this.deps.createRuntime(assistant)
     const instruction = renderSystemInstruction(assistant.instruction, {
@@ -250,7 +286,12 @@ export class ChatManager {
       unsubs: [],
     }
     // assistant 配置变更/删除 → 会话失效，下条消息按新配置重建
-    entry.unsubs.push(this.deps.store.subscribePath(`assistants.${assistant.id}`, () => this.disposeChat(key)))
+    entry.unsubs.push(
+      this.deps.store.subscribePath(`assistants.${assistant.id}`, () => {
+        this.deps.log.info(`assistant "${assistant.id}" 配置变更：chat ${key} 会话失效，下条消息重建`)
+        this.disposeChat(key)
+      }),
+    )
 
     this.chats.set(key, entry)
     return entry
@@ -268,7 +309,9 @@ export class ChatManager {
         parts: [{ kind: 'text', text }],
       })
     } catch (error) {
-      this.deps.log(`回复失败：${error instanceof Error ? error.message : String(error)}`)
+      this.deps.log.error(
+        `chat ${chatKey(source.channelId, source.chatId)} 回复失败：${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 

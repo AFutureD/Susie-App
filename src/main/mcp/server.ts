@@ -3,6 +3,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import type { ChatInfo, StoredMessage } from '../../shared/messages'
+import type { Logger } from '../util/logger'
 import { resolveDateRange } from './dates'
 
 /** ChatManager/HistoryStore 的窄接口（便于测试注入假实现） */
@@ -81,7 +82,12 @@ function asString(value: unknown, field: string): string {
 export class SusieMcpServer {
   private httpServer: http.Server | null = null
   private bridge: McpBridge | null = null
+  private readonly log: Logger
   url: string | null = null
+
+  constructor(log: Logger = { info: () => {}, error: () => {} }) {
+    this.log = log
+  }
 
   setBridge(bridge: McpBridge): void {
     this.bridge = bridge
@@ -93,7 +99,8 @@ export class SusieMcpServer {
         res.writeHead(404).end()
         return
       }
-      void this.handle(req, res).catch(() => {
+      void this.handle(req, res).catch((error: unknown) => {
+        this.log.error(`mcp http 请求处理失败：${error instanceof Error ? error.message : String(error)}`)
         if (!res.headersSent) res.writeHead(500)
         res.end()
       })
@@ -135,7 +142,10 @@ export class SusieMcpServer {
 
     server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const bridge = this.bridge
-      if (bridge === null) return toolError('susie service not ready')
+      if (bridge === null) {
+        this.log.error(`mcp tool ${request.params.name} 被拒：susie service not ready`)
+        return toolError('susie service not ready')
+      }
 
       const args = (request.params.arguments ?? {}) as Record<string, unknown>
       try {
@@ -174,10 +184,14 @@ export class SusieMcpServer {
           }
 
           default:
+            this.log.info(`mcp: agent 调用了不存在的工具 "${request.params.name}"`)
             return toolError(`unknown tool: ${request.params.name}`)
         }
       } catch (error) {
-        return toolError(error instanceof Error ? error.message : String(error))
+        // toolError 只返回给 agent；agent 可能不上报，这里必须留痕
+        const detail = error instanceof Error ? error.message : String(error)
+        this.log.error(`mcp tool ${request.params.name} 失败：${detail}`)
+        return toolError(detail)
       }
     })
 
