@@ -1,12 +1,14 @@
 import type { ChannelSettings, Config, TelegramBotChannelSettings } from '../../shared/config'
 import type { ChannelStatus } from '../../shared/messages'
 import type { ConfigRef, ConfigStore, Unsubscribe } from '../config/store'
+import type { CommandSpec } from '../core/commands'
 import type { Logger } from '../util/logger'
 import { TelegramBotChannel, type InboundEnvelope } from './telegram-bot'
 
 export interface ChannelHubDeps {
   store: ConfigStore
   attachmentsDir: string
+  listCommands: () => CommandSpec[]
   onMessage: (envelope: InboundEnvelope) => void
   onStatuses: (statuses: ChannelStatus[]) => void
   onChannelRemoved: (channelId: string) => void
@@ -96,6 +98,7 @@ export class ChannelHub {
       id,
       settingsRef: this.deps.store.ref(`channels.${id}`) as ConfigRef<TelegramBotChannelSettings>,
       attachmentsDir: this.deps.attachmentsDir,
+      listCommands: this.deps.listCommands,
       onMessage: this.deps.onMessage,
       onStatus: () => this.pushStatuses(),
       log: this.deps.log,

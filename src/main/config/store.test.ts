@@ -55,7 +55,7 @@ describe('ConfigStore.init', () => {
 
     expect(state.lastError).toBeNull()
     expect(Object.keys(state.config.channels)).toEqual(['bot'])
-    expect(state.migrations).toHaveLength(3) // api_id + api_hash + telegram_user 通道
+    expect(state.migrations).toHaveLength(5) // api_id + api_hash + telegram_user 通道 + 准入字段剥离 + chat_ids 展开
     // 文件本身保持原样
     expect(readFileSync(configPath, 'utf-8')).toBe(LEGACY_TOML)
   })
@@ -73,11 +73,11 @@ describe('hot reload', () => {
     store.ref('assistants.default').onChange((next) => assistantEvents.push(next))
 
     const versionBefore = store.currentVersion
-    store.applyExternalText(LEGACY_TOML.replace('whitelist = ["1"]', 'whitelist = ["1", "2"]'))
+    store.applyExternalText(LEGACY_TOML.replace('123:token', '123:token-b'))
 
     expect(store.currentVersion).toBe(versionBefore + 1)
     expect(botEvents).toHaveLength(1)
-    expect((botEvents[0] as TelegramBotChannelSettings).whitelist).toEqual(['1', '2'])
+    expect((botEvents[0] as TelegramBotChannelSettings).token).toBe('123:token-b')
     expect(assistantEvents).toHaveLength(0)
   })
 
@@ -129,8 +129,6 @@ agent_id = "codex"
       type: 'telegram_bot',
       token: 't:1',
       enabled: true,
-      whitelist: [],
-      groups: {},
       drop_pending_updates: false,
     }
     expect(store.upsertChannel('bot', settings, store.currentVersion).ok).toBe(true)
@@ -154,8 +152,6 @@ describe('mutations', () => {
       type: 'telegram_bot',
       token: '999:secret',
       enabled: true,
-      whitelist: ['42'],
-      groups: { '*': { whitelist: ['*'], only_mention: true } },
       drop_pending_updates: false,
     }
     const result = store.upsertChannel('mybot', settings, versionBefore)
@@ -171,14 +167,14 @@ describe('mutations', () => {
     const store = ConfigStore.init(tempConfigPath())
     const result = store.upsertChannel(
       'bot',
-      { type: 'telegram_bot', token: 't', enabled: true, whitelist: [], groups: {}, drop_pending_updates: false },
+      { type: 'telegram_bot', token: 't', enabled: true, drop_pending_updates: false },
       store.currentVersion + 5,
     )
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.conflict).toBe(true)
   })
 
-  it('refuses to delete the default assistant or one referenced by bindings', () => {
+  it('deletes unreferenced assistants but refuses ones referenced by bindings', () => {
     const configPath = tempConfigPath()
     writeFileSync(
       configPath,
@@ -196,14 +192,15 @@ assistant_id = "ops"
     )
     const store = ConfigStore.init(configPath)
 
-    expect(store.deleteAssistant('default', store.currentVersion).ok).toBe(false)
+    // 不再有全局兜底特权助手：未被引用即可删除
+    expect(store.deleteAssistant('default', store.currentVersion).ok).toBe(true)
 
     const result = store.deleteAssistant('ops', store.currentVersion)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.message).toContain('ops')
   })
 
-  it('moves a binding up/down and rejects out-of-range moves', () => {
+  it('replaces bindings wholesale, rejects unknown assistants and stale versions', () => {
     const configPath = tempConfigPath()
     writeFileSync(
       configPath,
@@ -214,24 +211,36 @@ id = "default"
 [[bindings]]
 channel = "a"
 assistant_id = "default"
-
-[[bindings]]
-channel = "b"
-assistant_id = "default"
 `,
     )
     const store = ConfigStore.init(configPath)
 
-    expect(store.moveBinding(1, 'up', store.currentVersion).ok).toBe(true)
-    expect(store.current.bindings.map((b) => b.channel)).toEqual(['b', 'a'])
-
-    expect(store.moveBinding(0, 'down', store.currentVersion).ok).toBe(true)
-    expect(store.current.bindings.map((b) => b.channel)).toEqual(['a', 'b'])
-
     const versionBefore = store.currentVersion
-    expect(store.moveBinding(0, 'up', versionBefore).ok).toBe(false)
-    expect(store.moveBinding(1, 'down', versionBefore).ok).toBe(false)
-    expect(store.currentVersion).toBe(versionBefore)
+    const replaced = store.setBindings(
+      [
+        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, members: [] },
+        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, members: [] },
+      ],
+      versionBefore,
+    )
+    expect(replaced.ok).toBe(true)
+    expect(store.current.bindings.map((b) => b.channel)).toEqual(['b', 'b'])
+    expect(store.currentVersion).toBe(versionBefore + 1)
+    expect(readFileSync(configPath, 'utf-8')).toContain('[[bindings]]')
+
+    // 引用未知 assistant → superRefine 拒绝，状态不变
+    const invalid = store.setBindings(
+      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, members: [] }],
+      store.currentVersion,
+    )
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.message).toContain('ghost')
+    expect(store.current.bindings.map((b) => b.assistant_id)).toEqual(['default', 'default'])
+
+    // stale version → conflict
+    const stale = store.setBindings([], versionBefore)
+    expect(stale.ok).toBe(false)
+    if (!stale.ok) expect(stale.conflict).toBe(true)
   })
 
   it('rejects invalid raw text without touching state', () => {

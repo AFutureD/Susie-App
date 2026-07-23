@@ -70,16 +70,3 @@ export function renderPrompt(ctx: PromptContext): string {
     content: ctx.content,
   })
 }
-
-/** 配置 UI 的模板预览（校验 nunjucks 语法） */
-export function previewTemplate(template: string): { ok: true; rendered: string } | { ok: false; message: string } {
-  try {
-    const rendered = renderSystemInstruction(template, {
-      mcpName: 'susie_mcp_server',
-      channelContext: { message_syntax: null },
-    })
-    return { ok: true, rendered }
-  } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
-  }
-}

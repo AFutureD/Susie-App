@@ -1,14 +1,14 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import TelegramBot, { type Chat, type Message, type User } from 'node-telegram-bot-api'
+import TelegramBot, { type BotCommand, type Chat, type Message, type User } from 'node-telegram-bot-api'
 import type { TelegramBotChannelSettings } from '../../shared/config'
 import type { ChannelStatus, ChatMessage } from '../../shared/messages'
 import type { ConfigRef } from '../config/store'
+import type { CommandSpec } from '../core/commands'
 import { withDeadline, withTimeout } from '../util/async'
 import type { Logger } from '../util/logger'
-import { decodeChatId, encodeChatId } from './chat-id'
-import { isInboundAllowed } from './telegram-policy'
+import { decodeChatId, encodeChatId } from '../../shared/chat-id'
 import { renderMessageHtml, renderMessagePlain } from './telegram-render'
 
 type SendMessageForm = NonNullable<Parameters<TelegramBot['sendMessage']>[2]>
@@ -18,6 +18,8 @@ type SendChatActionForm = NonNullable<Parameters<TelegramBot['sendChatAction']>[
 export interface InboundEnvelope {
   message: ChatMessage
   chatName: string | null
+  /** 群内消息是否 @ 了 bot 或回复了 bot（准入判定在 ChatManager 按绑定进行） */
+  mentioned: boolean
 }
 
 export interface TelegramBotChannelDeps {
@@ -25,9 +27,29 @@ export interface TelegramBotChannelDeps {
   /** 读穿引用：白名单/群策略等热更新即刻生效 */
   settingsRef: ConfigRef<TelegramBotChannelSettings>
   attachmentsDir: string
+  /** 命令菜单（Bot API setMyCommands）名单，启动时注册 */
+  listCommands: () => CommandSpec[]
   onMessage: (envelope: InboundEnvelope) => void
   onStatus: (status: ChannelStatus) => void
   log: Logger
+}
+
+/** 用 token 调 getMe 拿 bot username（频道 ID 留空时的自动命名） */
+export async function fetchBotUsername(token: string): Promise<string> {
+  const bot = new TelegramBot(token)
+  const me = await withDeadline(bot.getMe(), 10_000, 'getMe')
+  if (me.username === undefined || me.username === '') throw new Error('bot 未返回 username')
+  return me.username
+}
+
+/** Bot API 对命令的硬性约束：名称 1-32 位小写字母/数字/下划线，描述 1-256 字符 */
+export function toBotCommands(specs: CommandSpec[]): BotCommand[] {
+  return specs
+    .filter((spec) => /^[a-z0-9_]{1,32}$/.test(spec.name))
+    .map((spec) => ({
+      command: spec.name,
+      description: (spec.description === '' ? spec.name : spec.description).slice(0, 256),
+    }))
 }
 
 function displayName(user: User | undefined): string | null {
@@ -91,6 +113,9 @@ export class TelegramBotChannel {
     }
     if (this.bot !== bot) return // 等待期间被 stop()
 
+    // 命令菜单注册不阻塞启动，失败只留日志
+    void this.registerBotCommands(bot)
+
     if (settings.drop_pending_updates) {
       try {
         const pending = await bot.getUpdates({ offset: -1, limit: 1, timeout: 0 })
@@ -127,6 +152,23 @@ export class TelegramBotChannel {
 
     await bot.startPolling()
     this.setStatus('running', `@${this.meUsername ?? '?'}`)
+  }
+
+  private async registerBotCommands(bot: TelegramBot): Promise<void> {
+    const specs = this.deps.listCommands()
+    const commands = toBotCommands(specs)
+    if (commands.length < specs.length) {
+      this.deps.log.info(
+        `channel ${this.id}: ${specs.length - commands.length} 个命令名不符合 Telegram 规则（[a-z0-9_]{1,32}），未注册进菜单`,
+      )
+    }
+    if (commands.length === 0) return
+    try {
+      await withDeadline(bot.setMyCommands(commands), 15_000, 'setMyCommands')
+    } catch (error) {
+      // 菜单注册失败不影响收发消息，命令仍可手动输入
+      this.deps.log.error(`channel ${this.id}: 命令菜单注册失败：${describeTelegramError(error)}`)
+    }
   }
 
   async stop(): Promise<void> {
@@ -221,36 +263,33 @@ export class TelegramBotChannel {
       return
     }
 
-    const settings = this.deps.settingsRef.current
-    if (settings === undefined) {
+    if (this.deps.settingsRef.current === undefined) {
       this.deps.log.info(`channel ${this.id}: 配置已不存在，入站消息被丢弃（chat=${message.chat.id}）`)
       return
     }
 
+    // 硬性规则：bot / 匿名发送者不触发（准入策略本身由 ChatManager 按会话绑定判定）
     const from = message.from
-    const allowed = isInboundAllowed(settings, {
-      fromBot: from?.is_bot ?? true,
-      userId: from === undefined ? null : String(from.id),
-      chatType: message.chat.type,
-      rawChatId: String(message.chat.id),
-      mentioned: this.isMentioned(message),
-    })
-    if (!allowed) {
-      this.deps.log.info(
-        `channel ${this.id}: 入站消息被准入策略过滤（chat=${message.chat.id}, type=${message.chat.type}, from=${from?.id ?? '?'}${from?.is_bot === true ? ', bot' : ''}）——检查 whitelist/groups 配置`,
-      )
+    if (from === undefined || from.is_bot) {
+      this.deps.log.info(`channel ${this.id}: 忽略 bot/匿名发送者的消息（chat=${message.chat.id}）`)
       return
     }
 
     const chatId = encodeChatId(message.chat.type, message.chat.id, message.message_thread_id ?? null)
     if (chatId === '') {
-      this.deps.log.info(`channel ${this.id}: 不支持的 chat 类型 "${message.chat.type}"（chat=${message.chat.id}），消息忽略`)
+      this.deps.log.info(
+        `channel ${this.id}: 不支持的 chat 类型 "${message.chat.type}"（chat=${message.chat.id}），消息忽略`,
+      )
       return
     }
 
     void this.buildChatMessage(message, chatId)
       .then((chatMessage) => {
-        this.deps.onMessage({ message: chatMessage, chatName: chatTitle(message.chat) })
+        this.deps.onMessage({
+          message: chatMessage,
+          chatName: chatTitle(message.chat),
+          mentioned: this.isMentioned(message),
+        })
       })
       .catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : String(error)
@@ -299,6 +338,7 @@ export class TelegramBotChannel {
       replyTo: message.reply_to_message === undefined ? null : String(message.reply_to_message.message_id),
       out: this.meId !== null && message.from?.id === this.meId,
       sender: displayName(message.from),
+      senderId: message.from === undefined ? null : String(message.from.id),
       timestamp: message.date * 1000,
       parts,
     }

@@ -2,8 +2,7 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { ChannelSettings, ConfigState, TelegramBotChannelSettings } from '../../../shared/config'
-import { CHAT_ALL } from '../../../shared/config'
-import { Button, CheckboxField, ErrorText, Field, TextArea, TextInput } from '../components/form'
+import { Button, CheckboxField, ErrorText, Field, TextInput } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { susie } from '../lib/ipc'
@@ -19,13 +18,6 @@ const STATE_DOT: Record<string, string> = {
 function maskToken(token: string): string {
   if (token.length <= 8) return '••••••'
   return `${token.slice(0, 4)}••••${token.slice(-4)}`
-}
-
-function parseLines(text: string): string[] {
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line !== '')
 }
 
 export function ChannelsPage() {
@@ -92,12 +84,6 @@ export function ChannelsPage() {
                   </div>
                   <div className="mt-1 flex gap-4 font-mono text-xs text-ink-muted">
                     <span>token {maskToken(settings.token)}</span>
-                    <span>
-                      {intl.formatMessage(
-                        { id: 'channels.summary.whitelist' },
-                        { count: settings.whitelist.length === 0 ? '0' : String(settings.whitelist.length) },
-                      )}
-                    </span>
                   </div>
                 </div>
                 <Button onClick={() => void toggleEnabled(id)}>
@@ -152,33 +138,43 @@ function ChannelForm({
   onDone: () => void
 }) {
   const intl = useIntl()
-  const starGroup = initial?.groups[CHAT_ALL]
 
   const [id, setId] = useState(channelId ?? '')
   const [token, setToken] = useState(initial?.token ?? '')
-  const [whitelist, setWhitelist] = useState((initial?.whitelist ?? []).join('\n'))
   const [dropPending, setDropPending] = useState(initial?.drop_pending_updates ?? false)
-  const [onlyMention, setOnlyMention] = useState(starGroup?.only_mention ?? true)
-  const [groupWhitelist, setGroupWhitelist] = useState((starGroup?.whitelist ?? [CHAT_ALL]).join('\n'))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
   const submit = async () => {
     setBusy(true)
     setError(null)
+
+    // 频道 ID 留空 → 用 token 问 getMe 拿 bot username
+    let finalId = id.trim()
+    if (finalId === '') {
+      const resolved = await susie.invoke('channels:resolve-username', { token: token.trim() })
+      if (!resolved.ok) {
+        setBusy(false)
+        setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))
+        return
+      }
+      finalId = resolved.username
+    }
+    if (channelId === undefined && finalId in state.config.channels) {
+      setBusy(false)
+      setError(intl.formatMessage({ id: 'channels.duplicate' }, { id: finalId }))
+      return
+    }
+
+    // 准入统一由「会话绑定」控制：channel 只剩连接与运行参数
     const settings: ChannelSettings = {
       type: 'telegram_bot',
       token: token.trim(),
       enabled: initial?.enabled ?? true,
-      whitelist: parseLines(whitelist),
       drop_pending_updates: dropPending,
-      groups: {
-        ...initial?.groups,
-        [CHAT_ALL]: { whitelist: parseLines(groupWhitelist), only_mention: onlyMention },
-      },
     }
     const result = await susie.invoke('config:upsert-channel', {
-      id: id.trim(),
+      id: finalId,
       settings,
       expectedVersion: state.version,
     })
@@ -193,7 +189,10 @@ function ChannelForm({
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
       <div className="grid grid-cols-2 gap-3">
-        <Field label={intl.formatMessage({ id: 'channels.field.id' })}>
+        <Field
+          label={intl.formatMessage({ id: 'channels.field.id' })}
+          hint={channelId === undefined ? intl.formatMessage({ id: 'channels.field.id.hint' }) : undefined}
+        >
           <TextInput
             value={id}
             onChange={(event) => setId(event.target.value)}
@@ -205,26 +204,8 @@ function ChannelForm({
           <TextInput value={token} onChange={(event) => setToken(event.target.value)} placeholder="123456:bot-token" />
         </Field>
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'channels.field.whitelist' })}
-          hint={intl.formatMessage({ id: 'channels.field.whitelist.hint' })}
-        >
-          <TextArea rows={3} value={whitelist} onChange={(event) => setWhitelist(event.target.value)} />
-        </Field>
-        <Field
-          label={intl.formatMessage({ id: 'channels.field.groupWhitelist' })}
-          hint={intl.formatMessage({ id: 'channels.field.groupWhitelist.hint' })}
-        >
-          <TextArea rows={3} value={groupWhitelist} onChange={(event) => setGroupWhitelist(event.target.value)} />
-        </Field>
-      </div>
+
       <div className="flex gap-6">
-        <CheckboxField
-          label={intl.formatMessage({ id: 'channels.field.onlyMention' })}
-          checked={onlyMention}
-          onChange={setOnlyMention}
-        />
         <CheckboxField
           label={intl.formatMessage({ id: 'channels.field.dropPending' })}
           checked={dropPending}
@@ -233,11 +214,7 @@ function ChannelForm({
       </div>
       <ErrorText message={error} />
       <div className="flex gap-2">
-        <Button
-          variant="primary"
-          disabled={busy || id.trim() === '' || token.trim() === ''}
-          onClick={() => void submit()}
-        >
+        <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
         <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>

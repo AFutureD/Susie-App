@@ -1,3 +1,7 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
 import type { ChatMessage } from '../../shared/messages'
 import { HistoryStore } from './store'
@@ -11,6 +15,7 @@ function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
     replyTo: null,
     out: false,
     sender: 'alice',
+    senderId: '100',
     timestamp: 1000,
     parts: [{ kind: 'text', text: 'hello world' }],
     ...overrides,
@@ -54,6 +59,49 @@ describe('HistoryStore (node:sqlite)', () => {
 
     const ranged = store.listMessages('ch', 'P:1', { dateStart: 3000, dateEnd: 5000 })
     expect(ranged.map((m) => m.id)).toEqual(['3', '4', '5'])
+  })
+
+  it('lists distinct senders newest-first with the latest name, skipping own and id-less messages', () => {
+    const store = new HistoryStore(':memory:')
+    store.record(msg({ id: 'a', senderId: '100', sender: '旧名', timestamp: 1000 }))
+    store.record(msg({ id: 'b', senderId: '200', sender: 'Bob', timestamp: 2000 }))
+    store.record(msg({ id: 'c', senderId: '100', sender: '新名', timestamp: 3000 }))
+    store.record(msg({ id: 'd', senderId: null, sender: 'legacy', timestamp: 4000 }))
+    store.record(msg({ id: 'e', senderId: '300', sender: 'susie', out: true, timestamp: 5000 }))
+
+    expect(store.listSenders('ch', 'P:1')).toEqual([
+      { id: '100', name: '新名' },
+      { id: '200', name: 'Bob' },
+    ])
+    expect(store.listSenders('ch', 'G:9')).toEqual([])
+
+    // chatId 省略 → 跨该频道全部会话
+    store.record(msg({ id: 'g', chatId: 'G:9', senderId: '300', sender: 'Carol', timestamp: 9000 }))
+    expect(store.listSenders('ch').map((sender) => sender.id)).toEqual(['300', '100', '200'])
+    expect(store.listSenders('other')).toEqual([])
+  })
+
+  it('migrates an existing database without the sender_id column', () => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'susie-history-'))
+    const dbPath = path.join(dir, 'history.db')
+    const legacy = new DatabaseSync(dbPath)
+    legacy.exec(`
+      CREATE TABLE messages(
+        rowid INTEGER PRIMARY KEY AUTOINCREMENT,
+        channel_id TEXT NOT NULL, chat_id TEXT NOT NULL, msg_id TEXT,
+        sender TEXT, reply_to TEXT, receiver TEXT,
+        out INTEGER NOT NULL, ts INTEGER NOT NULL, parts TEXT NOT NULL
+      );
+      INSERT INTO messages(channel_id, chat_id, msg_id, sender, out, ts, parts)
+        VALUES ('ch', 'P:1', 'old', 'alice', 0, 100, '[]');
+    `)
+    legacy.close()
+
+    const store = new HistoryStore(dbPath)
+    expect(store.listMessages('ch', 'P:1')[0]?.senderId).toBeNull()
+    store.record(msg({ id: 'new', senderId: '7', timestamp: 200 }))
+    expect(store.listSenders('ch', 'P:1')).toEqual([{ id: '7', name: 'alice' }])
+    store.close()
   })
 
   it('searches across parts with LIKE escaping', () => {

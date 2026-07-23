@@ -1,4 +1,6 @@
-import { CHAT_ALL, DEFAULT_ASSISTANT_ID, type AssistantConfig, type ChatBinding } from '../../shared/config'
+import { isSenderAdmitted, resolveBinding } from '../../shared/bindings'
+import { decodeChatId } from '../../shared/chat-id'
+import type { AssistantConfig } from '../../shared/config'
 import {
   partsToPlainText,
   partsToPromptText,
@@ -10,22 +12,13 @@ import type { AgentRuntime } from '../agents/types'
 import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore, Unsubscribe } from '../config/store'
 import type { HistoryStore } from '../history/store'
+import { ASSISTANT_COMMAND_SPECS, assistantCommands } from '../replier/commands'
 import { renderPrompt, renderSystemInstruction } from '../replier/templates'
 import type { Logger } from '../util/logger'
-import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
+import { CommandRegistry, parseCommandText, type CommandContext, type CommandSpec } from './commands'
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
 const IGNORE_AFTER_SELF_REPLY_MS = 120_000
-
-/** binding 解析：按声明顺序，单次遍历，命中精确 chat_id 或 "*"（对位 Python get_binding） */
-export function resolveBinding(bindings: ChatBinding[], channelId: string, chatId: string): ChatBinding {
-  for (const binding of bindings) {
-    if (binding.channel !== channelId) continue
-    if (binding.chat_ids.includes(chatId)) return binding
-    if (binding.chat_ids.includes(CHAT_ALL)) return binding
-  }
-  return { channel: channelId, chat_ids: [CHAT_ALL], assistant_id: DEFAULT_ASSISTANT_ID }
-}
 
 interface ChatEntry {
   key: string
@@ -57,6 +50,12 @@ export class ChatManager {
 
   constructor(deps: ChatManagerDeps) {
     this.deps = deps
+    // 检视命令（对位 Python Inspector）：只依赖 ctx，注册在全局链
+    this.globalRegistry.register({
+      name: 'chat_id',
+      description: '显示当前 chat id',
+      handler: (ctx) => ctx.chatId,
+    })
     // binding 变化 → 全部会话下次消息时按新 binding 重建
     this.unsubs.push(
       deps.store.subscribePath('bindings', () => {
@@ -66,9 +65,17 @@ export class ChatManager {
     )
   }
 
+  /** 命令全集（全局 + per-chat assistant 命令；同名以 per-chat 为准），供通道注册命令菜单 */
+  listCommandSpecs(): CommandSpec[] {
+    const merged = new Map<string, CommandSpec>()
+    for (const { name, description } of this.globalRegistry.list()) merged.set(name, { name, description })
+    for (const spec of ASSISTANT_COMMAND_SPECS) merged.set(spec.name, spec)
+    return [...merged.values()]
+  }
+
   /** 通道入站回调 */
   handleInbound(envelope: InboundEnvelope): void {
-    const { message, chatName } = envelope
+    const { message, chatName, mentioned } = envelope
     const stored = this.deps.history.record(message, chatName)
     this.deps.onHistoryMessage(stored)
 
@@ -87,7 +94,7 @@ export class ChatManager {
       return
     }
 
-    this.enqueue(key, () => this.process(message))
+    this.enqueue(key, () => this.process(message, mentioned))
   }
 
   /** UI composer / MCP send_message 出站入口 */
@@ -109,6 +116,7 @@ export class ChatManager {
       replyTo: input.replyTo ?? null,
       out: true,
       sender: 'susie',
+      senderId: null,
       timestamp: Date.now(),
       parts: input.parts,
     }
@@ -138,12 +146,28 @@ export class ChatManager {
     this.queues.set(key, next)
   }
 
-  private async process(message: ChatMessage): Promise<void> {
+  private async process(message: ChatMessage, mentioned: boolean): Promise<void> {
     const key = chatKey(message.channelId, message.chatId)
+
+    // 准入 = 绑定解析：未命中即禁止（静默忽略）；群会话再过发送者触发条件
+    const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
+    if (binding === null) {
+      this.deps.log.info(`chat ${key} 无绑定且通道无默认助手，不响应`)
+      return
+    }
+    const meta = {
+      chatType: decodeChatId(message.chatId)?.chatType ?? null,
+      senderId: message.senderId,
+      mentioned,
+    }
+    if (!isSenderAdmitted(binding, meta)) {
+      this.deps.log.info(`chat ${key} 发送者未通过触发条件（成员名单 / @ 提及要求），不响应`)
+      return
+    }
 
     let entry: ChatEntry
     try {
-      entry = await this.ensureChat(message.channelId, message.chatId)
+      entry = await this.ensureChat(message.channelId, message.chatId, binding.assistant_id)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       this.deps.log.error(`chat ${key} 无 agent 承接：${detail}`)
@@ -232,14 +256,13 @@ export class ChatManager {
     }
   }
 
-  private async ensureChat(channelId: string, chatId: string): Promise<ChatEntry> {
+  private async ensureChat(channelId: string, chatId: string, assistantId: string): Promise<ChatEntry> {
     const key = chatKey(channelId, chatId)
     const existing = this.chats.get(key)
     if (existing !== undefined) return existing
 
-    const binding = resolveBinding(this.deps.store.current.bindings, channelId, chatId)
-    const assistant = this.currentAssistant(binding.assistant_id)
-    if (assistant === undefined) throw new Error(`assistant 不存在：${binding.assistant_id}`)
+    const assistant = this.currentAssistant(assistantId)
+    if (assistant === undefined) throw new Error(`assistant 不存在：${assistantId}`)
 
     this.deps.log.info(`chat ${channelId}/${chatId} 绑定 assistant "${assistant.id}" (agent: ${assistant.agent_id})`)
 
@@ -251,29 +274,7 @@ export class ChatManager {
     await runtime.newSession(instruction)
 
     const registry = new CommandRegistry(this.globalRegistry)
-    registry.register({
-      name: 'new',
-      description: '开启新会话',
-      handler: async () => {
-        await runtime.newSession(instruction)
-        return 'ok'
-      },
-    })
-    registry.register({
-      name: 'model',
-      description: '查看或切换模型（/model 或 /model <value>）',
-      handler: async (_ctx, args) => {
-        const value = args[0]
-        if (value === undefined) {
-          const [current, options] = await Promise.all([runtime.currentModel(), runtime.listModels()])
-          const lines = options.map((option) => `${option.value}: ${option.name}`)
-          const list = lines.length > 0 ? lines.join('\n') : '（配置里没有 models 候选）'
-          return `current: ${current ?? '(agent 默认)'}\n\n${list}`
-        }
-        const ok = await runtime.setModel(value)
-        return ok ? 'ok（新会话已生效）' : 'failed：不在候选列表内'
-      },
-    })
+    registry.registerAll(assistantCommands(runtime, instruction))
 
     const entry: ChatEntry = {
       key,

@@ -10,18 +10,15 @@ export const CHAT_ALL = '*'
 /** channel/assistant 的 id 同时用作 ConfigRef 的 path 片段，禁止 `.` 等分隔符 */
 export const ID_PATTERN = /^[A-Za-z0-9_-]+$/
 
-export const groupPolicySchema = z.strictObject({
-  whitelist: z.array(z.string()).default([CHAT_ALL]),
-  only_mention: z.boolean().default(true),
-})
+/** 思考深度候选（对齐 codex ModelReasoningEffort；ACP agent 暂不支持时忽略） */
+export const THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh'] as const
+export type ThinkingLevel = (typeof THINKING_LEVELS)[number]
 
 export const telegramBotChannelSchema = z.strictObject({
   type: z.literal('telegram_bot'),
   token: z.string().min(1, 'token 不能为空'),
   /** 运行开关：false 时通道不启动（UI 启停按钮写此字段） */
   enabled: z.boolean().default(true),
-  whitelist: z.array(z.string()).default([]),
-  groups: z.record(z.string(), groupPolicySchema).default({}),
   drop_pending_updates: z.boolean().default(false),
 })
 
@@ -35,16 +32,27 @@ export const assistantSchema = z.strictObject({
   forward_to: z.string().optional(),
   /** 当前模型；空表示 agent 默认 */
   model: z.string().optional(),
-  /** /model 命令的候选列表（codex 运行时无法枚举，来自配置） */
+  /** 思考深度；空表示 agent 默认（目前仅 codex 生效） */
+  thinking_level: z.enum(THINKING_LEVELS).optional(),
+  /** /model 命令的候选白名单（legacy：仅保留手改 config.toml 的兼容，UI 不再暴露） */
   models: z.array(z.string()).optional(),
   /** 指令模板覆盖（nunjucks；缺省用内置 SYSTEM 模板） */
   instruction: z.string().optional(),
 })
 
+/**
+ * 绑定即准入：一条 = 一个会话（chat_id 为 CHAT_ALL 时表示「该通道其余会话」的默认）。
+ * 没有任何绑定命中的会话不响应（禁止）——不存在全局兜底。
+ */
 export const bindingSchema = z.strictObject({
   channel: z.string().min(1),
-  chat_ids: z.array(z.string()).min(1).default([CHAT_ALL]),
-  assistant_id: z.string().min(1).default(DEFAULT_ASSISTANT_ID),
+  /** 缺省 '*' = 该通道默认（手写 TOML 的省写） */
+  chat_id: z.string().min(1).default(CHAT_ALL),
+  assistant_id: z.string().min(1),
+  /** 群会话生效：仅响应 @ 提及 */
+  only_mention: z.boolean().default(true),
+  /** 群会话生效：可触发的成员 user id；空 = 所有成员 */
+  members: z.array(z.string()).default([]),
 })
 
 export const configSchema = z
@@ -61,9 +69,6 @@ export const configSchema = z
     if (ids.length !== idSet.size) {
       ctx.addIssue({ code: 'custom', path: ['assistants'], message: 'assistant id 必须唯一' })
     }
-    if (!idSet.has(DEFAULT_ASSISTANT_ID)) {
-      ctx.addIssue({ code: 'custom', path: ['assistants'], message: `必须存在 id 为 "${DEFAULT_ASSISTANT_ID}" 的助手` })
-    }
     config.bindings.forEach((binding, index) => {
       if (!idSet.has(binding.assistant_id)) {
         ctx.addIssue({
@@ -75,7 +80,6 @@ export const configSchema = z
     })
   })
 
-export type GroupPolicy = z.infer<typeof groupPolicySchema>
 export type TelegramBotChannelSettings = z.infer<typeof telegramBotChannelSchema>
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>
 export type AssistantConfig = z.infer<typeof assistantSchema>

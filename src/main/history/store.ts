@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ChatInfo, ChatMessage, MessagePart, StoredMessage } from '../../shared/messages'
+import type { ChatInfo, ChatMessage, MessagePart, SenderInfo, StoredMessage } from '../../shared/messages'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS messages(
@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS messages(
   chat_id TEXT NOT NULL,
   msg_id TEXT,
   sender TEXT,
+  sender_id TEXT,
   reply_to TEXT,
   receiver TEXT,
   out INTEGER NOT NULL,
@@ -32,6 +33,7 @@ interface MessageRow {
   chat_id: string
   msg_id: string | null
   sender: string | null
+  sender_id: string | null
   reply_to: string | null
   receiver: string | null
   out: number
@@ -55,6 +57,7 @@ function rowToMessage(row: MessageRow): StoredMessage {
     replyTo: row.reply_to,
     out: row.out === 1,
     sender: row.sender,
+    senderId: row.sender_id,
     timestamp: row.ts,
     parts,
   }
@@ -74,19 +77,29 @@ export class HistoryStore {
     this.db = new DatabaseSync(dbPath)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec(SCHEMA)
+    this.migrate()
+  }
+
+  /** 既有库的列迁移：CREATE TABLE IF NOT EXISTS 不会给老表加新列 */
+  private migrate(): void {
+    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as unknown as { name: string }[]
+    if (!columns.some((column) => column.name === 'sender_id')) {
+      this.db.exec('ALTER TABLE messages ADD COLUMN sender_id TEXT')
+    }
   }
 
   record(message: ChatMessage, chatName?: string | null): StoredMessage {
     const result = this.db
       .prepare(
-        `INSERT INTO messages(channel_id, chat_id, msg_id, sender, reply_to, receiver, out, ts, parts)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO messages(channel_id, chat_id, msg_id, sender, sender_id, reply_to, receiver, out, ts, parts)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         message.channelId,
         message.chatId,
         message.id,
         message.sender,
+        message.senderId,
         message.replyTo,
         message.receiver,
         message.out ? 1 : 0,
@@ -144,6 +157,27 @@ export class HistoryStore {
           .all(channelId)) as unknown as { channel_id: string; chat_id: string; name: string | null; last_ts: number }[]
 
     return rows.map((row) => ({ channelId: row.channel_id, chatId: row.chat_id, name: row.name, lastTs: row.last_ts }))
+  }
+
+  /**
+   * 出现过的发送者（按最近发言排序，名字取最近一次）；chatId 省略时跨该频道全部会话。
+   * 排除本方消息与无 id 的旧记录。
+   */
+  listSenders(channelId: string, chatId?: string): SenderInfo[] {
+    const clauses = ['channel_id = ?', 'sender_id IS NOT NULL', 'out = 0']
+    const params: string[] = [channelId]
+    if (chatId !== undefined) {
+      clauses.push('chat_id = ?')
+      params.push(chatId)
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT sender_id, sender, MAX(ts) AS last_ts FROM messages
+         WHERE ${clauses.join(' AND ')}
+         GROUP BY sender_id ORDER BY last_ts DESC`,
+      )
+      .all(...params) as unknown as { sender_id: string; sender: string | null }[]
+    return rows.map((row) => ({ id: row.sender_id, name: row.sender }))
   }
 
   upsertChat(channelId: string, chatId: string, name: string | null): void {

@@ -39,6 +39,7 @@ describe('SusieMcpServer roundtrip', () => {
     replyTo: null,
     out: true,
     sender: 'susie',
+    senderId: null,
     timestamp: 123,
     parts: [{ kind: 'text', text: 'pong' }],
   }

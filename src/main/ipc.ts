@@ -1,13 +1,15 @@
 import fs from 'node:fs'
 import process from 'node:process'
-import { BrowserWindow, app, dialog, ipcMain } from 'electron'
+import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import log from 'electron-log/main'
+import { z } from 'zod'
 import { assistantSchema, bindingSchema, channelSettingsSchema, type ConfigMutationResult } from '../shared/config'
 import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
+import { getWorkspaceDir } from './config/paths'
+import { fetchBotUsername } from './channels/telegram-bot'
 import type { ConfigStore } from './config/store'
 import { appFlags } from './env'
 import { errorLog } from './logging'
-import { previewTemplate } from './replier/templates'
 import type { SusieService } from './service'
 
 type InvokeHandler<K extends keyof IpcInvokeSchema> = (
@@ -72,23 +74,39 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   })
   handle('config:delete-assistant', (payload) => config.deleteAssistant(payload.id, payload.expectedVersion))
 
-  handle('config:upsert-binding', (payload) => {
-    const binding = bindingSchema.safeParse(payload.binding)
-    if (!binding.success) return invalid(binding.error.issues[0]?.message)
-    return config.upsertBinding(payload.index, binding.data, payload.expectedVersion)
+  handle('channels:resolve-username', async (payload) => {
+    try {
+      return { ok: true as const, username: await fetchBotUsername(payload.token) }
+    } catch (error) {
+      return { ok: false as const, message: error instanceof Error ? error.message : String(error) }
+    }
   })
-  handle('config:delete-binding', (payload) => config.deleteBinding(payload.index, payload.expectedVersion))
-  handle('config:move-binding', (payload) =>
-    config.moveBinding(payload.index, payload.direction, payload.expectedVersion),
-  )
 
-  handle('config:preview-template', (payload) => previewTemplate(payload.template))
+  handle('config:set-bindings', (payload) => {
+    const bindings = z.array(bindingSchema).safeParse(payload.bindings)
+    if (!bindings.success) return invalid(bindings.error.issues[0]?.message)
+    return config.setBindings(bindings.data, payload.expectedVersion)
+  })
+
+  handle('assistants:open-workdir', async (payload) => {
+    const assistant = config.state().config.assistants.find((item) => item.id === payload.id)
+    if (assistant === undefined) return { ok: false, message: `assistant 不存在：${payload.id}` }
+    const dir = assistant.work_dir ?? getWorkspaceDir(assistant.id)
+    try {
+      fs.mkdirSync(dir, { recursive: true })
+      const failure = await shell.openPath(dir)
+      return failure === '' ? { ok: true } : { ok: false, message: failure }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
 
   // ---------- 服务 ----------
 
   handle('channel:statuses', () => service.hub.statuses())
 
   handle('history:chats', () => service.history.listChats())
+  handle('history:senders', (payload) => service.history.listSenders(payload.channelId, payload.chatId))
   handle('history:messages', (payload) =>
     service.history.listMessages(payload.channelId, payload.chatId, {
       limit: payload.limit ?? 80,
@@ -111,6 +129,7 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   })
 
   handle('agents:overview', () => service.agentsOverview())
+  handle('agents:models', (payload) => service.listAgentModels(payload.agentId))
   handle('agents:install', async (payload) => {
     try {
       await service.installAgent(payload.id)

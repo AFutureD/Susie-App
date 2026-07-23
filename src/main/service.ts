@@ -1,10 +1,19 @@
 import fs from 'node:fs'
+import os from 'node:os'
 import type { AssistantConfig } from '../shared/config'
-import type { AgentProgress, AgentsOverview, ChannelStatus, MessagePart, StoredMessage } from '../shared/messages'
+import type {
+  AgentModelOption,
+  AgentProgress,
+  AgentsOverview,
+  ChannelStatus,
+  MessagePart,
+  StoredMessage,
+} from '../shared/messages'
 import { AcpRuntime } from './agents/acp'
 import { AcpRegistryManager } from './agents/acp-registry'
 import { CodexRuntime } from './agents/codex'
 import { CODEX_AGENT_ID, CodexInstaller } from './agents/codex-installer'
+import { fetchCodexModels } from './agents/codex-models'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
 import { getWorkspaceDir } from './config/paths'
@@ -13,7 +22,11 @@ import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
 import { ChatManager } from './core/chat-manager'
 import { HistoryStore } from './history/store'
 import { SusieMcpServer } from './mcp/server'
+import { withDeadline } from './util/async'
 import type { Logger } from './util/logger'
+
+/** 模型枚举结果缓存时长（探针要起子进程，避免每次打开表单都付启动成本） */
+const MODEL_OPTIONS_TTL_MS = 5 * 60 * 1000
 
 export interface ServiceEmit {
   channelStatuses: (statuses: ChannelStatus[]) => void
@@ -75,6 +88,7 @@ export class SusieService {
     this.hub = new ChannelHub({
       store,
       attachmentsDir: paths.attachmentsDir,
+      listCommands: () => this.chatManager.listCommandSpecs(),
       onMessage: (envelope) => this.chatManager.handleInbound(envelope),
       onStatuses: emit.channelStatuses,
       onChannelRemoved: (channelId) => this.chatManager.onChannelRemoved(channelId),
@@ -135,9 +149,11 @@ export class SusieService {
         mcpUrl: this.mcp.url,
         mcpName: SUSIE_MCP_NAME,
         model: assistant.model ?? null,
+        thinkingLevel: assistant.thinking_level ?? null,
         models: assistant.models ?? [],
         codexPath: codex.executablePath,
         codexPathDir: codex.pathDir,
+        log: this.log,
       })
     }
 
@@ -172,6 +188,49 @@ export class SusieService {
         targetVersion: this.codexInstaller.targetVersion(),
       },
       acp,
+    }
+  }
+
+  /** 模型枚举缓存（agent id → 结果）；只缓存非空结果，失败时下次重试 */
+  private readonly modelOptionsCache = new Map<string, { at: number; options: AgentModelOption[] }>()
+
+  /** 枚举 agent 的模型候选（UI 下拉用）；agent 未安装或枚举失败返回 [] */
+  async listAgentModels(agentId: string): Promise<AgentModelOption[]> {
+    const cached = this.modelOptionsCache.get(agentId)
+    if (cached !== undefined && Date.now() - cached.at < MODEL_OPTIONS_TTL_MS) return cached.options
+    const options = await this.probeAgentModels(agentId)
+    if (options.length > 0) this.modelOptionsCache.set(agentId, { at: Date.now(), options })
+    return options
+  }
+
+  private async probeAgentModels(agentId: string): Promise<AgentModelOption[]> {
+    try {
+      if (agentId === CODEX_AGENT_ID) {
+        const codex = this.codexInstaller.resolve()
+        if (codex === null) return []
+        return await fetchCodexModels({ codexPath: codex.executablePath })
+      }
+      const manifest = this.acpRegistry.installedManifest(agentId)
+      if (manifest === null) return []
+      // ACP 的模型列表只在 session/new 的 configOptions 里给：起一次性会话读完即弃
+      const runtime = new AcpRuntime({
+        cmd: manifest.cmd,
+        args: manifest.args,
+        env: manifest.env,
+        cwd: os.tmpdir(),
+        mcpUrl: null,
+        mcpName: SUSIE_MCP_NAME,
+        log: this.log,
+      })
+      try {
+        await withDeadline(runtime.newSession(null), 30_000, `acp ${agentId} 模型枚举`)
+        return await runtime.listModels()
+      } finally {
+        void runtime.dispose()
+      }
+    } catch (error) {
+      this.log.error(`agent ${agentId} 模型枚举失败：${error instanceof Error ? error.message : String(error)}`)
+      return []
     }
   }
 

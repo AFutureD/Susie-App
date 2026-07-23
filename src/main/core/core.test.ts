@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AssistantConfig, ChatBinding, Config } from '../../shared/config'
+import type { AssistantConfig, Config } from '../../shared/config'
 import { partsToPlainText, type ChatMessage, type StoredMessage } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
 import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
 import type { HistoryStore } from '../history/store'
-import { ChatManager, resolveBinding } from './chat-manager'
+import { ChatManager } from './chat-manager'
 import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
 
 describe('parseCommandText', () => {
@@ -37,8 +37,10 @@ describe('CommandRegistry', () => {
     expect(await child.execute(makeCtx(replies), 'new', [])).toBe(true)
     expect(replies).toEqual(['ok'])
 
+    // 子层 help 必须列出父链 + 本层的全集（对位 Python show_help）
     expect(await child.execute(makeCtx(replies), 'help', [])).toBe(true)
     expect(replies[1]).toContain('/help')
+    expect(replies[1]).toContain('/new')
 
     // 未注册命令 → false，交回 assistant
     expect(await child.execute(makeCtx(replies), 'unknown', [])).toBe(false)
@@ -59,31 +61,13 @@ describe('CommandRegistry', () => {
   })
 })
 
-describe('resolveBinding', () => {
-  const bindings: ChatBinding[] = [
-    { channel: 'a', chat_ids: ['P:1'], assistant_id: 'ops' },
-    { channel: 'a', chat_ids: ['*'], assistant_id: 'default' },
-    { channel: 'b', chat_ids: ['*'], assistant_id: 'other' },
-  ]
-
-  it('matches exact chat id or wildcard in declaration order', () => {
-    expect(resolveBinding(bindings, 'a', 'P:1').assistant_id).toBe('ops')
-    expect(resolveBinding(bindings, 'a', 'P:2').assistant_id).toBe('default')
-    expect(resolveBinding(bindings, 'b', 'G:9').assistant_id).toBe('other')
-  })
-
-  it('falls back to the default assistant when nothing matches', () => {
-    expect(resolveBinding(bindings, 'zzz', 'P:1').assistant_id).toBe('default')
-  })
-})
-
 // ---------- ChatManager 失败反馈 ----------
 
 function makeManager(createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>) {
   const config: Config = {
     channels: {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
-    bindings: [],
+    bindings: [{ channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, members: [] }],
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
   const history = {
@@ -122,10 +106,12 @@ function inbound(text: string): InboundEnvelope {
       replyTo: null,
       out: false,
       sender: 'user',
+      senderId: '1',
       timestamp: 1,
       parts: [{ kind: 'text', text }],
     },
     chatName: null,
+    mentioned: false,
   }
 }
 
@@ -144,6 +130,73 @@ function stubRuntime(overrides: Partial<AgentRuntime>): AgentRuntime {
     ...overrides,
   }
 }
+
+describe('ChatManager commands', () => {
+  it('exposes the full command catalog for channel menu registration', () => {
+    const { manager } = makeManager(() => Promise.reject(new Error('unused')))
+    const names = manager.listCommandSpecs().map((spec) => spec.name)
+    expect(names.toSorted()).toEqual(['chat_id', 'help', 'model', 'new'])
+  })
+
+  it('runs assistant commands (/new) against the chat runtime', async () => {
+    let sessions = 0
+    const runtime = stubRuntime({
+      newSession: () => {
+        sessions += 1
+        return Promise.resolve(`s${sessions}`)
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(inbound('/new'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    expect(sessions).toBe(2) // ensureChat 建会话 1 次 + /new 重建 1 次
+  })
+
+  it('lists models with names and descriptions on /model', async () => {
+    const runtime = stubRuntime({
+      currentModel: () => Promise.resolve('gpt-5.6-sol'),
+      listModels: () =>
+        Promise.resolve([
+          { value: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', description: 'Latest frontier model.' },
+          { value: 'plain', name: 'plain' },
+        ]),
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(inbound('/model'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    const text = partsToPlainText(sent[0]!.parts)
+    expect(text).toContain('current: gpt-5.6-sol')
+    expect(text).toContain('gpt-5.6-sol（GPT-5.6-Sol）：Latest frontier model.')
+    expect(text).toContain('plain')
+    expect(text).toContain('/model <value>')
+  })
+
+  it('lists every registered command on /help', async () => {
+    const { manager, sent } = makeManager(() => Promise.resolve(stubRuntime({})))
+
+    manager.handleInbound(inbound('/help'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    const text = partsToPlainText(sent[0]!.parts)
+    for (const name of ['/help', '/chat_id', '/new', '/model']) {
+      expect(text).toContain(name)
+    }
+  })
+
+  it('answers /chat_id from the global inspector command', async () => {
+    const { manager, sent } = makeManager(() => Promise.resolve(stubRuntime({})))
+
+    manager.handleInbound(inbound('/chat_id'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('P:1')
+  })
+})
 
 describe('ChatManager failure feedback', () => {
   it('replies in channel and logs an error when no agent takes the message', async () => {

@@ -1,20 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { TelegramBotChannelSettings } from '../../shared/config'
-import { decodeChatId, encodeChatId } from './chat-id'
-import { isInboundAllowed } from './telegram-policy'
+import { decodeChatId, encodeChatId } from '../../shared/chat-id'
+import { toBotCommands } from './telegram-bot'
+import { markdownToTelegramHtml } from './telegram-markdown'
 import { escapeHtml, renderMessageHtml, renderMessagePlain } from './telegram-render'
-
-function settings(overrides: Partial<TelegramBotChannelSettings> = {}): TelegramBotChannelSettings {
-  return {
-    type: 'telegram_bot',
-    token: 't',
-    enabled: true,
-    whitelist: [],
-    groups: {},
-    drop_pending_updates: false,
-    ...overrides,
-  }
-}
 
 describe('chat-id codec', () => {
   it('round-trips all chat kinds', () => {
@@ -35,60 +23,30 @@ describe('chat-id codec', () => {
   })
 })
 
-describe('inbound policy', () => {
-  it('denies bots and missing users', () => {
-    const s = settings({ whitelist: ['*'] })
-    expect(
-      isInboundAllowed(s, { fromBot: true, userId: '1', chatType: 'private', rawChatId: '1', mentioned: false }),
-    ).toBe(false)
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: null, chatType: 'private', rawChatId: '1', mentioned: false }),
-    ).toBe(false)
+describe('toBotCommands', () => {
+  it('keeps valid names and maps to BotCommand shape', () => {
+    expect(toBotCommands([{ name: 'new', description: '开启新会话' }])).toEqual([
+      { command: 'new', description: '开启新会话' },
+    ])
   })
 
-  it('private chats use the channel whitelist', () => {
-    const s = settings({ whitelist: ['42'] })
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '42', chatType: 'private', rawChatId: '42', mentioned: false }),
-    ).toBe(true)
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '7', chatType: 'private', rawChatId: '7', mentioned: false }),
-    ).toBe(false)
+  it('drops names outside the [a-z0-9_]{1,32} rule', () => {
+    const specs = [
+      { name: 'Help', description: 'upper' },
+      { name: 'a.b', description: 'dot' },
+      { name: 'x'.repeat(33), description: 'too long' },
+      { name: 'chat_id', description: 'ok' },
+    ]
+    expect(toBotCommands(specs).map((c) => c.command)).toEqual(['chat_id'])
   })
 
-  it('groups fall back to the "*" policy and honor only_mention', () => {
-    const s = settings({
-      groups: {
-        '*': { whitelist: ['*'], only_mention: true },
-        '-100': { whitelist: ['9'], only_mention: false },
-      },
-    })
-    // 特定群策略优先
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '9', chatType: 'supergroup', rawChatId: '-100', mentioned: false }),
-    ).toBe(true)
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '8', chatType: 'supergroup', rawChatId: '-100', mentioned: false }),
-    ).toBe(false)
-    // 其他群回退 * 策略：需要 @ 提及
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '1', chatType: 'group', rawChatId: '-200', mentioned: false }),
-    ).toBe(false)
-    expect(
-      isInboundAllowed(s, { fromBot: false, userId: '1', chatType: 'group', rawChatId: '-200', mentioned: true }),
-    ).toBe(true)
-  })
-
-  it('denies groups when no policy matches', () => {
-    expect(
-      isInboundAllowed(settings(), {
-        fromBot: false,
-        userId: '1',
-        chatType: 'group',
-        rawChatId: '-1',
-        mentioned: true,
-      }),
-    ).toBe(false)
+  it('clamps descriptions to 256 chars and falls back to the name when empty', () => {
+    const [long, empty] = toBotCommands([
+      { name: 'long', description: 'd'.repeat(300) },
+      { name: 'empty', description: '' },
+    ])
+    expect(long!.description).toHaveLength(256)
+    expect(empty!.description).toBe('empty')
   })
 })
 
@@ -105,11 +63,68 @@ describe('outbound rendering', () => {
     expect(html).not.toContain('/tmp/x.png')
   })
 
+  it('renders markdown text parts as telegram html', () => {
+    const html = renderMessageHtml([{ kind: 'text', text: '**bold** and `a < b`' }])
+    expect(html).toBe('<b>bold</b> and <code>a &lt; b</code>')
+  })
+
   it('renders a plain-text fallback', () => {
     const plain = renderMessagePlain([
       { kind: 'text', text: 'a' },
       { kind: 'quote', title: 't', body: 'b' },
     ])
     expect(plain).toBe('a\n\n[t]\nb')
+  })
+})
+
+describe('markdown → telegram html', () => {
+  it('converts inline styles', () => {
+    expect(markdownToTelegramHtml('**b** *i* _i_ ~~s~~ __b__ ||sp|| ***bi***')).toBe(
+      '<b>b</b> <i>i</i> <i>i</i> <s>s</s> <b>b</b> <tg-spoiler>sp</tg-spoiler> <b><i>bi</i></b>',
+    )
+  })
+
+  it('nests inline styles without breaking tag order', () => {
+    expect(markdownToTelegramHtml('*a **b** c*')).toBe('<i>a <b>b</b> c</i>')
+  })
+
+  it('leaves snake_case, bare stars and math untouched', () => {
+    expect(markdownToTelegramHtml('foo_bar_baz 2 * 3 * 4 a*b')).toBe('foo_bar_baz 2 * 3 * 4 a*b')
+  })
+
+  it('converts links and autolinks, protecting urls from italics', () => {
+    expect(markdownToTelegramHtml('[x](https://e.co/a_b_c)')).toBe('<a href="https://e.co/a_b_c">x</a>')
+    expect(markdownToTelegramHtml('<https://e.co/?a=1&b=2>')).toBe(
+      '<a href="https://e.co/?a=1&amp;b=2">https://e.co/?a=1&amp;b=2</a>',
+    )
+  })
+
+  it('escapes html inside inline code and keeps markdown literal there', () => {
+    expect(markdownToTelegramHtml('run `rm <a> && *x*` now')).toBe('run <code>rm &lt;a&gt; &amp;&amp; *x*</code> now')
+  })
+
+  it('converts fenced code blocks with language', () => {
+    expect(markdownToTelegramHtml('```ts\nconst a = 1 < 2\n```')).toBe(
+      '<pre><code class="language-ts">const a = 1 &lt; 2</code></pre>',
+    )
+    expect(markdownToTelegramHtml('```\n**not bold**\n```')).toBe('<pre>**not bold**</pre>')
+  })
+
+  it('keeps an unclosed fence to the end without throwing', () => {
+    expect(markdownToTelegramHtml('```\nabc')).toBe('<pre>abc</pre>')
+  })
+
+  it('converts headings, lists, rules and quotes', () => {
+    expect(markdownToTelegramHtml('## Title')).toBe('<b>Title</b>')
+    expect(markdownToTelegramHtml('- a\n  * b\n2. c\n---')).toBe('• a\n  • b\n2. c\n———')
+    expect(markdownToTelegramHtml('> q1\n> **q2**')).toBe('<blockquote>q1\n<b>q2</b></blockquote>')
+  })
+
+  it('wraps tables in pre', () => {
+    expect(markdownToTelegramHtml('| a | b |\n|---|---|\n| 1 | 2 |')).toBe('<pre>| a | b |\n|---|---|\n| 1 | 2 |</pre>')
+  })
+
+  it('drops nul bytes so placeholders cannot be forged', () => {
+    expect(markdownToTelegramHtml('a\u00000\u0000b `c`')).toBe('a0b <code>c</code>')
   })
 })

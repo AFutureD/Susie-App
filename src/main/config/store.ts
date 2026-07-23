@@ -2,7 +2,6 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
-  DEFAULT_ASSISTANT_ID,
   ID_PATTERN,
   configSchema,
   type AssistantConfig,
@@ -192,7 +191,7 @@ export class ConfigStore {
   }
 
   deleteAssistant(id: string, expectedVersion: number): ConfigMutationResult {
-    if (id === DEFAULT_ASSISTANT_ID) return fail(`"${DEFAULT_ASSISTANT_ID}" 助手不可删除`)
+    // 被绑定引用的助手由 schema 引用校验拦截；无引用即可删（不再有全局兜底特权助手）
     return this.mutate(expectedVersion, (draft) => {
       const index = draft.assistants.findIndex((a) => a.id === id)
       if (index < 0) throw new Error(`助手不存在：${id}`)
@@ -200,33 +199,10 @@ export class ConfigStore {
     })
   }
 
-  upsertBinding(index: number | null, binding: ChatBinding, expectedVersion: number): ConfigMutationResult {
+  /** 整组替换 bindings。解析已是顺序无关（最特异匹配），无需 index 式增删移。 */
+  setBindings(bindings: ChatBinding[], expectedVersion: number): ConfigMutationResult {
     return this.mutate(expectedVersion, (draft) => {
-      if (index === null) {
-        draft.bindings.push(binding)
-        return
-      }
-      if (index < 0 || index >= draft.bindings.length) throw new Error(`binding 序号越界：${index}`)
-      draft.bindings[index] = binding
-    })
-  }
-
-  deleteBinding(index: number, expectedVersion: number): ConfigMutationResult {
-    return this.mutate(expectedVersion, (draft) => {
-      if (index < 0 || index >= draft.bindings.length) throw new Error(`binding 序号越界：${index}`)
-      draft.bindings.splice(index, 1)
-    })
-  }
-
-  /** 与相邻 binding 交换位置。bindings 按声明顺序匹配，顺序即优先级。 */
-  moveBinding(index: number, direction: 'up' | 'down', expectedVersion: number): ConfigMutationResult {
-    return this.mutate(expectedVersion, (draft) => {
-      const target = direction === 'up' ? index - 1 : index + 1
-      const moved = draft.bindings[index]
-      const neighbor = draft.bindings[target]
-      if (moved === undefined || neighbor === undefined) throw new Error(`binding 序号越界：${index}`)
-      draft.bindings[index] = neighbor
-      draft.bindings[target] = moved
+      draft.bindings = bindings
     })
   }
 

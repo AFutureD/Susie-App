@@ -2,7 +2,15 @@
 // 新增通道：在 Schema 里加类型，并同步登记到下方的通道清单（preload 按清单做运行时白名单）。
 
 import type { AssistantConfig, ChannelSettings, ChatBinding, ConfigMutationResult, ConfigState } from './config'
-import type { AgentProgress, AgentsOverview, ChannelStatus, ChatInfo, StoredMessage } from './messages'
+import type {
+  AgentModelOption,
+  AgentProgress,
+  AgentsOverview,
+  ChannelStatus,
+  ChatInfo,
+  SenderInfo,
+  StoredMessage,
+} from './messages'
 
 export interface AppInfo {
   name: string
@@ -34,23 +42,22 @@ export interface IpcInvokeSchema {
   'config:delete-channel': { req: { id: string; expectedVersion: number }; res: ConfigMutationResult }
   'config:upsert-assistant': { req: { assistant: AssistantConfig; expectedVersion: number }; res: ConfigMutationResult }
   'config:delete-assistant': { req: { id: string; expectedVersion: number }; res: ConfigMutationResult }
-  'config:upsert-binding': {
-    req: { index: number | null; binding: ChatBinding; expectedVersion: number }
-    res: ConfigMutationResult
-  }
-  'config:delete-binding': { req: { index: number; expectedVersion: number }; res: ConfigMutationResult }
-  'config:move-binding': {
-    req: { index: number; direction: 'up' | 'down'; expectedVersion: number }
-    res: ConfigMutationResult
-  }
-  'config:preview-template': {
-    req: { template: string }
-    res: { ok: true; rendered: string } | { ok: false; message: string }
-  }
+  /** 整组替换 bindings（节点编辑器是全量状态编辑，index 式 API 不适配） */
+  'config:set-bindings': { req: { bindings: ChatBinding[]; expectedVersion: number }; res: ConfigMutationResult }
+
+  /** 在 Finder 打开 assistant 的生效工作目录（缺省为 workspace/<id>，会自动创建） */
+  'assistants:open-workdir': { req: { id: string }; res: ActionResult }
 
   'channel:statuses': { req: undefined; res: ChannelStatus[] }
+  /** 用 token 调 getMe 拿 bot username（频道 ID 留空时自动命名） */
+  'channels:resolve-username': {
+    req: { token: string }
+    res: { ok: true; username: string } | { ok: false; message: string }
+  }
 
   'history:chats': { req: undefined; res: ChatInfo[] }
+  /** 出现过的发送者（白名单候选）；chatId 省略时跨该频道全部会话 */
+  'history:senders': { req: { channelId: string; chatId?: string }; res: SenderInfo[] }
   'history:messages': {
     req: { channelId: string; chatId: string; limit?: number; beforeId?: number }
     res: StoredMessage[]
@@ -59,6 +66,8 @@ export interface IpcInvokeSchema {
   'chat:send': { req: { channelId: string; chatId: string; text: string }; res: ActionResult }
 
   'agents:overview': { req: undefined; res: AgentsOverview }
+  /** 枚举指定 agent 的模型候选；agent 未安装或枚举失败返回 [] */
+  'agents:models': { req: { agentId: string }; res: AgentModelOption[] }
   'agents:install': { req: { id: string }; res: ActionResult }
   'agents:uninstall': { req: { id: string }; res: ActionResult }
 
@@ -76,16 +85,17 @@ export const IPC_INVOKE_CHANNELS = [
   'config:delete-channel',
   'config:upsert-assistant',
   'config:delete-assistant',
-  'config:upsert-binding',
-  'config:delete-binding',
-  'config:move-binding',
-  'config:preview-template',
+  'config:set-bindings',
+  'assistants:open-workdir',
   'channel:statuses',
+  'channels:resolve-username',
   'history:chats',
+  'history:senders',
   'history:messages',
   'history:search',
   'chat:send',
   'agents:overview',
+  'agents:models',
   'agents:install',
   'agents:uninstall',
   'logs:tail',

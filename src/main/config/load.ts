@@ -45,6 +45,7 @@ function stripLegacy(data: unknown): { data: unknown; migrations: string[] } {
   const channels = record['channels']
   if (channels !== null && typeof channels === 'object' && !Array.isArray(channels)) {
     const kept: Record<string, unknown> = {}
+    let admissionStripped = false
     for (const [id, channel] of Object.entries(channels)) {
       const type =
         channel !== null && typeof channel === 'object' ? (channel as Record<string, unknown>)['type'] : undefined
@@ -52,9 +53,45 @@ function stripLegacy(data: unknown): { data: unknown; migrations: string[] } {
         migrations.push(`已忽略通道 "channels.${id}"（类型 telegram_user 不再支持）`)
         continue
       }
-      kept[id] = channel
+      // 准入配置已统一到会话绑定：channel 级 whitelist / groups 剥离
+      if (channel !== null && typeof channel === 'object' && !Array.isArray(channel)) {
+        const entry = { ...(channel as Record<string, unknown>) }
+        if ('whitelist' in entry || 'groups' in entry) {
+          delete entry['whitelist']
+          delete entry['groups']
+          admissionStripped = true
+        }
+        kept[id] = entry
+      } else {
+        kept[id] = channel
+      }
+    }
+    if (admissionStripped) {
+      migrations.push('已忽略 channel 级 whitelist / groups 字段（准入统一由会话绑定控制）')
     }
     record['channels'] = kept
+  }
+
+  // legacy bindings.chat_ids 数组 → 单会话条目（chat_id）
+  const bindings = record['bindings']
+  if (Array.isArray(bindings)) {
+    let converted = false
+    const expanded: unknown[] = []
+    for (const item of bindings) {
+      if (item !== null && typeof item === 'object' && 'chat_ids' in item) {
+        converted = true
+        const { chat_ids: chatIds, ...rest } = item as Record<string, unknown>
+        if (Array.isArray(chatIds)) {
+          for (const chatId of chatIds) expanded.push({ ...rest, chat_id: chatId })
+        }
+      } else {
+        expanded.push(item)
+      }
+    }
+    if (converted) {
+      record['bindings'] = expanded
+      migrations.push('已将 legacy bindings.chat_ids 数组展开为单会话条目（chat_id）')
+    }
   }
 
   return { data: record, migrations }

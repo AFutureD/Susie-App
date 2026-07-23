@@ -14,6 +14,8 @@ export interface ChatMessage {
   /** 是否本方（bot/用户自己）发出 */
   out: boolean
   sender: string | null
+  /** 发送者的平台用户 id（telegram user id）；出站/未知时为 null */
+  senderId: string | null
   /** epoch 毫秒 */
   timestamp: number
   parts: MessagePart[]
@@ -31,12 +33,27 @@ export interface ChatInfo {
   lastTs: number
 }
 
+/** 某会话中出现过的发送者（群成员白名单候选） */
+export interface SenderInfo {
+  id: string
+  /** 最近一次发言时记录的显示名 */
+  name: string | null
+}
+
 export type ChannelState = 'stopped' | 'starting' | 'running' | 'error'
 
 export interface ChannelStatus {
   id: string
   state: ChannelState
   detail: string | null
+}
+
+/** agent 模型候选（main 枚举，UI 下拉 / /model 列表共用） */
+export interface AgentModelOption {
+  value: string
+  name: string
+  /** 模型一句话说明（来源不提供时缺省） */
+  description?: string
 }
 
 /** Agent 安装态（Agent 管理页） */

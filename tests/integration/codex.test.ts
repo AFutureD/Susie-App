@@ -29,12 +29,30 @@ async function lastTurn(runtime: CodexRuntime, prompt: string): Promise<AgentTur
 }
 
 describe.skipIf(!enabled)('codex integration', () => {
+  it('enumerates models via app-server probe', { timeout: 60_000 }, async () => {
+    const runtime = new CodexRuntime({
+      cwd: mkdtempSync(path.join(tmpdir(), 'susie-codex-models-')),
+      mcpUrl: null,
+      mcpName: 'susie_mcp_server',
+      model: null,
+      thinkingLevel: null,
+      models: [],
+      ...resolveCodex(),
+    })
+    const options = await runtime.listModels()
+    expect(options.length).toBeGreaterThan(0)
+    expect(options[0]).toHaveProperty('value')
+    expect(options[0]).toHaveProperty('name')
+    await runtime.dispose()
+  })
+
   it('completes a plain turn', { timeout: 180_000 }, async () => {
     const runtime = new CodexRuntime({
       cwd: mkdtempSync(path.join(tmpdir(), 'susie-codex-')),
       mcpUrl: null,
       mcpName: 'susie_mcp_server',
       model: null,
+      thinkingLevel: null,
       models: [],
       ...resolveCodex(),
     })
@@ -61,6 +79,7 @@ describe.skipIf(!enabled)('codex integration', () => {
       replyTo: null,
       out: true,
       sender: 'susie',
+      senderId: null,
       timestamp: Date.now(),
       parts: [],
     }
@@ -83,6 +102,7 @@ describe.skipIf(!enabled)('codex integration', () => {
         mcpUrl: url,
         mcpName: 'susie_mcp_server',
         model: null,
+        thinkingLevel: null,
         models: [],
         ...resolveCodex(),
       })

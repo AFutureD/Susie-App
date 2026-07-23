@@ -63,17 +63,24 @@ test('外部编辑 config.toml 热加载进 UI', async () => {
   await expect(win.getByText('hot_bot', { exact: true })).toBeVisible()
 })
 
-test('新增会话绑定并校验引用', async () => {
+test('树形面板把「默认」会话指派给助手并落盘', async () => {
   await win.getByRole('link', { name: '助手' }).click()
-  await expect(win.getByText('default', { exact: true })).toBeVisible()
 
-  await win.getByRole('button', { name: '新增绑定' }).click()
-  await win.getByRole('button', { name: '保存', exact: true }).click()
+  // 左栏树：频道行 + 每频道恒存的「默认」行（e2e_bot 先于 hot_bot 声明，取第一个）
+  await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
+  const defaultRow = win.getByText('默认（其余会话）').first()
+  await expect(defaultRow).toBeVisible()
 
-  await expect(win.getByRole('button', { name: '新增绑定' })).toBeVisible()
+  // 选中「默认」行 → 右栏详情选择助手
+  await defaultRow.click()
+  await win.getByLabel('助手').selectOption('default')
+
+  // 通道默认绑定落盘为 chat_id = "*"（'*' 仅存在于数据层，UI 不出现）
+  await expect.poll(() => readFileSync(configPath, 'utf-8')).toContain('[[bindings]]')
   const text = readFileSync(configPath, 'utf-8')
-  expect(text).toContain('[[bindings]]')
   expect(text).toContain('channel = "e2e_bot"')
+  expect(text).toContain('assistant_id = "default"')
+  expect(text).toContain('chat_id = "*"')
 })
 
 test('Raw 编辑器：非法配置被拒绝，不影响运行态', async () => {

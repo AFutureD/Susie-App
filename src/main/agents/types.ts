@@ -1,9 +1,7 @@
-import type { MessagePart } from '../../shared/messages'
+import type { AgentModelOption, MessagePart } from '../../shared/messages'
 
-export interface AgentModelOption {
-  value: string
-  name: string
-}
+// AgentModelOption 定义挪到 shared（IPC / UI 复用），这里保留 re-export 兼容既有 import
+export type { AgentModelOption }
 
 export type TurnStatus = 'in_progress' | 'completed' | 'failed' | 'cancelled'
 

@@ -1,5 +1,7 @@
-import { Codex, type Thread, type ThreadOptions } from '@openai/codex-sdk'
+import { Codex, type ModelReasoningEffort, type Thread, type ThreadOptions } from '@openai/codex-sdk'
 import type { MessagePart } from '../../shared/messages'
+import type { Logger } from '../util/logger'
+import { fetchCodexModels } from './codex-models'
 import { mapThreadItem } from './codex-map'
 import type { AgentModelOption, AgentRuntime, AgentTurn } from './types'
 
@@ -9,12 +11,15 @@ export interface CodexRuntimeOptions {
   mcpUrl: string | null
   mcpName: string
   model: string | null
-  /** /model 候选（来自 assistant 配置） */
+  /** 思考深度；null 用 codex 默认 */
+  thinkingLevel: ModelReasoningEffort | null
+  /** /model 候选白名单（assistant 配置）；空则经 app-server 动态枚举 */
   models: string[]
   /** codex 可执行文件路径（CodexInstaller 解析）；'codex' 表示交给 PATH */
   codexPath: string
   /** vendor codex-path 目录（rg 等辅助工具）；spawn 时前置到 PATH */
   codexPathDir: string | null
+  log?: Logger
 }
 
 /** SDK 的 env 选项是整体替换而非合并，这里手动继承进程环境并前置 pathDir */
@@ -32,25 +37,29 @@ function envWithPathDir(pathDir: string): Record<string, string> {
  * Codex 运行时（@openai/codex-sdk，`codex exec` JSONL 协议）。
  *
  * 与 Python 版（app-server SDK）的功能差异：
- * - 无法枚举模型 → 候选来自配置 models；切换模型 = 重建 thread（新会话）；
+ * - SDK 无模型接口 → 枚举走 codex-models.ts 的 app-server 探针（配置 models 非空时作白名单覆盖）；
+ *   切换模型 = 重建 thread（新会话）；
  * - 无系统指令入参 → 指令并入会话首个 prompt；
  * - 无 steer → 活跃 turn 期间来新消息时先取消当前 turn 再发新 turn。
  */
 export class CodexRuntime implements AgentRuntime {
   private readonly options: CodexRuntimeOptions
   private readonly codex: Codex
+  private readonly childEnv: Record<string, string> | undefined
   private thread: Thread | null = null
   private pendingInstruction: string | null = null
   private lastInstruction: string | null = null
   private model: string | null
+  private modelOptions: AgentModelOption[] | null = null
   private active: AbortController | null = null
 
   constructor(options: CodexRuntimeOptions) {
     this.options = options
     this.model = options.model
+    this.childEnv = options.codexPathDir === null ? undefined : envWithPathDir(options.codexPathDir)
     this.codex = new Codex({
       codexPathOverride: options.codexPath,
-      ...(options.codexPathDir === null ? {} : { env: envWithPathDir(options.codexPathDir) }),
+      ...(this.childEnv === undefined ? {} : { env: this.childEnv }),
       config:
         options.mcpUrl === null
           ? {}
@@ -72,6 +81,7 @@ export class CodexRuntime implements AgentRuntime {
       sandboxMode: 'workspace-write',
       networkAccessEnabled: true,
       ...(this.model === null ? {} : { model: this.model }),
+      ...(this.options.thinkingLevel === null ? {} : { modelReasoningEffort: this.options.thinkingLevel }),
     }
   }
 
@@ -83,8 +93,26 @@ export class CodexRuntime implements AgentRuntime {
     return Promise.resolve(this.thread.id ?? 'pending')
   }
 
-  listModels(): Promise<AgentModelOption[]> {
-    return Promise.resolve(this.options.models.map((value) => ({ value, name: value })))
+  async listModels(): Promise<AgentModelOption[]> {
+    if (this.options.models.length > 0) {
+      return this.options.models.map((value) => ({ value, name: value }))
+    }
+    return (await this.fetchModelOptions()) ?? []
+  }
+
+  /** app-server 探针结果按 runtime 实例缓存；失败返回 null（调用方降级） */
+  private async fetchModelOptions(): Promise<AgentModelOption[] | null> {
+    if (this.modelOptions !== null) return this.modelOptions
+    try {
+      this.modelOptions = await fetchCodexModels({
+        codexPath: this.options.codexPath,
+        ...(this.childEnv === undefined ? {} : { env: this.childEnv }),
+      })
+      return this.modelOptions
+    } catch (error) {
+      this.options.log?.error(`codex 模型枚举失败：${error instanceof Error ? error.message : String(error)}`)
+      return null
+    }
   }
 
   currentModel(): Promise<string | null> {
@@ -92,14 +120,18 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   /** 切换模型会重建会话（exec 协议下 thread 选项在创建时固定） */
-  setModel(value: string): Promise<boolean> {
-    if (this.options.models.length > 0 && !this.options.models.includes(value)) {
-      return Promise.resolve(false)
+  async setModel(value: string): Promise<boolean> {
+    if (this.options.models.length > 0) {
+      if (!this.options.models.includes(value)) return false
+    } else {
+      // 枚举可用时按候选校验（对位 Python set_model）；探针失败则放行，交给下轮 turn 报错
+      const options = await this.fetchModelOptions()
+      if (options !== null && !options.some((option) => option.value === value)) return false
     }
     this.model = value
     this.thread = this.codex.startThread(this.threadOptions())
     this.pendingInstruction = this.lastInstruction
-    return Promise.resolve(true)
+    return true
   }
 
   cancel(): Promise<void> {
