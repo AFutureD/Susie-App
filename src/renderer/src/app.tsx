@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
+import { OnboardingOverlay } from './components/onboarding/onboarding'
 import { configStateAtom } from './lib/config-atoms'
 import { susie } from './lib/ipc'
 import { channelStatusesAtom } from './lib/service-atoms'
@@ -61,6 +62,7 @@ export function App() {
   return (
     <div className="flex h-full">
       <ConfigBootstrap />
+      <OnboardingOverlay />
       <aside className="app-drag flex w-52 shrink-0 flex-col border-r border-line bg-surface">
         {/* 顶部留白给 hiddenInset 红绿灯 */}
         <div className="flex items-center gap-2 px-4 pt-12 pb-4">

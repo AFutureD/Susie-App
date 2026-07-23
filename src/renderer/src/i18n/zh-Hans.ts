@@ -27,6 +27,38 @@ export const zhHans: Record<string, string> = {
 
   'config.errorBanner': '配置文件有错误，正在使用最近一次有效配置：',
 
+  // 首启引导
+  'onboarding.welcome.title': '欢迎使用 Susie',
+  'onboarding.welcome.subtitle': '两步完成初始设置：连接 Telegram Bot，并选择由助手响应的会话。',
+  'onboarding.skip': '跳过引导（之后可在「频道」与「助手」页手动配置）',
+  'onboarding.step.channel': '第 1 步 · 添加 Telegram Bot',
+  'onboarding.channel.guide.step1': '在 Telegram 中找 @BotFather 创建 Bot，获取 token。',
+  'onboarding.channel.guide.step2':
+    '在 BotFather 的 Bot Settings 中：打开 Secretary Mode 和 Bot to Bot Communication Mode，关闭 Group Privacy。',
+  'onboarding.channel.guide.open': '打开 @BotFather',
+  'onboarding.channel.submit': '连接',
+  'onboarding.channel.connecting': '正在连接…',
+  'onboarding.step.binding': '第 2 步 · 会话绑定',
+  'onboarding.binding.subtitle': '选择哪些会话交给助手响应，之后可随时在「助手」页调整。',
+  'onboarding.binding.all.title': '所有会话（默认）',
+  'onboarding.binding.all.desc': '所有私聊和群聊都由助手响应（群内默认仅响应 @ 提及）。点击即完成设置。',
+  'onboarding.binding.some.title': '仅指定会话',
+  'onboarding.binding.some.desc': '只有你选中的会话会被响应，其余会话保持沉默。下一步从新消息里挑选会话。',
+  'onboarding.listen.hint':
+    '在 Telegram 中打开与 Bot 的对话，点击「Start」或发送一条消息，新会话会自动出现在下方列表。',
+  'onboarding.listen.open': '在 Telegram 中打开',
+  'onboarding.listen.linkFailed': '获取 bot 链接失败：{detail}',
+  'onboarding.listen.channelError': '频道状态异常：{detail}',
+  'onboarding.listen.waiting': '正在监听新会话…',
+  'onboarding.listen.group.hint': '群聊绑定可选：把 Bot 拉进群并在群里发一条消息，该群同样会出现在列表中。',
+  'onboarding.listen.bind': '绑定',
+  'onboarding.listen.bound': '已绑定',
+  'onboarding.listen.back': '返回',
+  'onboarding.listen.finish': '完成',
+  'onboarding.done.title': '设置完成',
+  'onboarding.done.desc': '现在可以在 Telegram 里给 Bot 发消息了。频道与会话绑定可随时在「频道」和「助手」页调整。',
+  'onboarding.done.cta': '开始使用',
+
   'page.channels.title': '频道',
   'page.channels.empty': '还没有配置任何频道。点击「新增频道」，填入 Telegram Bot 的 token 即可开始。',
   'channels.add': '新增频道',

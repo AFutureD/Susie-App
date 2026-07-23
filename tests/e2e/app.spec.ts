@@ -36,7 +36,16 @@ test.afterAll(async () => {
   await app?.close()
 })
 
-test('启动：侧边栏挂载，频道页为空态', async () => {
+test('首次启动：出现 onboarding 引导，跳过后进入主界面', async () => {
+  // 空配置 + 无完成标记 → 引导第 1 步（添加频道）
+  await expect(win.getByText('欢迎使用 Susie')).toBeVisible()
+  await expect(win.getByText('第 1 步 · 添加 Telegram Bot')).toBeVisible()
+  await expect(win.getByText(/BotFather 创建 Bot/)).toBeVisible()
+
+  await win.getByRole('button', { name: /跳过引导/ }).click()
+  await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
+
+  // 主界面：侧边栏挂载，频道页为空态
   await expect(win.locator('nav a')).toHaveCount(6)
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })

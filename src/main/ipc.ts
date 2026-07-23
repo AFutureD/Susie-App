@@ -49,6 +49,22 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
     }
   })
 
+  handle('app:open-external', async (payload) => {
+    let url: URL
+    try {
+      url = new URL(payload.url)
+    } catch {
+      return { ok: false, message: `非法 URL：${payload.url}` }
+    }
+    if (url.protocol !== 'https:') return { ok: false, message: `不允许的协议：${url.protocol}` }
+    try {
+      await shell.openExternal(url.toString())
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    }
+  })
+
   handle('dialog:pick-directory', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     return result.canceled ? null : (result.filePaths[0] ?? null)

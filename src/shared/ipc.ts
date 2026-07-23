@@ -30,6 +30,8 @@ export type ActionResult = { ok: true } | { ok: false; message: string }
 export interface IpcInvokeSchema {
   'app:get-info': { req: undefined; res: AppInfo }
   'app:set-login-item': { req: { enabled: boolean }; res: ActionResult }
+  /** 在系统默认浏览器/对应 App 打开外部链接（仅 https） */
+  'app:open-external': { req: { url: string }; res: ActionResult }
   'dialog:pick-directory': { req: undefined; res: string | null }
 
   'config:get': { req: undefined; res: ConfigState }
@@ -77,6 +79,7 @@ export interface IpcInvokeSchema {
 export const IPC_INVOKE_CHANNELS = [
   'app:get-info',
   'app:set-login-item',
+  'app:open-external',
   'dialog:pick-directory',
   'config:get',
   'config:get-raw',
