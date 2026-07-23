@@ -138,6 +138,10 @@ export const zhHans: Record<string, string> = {
   'bindings.detail.group.onlyMention': '群内仅响应 @ 提及',
   'bindings.detail.group.whitelist': '成员白名单',
   'bindings.detail.group.whitelist.hint': '空名单 = 所有成员可触发。',
+  'bindings.detail.output': '输出',
+  'bindings.detail.output.sendOutput': '发送 agent 运行输出',
+  'bindings.detail.output.sendOutput.hint':
+    '开启后，agent 运行期间的全部产出（命令、推理、工具调用与结果文本）都会发送到会话；默认关闭，agent 仅通过 send_message 主动回复。',
   'bindings.detail.remove': '移除会话',
   'bindings.detail.remove.hint': '清除该会话的绑定（含触发条件）',
   'bindings.detail.ghost.cleanup': '清理该频道的残留绑定',

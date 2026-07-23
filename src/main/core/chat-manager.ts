@@ -228,7 +228,15 @@ export class ChatManager {
           }
           if (turn.status !== 'completed' && turn.status !== 'failed') continue
 
-          const parts = [...turn.parts]
+          // agent 运行期间的直接产出（过程 quote 与结果文本）默认不发送——回复走 MCP send_message；
+          // 绑定开启 send_output 后才整体发到会话（发送时现取配置，开关即时生效）。
+          // 失败时的 Error 提示是本层的反馈，不受开关影响。
+          const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
+          const sendOutput = binding?.send_output === true
+          const parts = sendOutput ? [...turn.parts] : []
+          if (!sendOutput && turn.parts.length > 0) {
+            this.deps.log.info(`chat ${entry.key} 已按绑定配置省略 ${turn.parts.length} 段 agent 直接输出`)
+          }
           if (turn.status === 'failed') {
             const detail = turn.error ?? 'agent turn failed'
             this.deps.log.error(`chat ${entry.key} agent turn 失败：${detail}`)

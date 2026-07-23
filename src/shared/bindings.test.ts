@@ -14,15 +14,19 @@ const bind = (channel: string, chatId: string, assistantId: string, extra: Parti
   assistant_id: assistantId,
   only_mention: true,
   members: [],
+  send_output: false,
   ...extra,
 })
 
 describe('expandBindings', () => {
   it('splits exact entries and the per-channel default, keeping trigger attributes', () => {
-    const bindings = [bind('a', 'S:-1', 'ops', { only_mention: false, members: ['7'] }), bind('a', '*', 'default')]
+    const bindings = [
+      bind('a', 'S:-1', 'ops', { only_mention: false, members: ['7'], send_output: true }),
+      bind('a', '*', 'default'),
+    ]
     expect(expandBindings(bindings)).toEqual({
-      exact: { a: { 'S:-1': { assistantId: 'ops', onlyMention: false, members: ['7'] } } },
-      wildcard: { a: { assistantId: 'default', onlyMention: true, members: [] } },
+      exact: { a: { 'S:-1': { assistantId: 'ops', onlyMention: false, members: ['7'], sendOutput: true } } },
+      wildcard: { a: { assistantId: 'default', onlyMention: true, members: [], sendOutput: false } },
     })
   })
 
@@ -38,16 +42,16 @@ describe('canonicalizeBindings', () => {
   it('emits one entry per chat, sorted, with the channel default last', () => {
     const assignments: BindingAssignments = {
       exact: {
-        b: { 'P:9': { assistantId: 'ops', onlyMention: true, members: [] } },
+        b: { 'P:9': { assistantId: 'ops', onlyMention: true, members: [], sendOutput: false } },
         a: {
-          'P:2': { assistantId: 'ops', onlyMention: true, members: [] },
-          'G:1': { assistantId: 'other', onlyMention: false, members: ['5'] },
+          'P:2': { assistantId: 'ops', onlyMention: true, members: [], sendOutput: false },
+          'G:1': { assistantId: 'other', onlyMention: false, members: ['5'], sendOutput: true },
         },
       },
-      wildcard: { a: { assistantId: 'default', onlyMention: true, members: [] } },
+      wildcard: { a: { assistantId: 'default', onlyMention: true, members: [], sendOutput: false } },
     }
     expect(canonicalizeBindings(assignments)).toEqual([
-      bind('a', 'G:1', 'other', { only_mention: false, members: ['5'] }),
+      bind('a', 'G:1', 'other', { only_mention: false, members: ['5'], send_output: true }),
       bind('a', 'P:2', 'ops'),
       bind('a', '*', 'default'),
       bind('b', 'P:9', 'ops'),

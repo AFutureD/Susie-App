@@ -53,6 +53,11 @@ export const bindingSchema = z.strictObject({
   only_mention: z.boolean().default(true),
   /** 群会话生效：可触发的成员 user id；空 = 所有成员 */
   members: z.array(z.string()).default([]),
+  /**
+   * 开启后把 agent 运行期间的全部直接产出（命令/推理/工具调用与最终回复文本）发送到会话；
+   * 默认关闭——agent 仅通过 susie 的 send_message 工具主动回复
+   */
+  send_output: z.boolean().default(false),
 })
 
 export const configSchema = z

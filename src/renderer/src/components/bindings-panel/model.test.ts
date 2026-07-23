@@ -30,7 +30,12 @@ describe('buildTree', () => {
     })
     const tree = buildTree(config, [chat('bot', 'S:-1', '大群')], [])
     expect(tree).toHaveLength(1)
-    expect(tree[0]?.defaultAssistantId).toBe('default')
+    expect(tree[0]?.defaultAssignment).toEqual({
+      assistantId: 'default',
+      onlyMention: true,
+      members: [],
+      sendOutput: false,
+    })
     expect(tree[0]?.rows).toEqual([
       {
         channelId: 'bot',
@@ -38,7 +43,7 @@ describe('buildTree', () => {
         name: '大群',
         chatType: 'supergroup',
         threadId: null,
-        assignment: { assistantId: 'ops', onlyMention: false, members: ['7'] },
+        assignment: { assistantId: 'ops', onlyMention: false, members: ['7'], sendOutput: false },
       },
     ])
   })
@@ -48,7 +53,7 @@ describe('buildTree', () => {
       bindings: [{ channel: 'bot', chat_id: 'P:1', assistant_id: 'ops' }],
     })
     const tree = buildTree(config, [], [])
-    expect(tree[0]?.defaultAssistantId).toBeNull()
+    expect(tree[0]?.defaultAssignment).toBeNull()
     expect(tree[0]?.rows[0]?.assignment?.assistantId).toBe('ops')
   })
 

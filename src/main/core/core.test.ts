@@ -63,11 +63,23 @@ describe('CommandRegistry', () => {
 
 // ---------- ChatManager 失败反馈 ----------
 
-function makeManager(createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>) {
+function makeManager(
+  createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>,
+  options: { sendOutput?: boolean } = {},
+) {
   const config: Config = {
     channels: {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
-    bindings: [{ channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, members: [] }],
+    bindings: [
+      {
+        channel: 'tg',
+        chat_id: '*',
+        assistant_id: 'default',
+        only_mention: true,
+        members: [],
+        send_output: options.sendOutput ?? false,
+      },
+    ],
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
   const history = {
@@ -195,6 +207,63 @@ describe('ChatManager commands', () => {
 
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('P:1')
+  })
+})
+
+describe('ChatManager agent output gating', () => {
+  const turnRuntime = () =>
+    stubRuntime({
+      async *prompt() {
+        yield {
+          status: 'completed' as const,
+          parts: [
+            { kind: 'quote' as const, title: '[completed] ls', body: 'total 0' },
+            { kind: 'text' as const, text: 'done' },
+          ],
+          error: null,
+        }
+      },
+    })
+
+  it('drops the direct turn output by default (agent replies via send_message)', async () => {
+    const { manager, sent } = makeManager(() => Promise.resolve(turnRuntime()))
+
+    manager.handleInbound(inbound('hello'))
+
+    // 等待 turn 消费完成后确认没有出站消息
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(sent).toHaveLength(0)
+  })
+
+  it('sends the whole turn output when the binding enables send_output', async () => {
+    const { manager, sent } = makeManager(() => Promise.resolve(turnRuntime()), { sendOutput: true })
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(sent[0]!.parts).toEqual([
+      { kind: 'quote', title: '[completed] ls', body: 'total 0' },
+      { kind: 'text', text: 'done' },
+    ])
+  })
+
+  it('still reports failures in chat when send_output is off', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield {
+          status: 'failed' as const,
+          parts: [{ kind: 'text' as const, text: 'partial' }],
+          error: 'boom',
+        }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    // agent 的部分产出被省略，只保留本层的 Error 反馈
+    expect(sent[0]!.parts).toEqual([{ kind: 'text', text: 'Error: boom' }])
   })
 })
 

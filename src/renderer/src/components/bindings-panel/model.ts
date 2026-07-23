@@ -27,8 +27,8 @@ export interface ChatRow {
 export interface ChannelTree {
   channelId: string
   ghost: boolean
-  /** 通道默认（chat_id='*'）的助手；null = 无（该通道其余会话不响应） */
-  defaultAssistantId: string | null
+  /** 通道默认（chat_id='*'）的指派；null = 无（该通道其余会话不响应） */
+  defaultAssignment: ChatAssignment | null
   rows: ChatRow[]
 }
 
@@ -77,7 +77,7 @@ export function buildTree(config: Config, chats: ChatInfo[], drafts: DraftChat[]
     return {
       channelId,
       ghost: ghostIds.has(channelId),
-      defaultAssistantId: assignments.wildcard[channelId]?.assistantId ?? null,
+      defaultAssignment: assignments.wildcard[channelId] ?? null,
       rows,
     }
   })

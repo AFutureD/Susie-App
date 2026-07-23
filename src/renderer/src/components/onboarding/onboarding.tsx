@@ -235,7 +235,7 @@ function BindingStep({
 
   const bindAll = async (): Promise<void> => {
     const ok = await submit((assignments) => {
-      assignments.wildcard[channelId] = { assistantId, onlyMention: true, members: [] }
+      assignments.wildcard[channelId] = { assistantId, onlyMention: true, members: [], sendOutput: false }
     })
     if (ok) onFinish()
   }
@@ -243,7 +243,7 @@ function BindingStep({
   const bindChat = (chatId: string): void => {
     void submit((assignments) => {
       const channelExact = (assignments.exact[channelId] ??= {})
-      channelExact[chatId] = { assistantId, onlyMention: true, members: [] }
+      channelExact[chatId] = { assistantId, onlyMention: true, members: [], sendOutput: false }
     })
   }
 

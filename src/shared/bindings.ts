@@ -4,12 +4,14 @@ import { CHAT_ALL, type ChatBinding } from './config'
 // 不存在全局兜底——没有绑定命中就是不响应。群会话在命中后还要过发送者准入
 // （成员名单 + @ 提及要求，来自命中的那条绑定）。
 
-/** 一个会话的指派（含群触发属性） */
+/** 一个会话的指派（含群触发属性与输出选项） */
 export interface ChatAssignment {
   assistantId: string
   onlyMention: boolean
   /** 空 = 所有成员 */
   members: string[]
+  /** 开启后把 agent 运行期间的全部直接产出（过程与结果）发送到会话 */
+  sendOutput: boolean
 }
 
 /** 展开后的指派集合（图/树编辑器与规范化共用的语义模型） */
@@ -21,7 +23,12 @@ export interface BindingAssignments {
 }
 
 export function assignmentOf(binding: ChatBinding): ChatAssignment {
-  return { assistantId: binding.assistant_id, onlyMention: binding.only_mention, members: binding.members }
+  return {
+    assistantId: binding.assistant_id,
+    onlyMention: binding.only_mention,
+    members: binding.members,
+    sendOutput: binding.send_output,
+  }
 }
 
 /** bindings → 指派集合。legacy 容错：同一 (channel, chatId) 重复声明时首条胜出。 */
@@ -66,6 +73,7 @@ function toBinding(channel: string, chatId: string, assignment: ChatAssignment):
     assistant_id: assignment.assistantId,
     only_mention: assignment.onlyMention,
     members: assignment.members,
+    send_output: assignment.sendOutput,
   }
 }
 

@@ -218,8 +218,8 @@ assistant_id = "default"
     const versionBefore = store.currentVersion
     const replaced = store.setBindings(
       [
-        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, members: [] },
-        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, members: [] },
+        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, members: [], send_output: false },
+        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, members: [], send_output: false },
       ],
       versionBefore,
     )
@@ -230,7 +230,7 @@ assistant_id = "default"
 
     // 引用未知 assistant → superRefine 拒绝，状态不变
     const invalid = store.setBindings(
-      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, members: [] }],
+      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, members: [], send_output: false }],
       store.currentVersion,
     )
     expect(invalid.ok).toBe(false)

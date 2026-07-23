@@ -34,7 +34,11 @@ const defaultAssignment = (assistantId: string): ChatAssignment => ({
   assistantId,
   onlyMention: true,
   members: [],
+  sendOutput: false,
 })
+
+/** 指派的可调选项（群触发条件 + 输出选项） */
+type AssignmentPatch = Partial<Pick<ChatAssignment, 'onlyMention' | 'members' | 'sendOutput'>>
 
 export function BindingsPanel({ state }: { state: ConfigState }) {
   const intl = useIntl()
@@ -118,14 +122,26 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
     [submit],
   )
 
-  /** 更新精确绑定的群触发条件（成员名单 / @ 要求） */
+  /** 更新精确绑定的可调选项（群触发条件 / 输出选项） */
   const setTrigger = useCallback(
-    (row: ChatRow, patch: Partial<Pick<ChatAssignment, 'onlyMention' | 'members'>>): void => {
+    (row: ChatRow, patch: AssignmentPatch): void => {
       void submit((assignments) => {
         const existing = assignments.exact[row.channelId]?.[row.chatId]
         if (existing === undefined) return
         const channelExact = (assignments.exact[row.channelId] ??= {})
         channelExact[row.chatId] = { ...existing, ...patch }
+      })
+    },
+    [submit],
+  )
+
+  /** 更新通道默认绑定（chat_id='*'）的可调选项 */
+  const setDefaultOption = useCallback(
+    (channelId: string, patch: AssignmentPatch): void => {
+      void submit((assignments) => {
+        const existing = assignments.wildcard[channelId]
+        if (existing === undefined) return
+        assignments.wildcard[channelId] = { ...existing, ...patch }
       })
     },
     [submit],
@@ -225,6 +241,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
                 assistantIds={assistantIds}
                 busy={busy}
                 onAssign={(assistantId) => setAssistant(selection, assistantId)}
+                onOption={(patch) => setDefaultOption(selection.channelId, patch)}
               />
             )}
             {selection?.kind === 'chat' && selectedRow !== undefined && (
@@ -324,7 +341,7 @@ function ChannelSection({
         title={intl.formatMessage({ id: 'bindings.tree.defaultChat' })}
         titleClass="text-ink-muted italic"
         subtitle={
-          entry.defaultAssistantId === null ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' }) : null
+          entry.defaultAssignment === null ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' }) : null
         }
       />
       {entry.rows.map((row) => (
@@ -392,11 +409,13 @@ function DefaultDetail({
   assistantIds,
   busy,
   onAssign,
+  onOption,
 }: {
   entry: ChannelTree
   assistantIds: string[]
   busy: boolean
   onAssign: (assistantId: string | null) => void
+  onOption: (patch: AssignmentPatch) => void
 }) {
   const intl = useIntl()
   return (
@@ -409,7 +428,7 @@ function DefaultDetail({
       </div>
       <Field label={intl.formatMessage({ id: 'bindings.detail.assistant' })}>
         <Select
-          value={entry.defaultAssistantId ?? ''}
+          value={entry.defaultAssignment?.assistantId ?? ''}
           disabled={busy}
           onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
         >
@@ -421,6 +440,37 @@ function DefaultDetail({
           ))}
         </Select>
       </Field>
+      {entry.defaultAssignment !== null && (
+        <OutputOptions assignment={entry.defaultAssignment} busy={busy} onOption={onOption} />
+      )}
+    </div>
+  )
+}
+
+/** 输出选项（精确绑定与通道默认共用）：执行过程内容是否随回复发送 */
+function OutputOptions({
+  assignment,
+  busy,
+  onOption,
+}: {
+  assignment: ChatAssignment
+  busy: boolean
+  onOption: (patch: AssignmentPatch) => void
+}) {
+  const intl = useIntl()
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
+      <span className="text-xs font-medium text-ink-muted">{intl.formatMessage({ id: 'bindings.detail.output' })}</span>
+      <fieldset disabled={busy} className="flex flex-col gap-1">
+        <CheckboxField
+          label={intl.formatMessage({ id: 'bindings.detail.output.sendOutput' })}
+          checked={assignment.sendOutput}
+          onChange={(value) => onOption({ sendOutput: value })}
+        />
+        <span className="text-xs text-ink-muted/70">
+          {intl.formatMessage({ id: 'bindings.detail.output.sendOutput.hint' })}
+        </span>
+      </fieldset>
     </div>
   )
 }
@@ -438,7 +488,7 @@ function ChatDetail({
   assistantIds: string[]
   busy: boolean
   onAssign: (assistantId: string | null) => void
-  onTrigger: (row: ChatRow, patch: { onlyMention?: boolean; members?: string[] }) => void
+  onTrigger: (row: ChatRow, patch: AssignmentPatch) => void
   onOpenMemberPicker: (row: ChatRow) => void
   onRemove: (row: ChatRow) => void
 }) {
@@ -500,6 +550,10 @@ function ChatDetail({
             </fieldset>
           )}
         </div>
+      )}
+
+      {row.assignment !== null && (
+        <OutputOptions assignment={row.assignment} busy={busy} onOption={(patch) => onTrigger(row, patch)} />
       )}
 
       <div className="border-t border-line pt-3">
