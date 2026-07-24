@@ -193,6 +193,7 @@ export class ChatManager {
 
     // 身份门（在 ensureChat 之前——被拦/暂存的消息不建 runtime）：
     // owner 全局直通；其余按发送者在该范围（私聊/具体群）的档位。被拦下的发送者给出明确反馈，不静默。
+    let gatedAllowed = true // 直通档 / owner / 批准重放；免审执行时降为 false（help 据此隐藏需审核命令）
     if (!preapproved) {
       const users = this.deps.store.current.users
       const permission = permissionFor(users, message.channelId, message.senderId, message.chatId, chatType)
@@ -206,6 +207,7 @@ export class ChatManager {
         const exemptCommand = parsed !== null && !this.isCommandGated(parsed.name)
         if (exemptCommand) {
           this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：审核档发送者直接执行`)
+          gatedAllowed = false
         } else {
           if (channelOwner(users, message.channelId) === null) {
             this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
@@ -241,6 +243,7 @@ export class ChatManager {
       const ctx: CommandContext = {
         channelId: message.channelId,
         chatId: message.chatId,
+        gatedAllowed,
         reply: async (text) => {
           await this.replyText(message, text)
         },

@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import TelegramBot, {
   type BotCommand,
+  type BotCommandScope,
   type Chat,
   type InlineKeyboardMarkup,
   type Message,
@@ -48,6 +49,8 @@ export interface TelegramBotChannelDeps {
   attachmentsDir: string
   /** 命令菜单（Bot API setMyCommands）名单，启动时注册 */
   listCommands: () => CommandSpec[]
+  /** 可执行需审核命令的用户（owner + 私聊直通档）telegram user id——其私聊注册完整命令菜单 */
+  listPrivilegedUserIds: () => string[]
   onMessage: (envelope: InboundEnvelope) => void
   onCallback: (event: ChannelCallbackEvent) => void
   onStatus: (status: ChannelStatus) => void
@@ -213,12 +216,38 @@ export class TelegramBotChannel {
       )
     }
     if (commands.length === 0) return
+
+    // 默认菜单只含免审命令（无权限用户看不到需审核命令）；有权限的私聊按 chat scope 注册完整菜单
+    const publicCommands = toBotCommands(specs.filter((spec) => spec.gated === false))
     try {
-      await withDeadline(bot.setMyCommands(commands), 15_000, 'setMyCommands')
+      await withDeadline(bot.setMyCommands(publicCommands), 15_000, 'setMyCommands')
     } catch (error) {
       // 菜单注册失败不影响收发消息，命令仍可手动输入
       this.deps.log.error(`channel ${this.id}: 命令菜单注册失败：${describeTelegramError(error)}`)
+      return
     }
+
+    for (const userId of this.deps.listPrivilegedUserIds()) {
+      if (!/^\d+$/.test(userId)) continue
+      // node-telegram-bot-api 不会自动序列化嵌套的 scope 对象，需手动 JSON.stringify
+      const scope = JSON.stringify({ type: 'chat', chat_id: Number(userId) }) as unknown as BotCommandScope
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- 按序注册，避免打爆 Bot API 限速
+        await withDeadline(bot.setMyCommands(commands, { scope }), 15_000, 'setMyCommands(chat)')
+      } catch (error) {
+        // 用户从未私聊过 bot 时该 scope 会 400；等其私聊后 refreshCommandMenus 再补
+        this.deps.log.info(
+          `channel ${this.id}: 私聊 ${userId} 的完整命令菜单注册失败（可能尚未私聊过 bot）：${describeTelegramError(error)}`,
+        )
+      }
+    }
+  }
+
+  /** 权限名单变化后重新同步命令菜单 */
+  async refreshCommandMenus(): Promise<void> {
+    const bot = this.bot
+    if (bot === null) return
+    await this.registerBotCommands(bot)
   }
 
   async stop(): Promise<void> {

@@ -18,9 +18,10 @@ describe('parseCommandText', () => {
   })
 })
 
-const makeCtx = (replies: string[]): CommandContext => ({
+const makeCtx = (replies: string[], gatedAllowed = true): CommandContext => ({
   channelId: 'c',
   chatId: 'x',
+  gatedAllowed,
   reply: (text) => {
     replies.push(text)
     return Promise.resolve()
@@ -44,6 +45,23 @@ describe('CommandRegistry', () => {
 
     // 未注册命令 → false，交回 assistant
     expect(await child.execute(makeCtx(replies), 'unknown', [])).toBe(false)
+  })
+
+  it('hides gated commands from help for senders without permission', async () => {
+    const registry = new CommandRegistry()
+    registry.register({ name: 'model', description: '切换模型', gated: true, handler: () => 'ok' })
+    registry.register({ name: 'chat_id', description: '显示 chat id', gated: false, handler: () => 'x' })
+
+    const fullReplies: string[] = []
+    await registry.execute(makeCtx(fullReplies), 'help', [])
+    expect(fullReplies[0]).toContain('/model')
+    expect(fullReplies[0]).toContain('/chat_id')
+
+    const limitedReplies: string[] = []
+    await registry.execute(makeCtx(limitedReplies, false), 'help', [])
+    expect(limitedReplies[0]).not.toContain('/model')
+    expect(limitedReplies[0]).toContain('/chat_id')
+    expect(limitedReplies[0]).toContain('/help')
   })
 
   it('reports handler errors as replies instead of throwing', async () => {
@@ -403,7 +421,9 @@ describe('ChatManager permission gate', () => {
 
     manager.handleInbound(inbound('/help', { senderId: '3', chatId: 'P:3' }))
     await vi.waitFor(() => expect(sent.length).toBe(2))
-    expect(partsToPlainText(sent[1]!.parts)).toContain('/model')
+    // 审核档用户的 help 隐藏需审核命令，只列免审命令
+    expect(partsToPlainText(sent[1]!.parts)).not.toContain('/model')
+    expect(partsToPlainText(sent[1]!.parts)).toContain('/new')
 
     manager.handleInbound(inbound('/new', { senderId: '3', chatId: 'P:3' }))
     await vi.waitFor(() => expect(sent.length).toBe(3))

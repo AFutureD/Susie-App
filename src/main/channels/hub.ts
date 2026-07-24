@@ -9,6 +9,8 @@ export interface ChannelHubDeps {
   store: ConfigStore
   attachmentsDir: string
   listCommands: () => CommandSpec[]
+  /** 可执行需审核命令的用户（owner + 私聊直通档）——其私聊注册完整命令菜单 */
+  listPrivilegedUserIds: (channelId: string) => string[]
   onMessage: (envelope: InboundEnvelope) => void
   onCallback: (event: ChannelCallbackEvent) => void
   onStatuses: (statuses: ChannelStatus[]) => void
@@ -44,6 +46,13 @@ export class ChannelHub {
 
   get(id: string): TelegramBotChannel | undefined {
     return this.channels.get(id)
+  }
+
+  /** 权限名单变化后重新同步所有运行中通道的命令菜单 */
+  refreshCommandMenus(): void {
+    for (const channel of this.channels.values()) {
+      void channel.refreshCommandMenus()
+    }
   }
 
   statuses(): ChannelStatus[] {
@@ -100,6 +109,7 @@ export class ChannelHub {
       settingsRef: this.deps.store.ref(`channels.${id}`) as ConfigRef<TelegramBotChannelSettings>,
       attachmentsDir: this.deps.attachmentsDir,
       listCommands: this.deps.listCommands,
+      listPrivilegedUserIds: () => this.deps.listPrivilegedUserIds(id),
       onMessage: this.deps.onMessage,
       onCallback: this.deps.onCallback,
       onStatus: () => this.pushStatuses(),

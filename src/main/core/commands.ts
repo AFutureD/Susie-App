@@ -4,6 +4,8 @@
 export interface CommandContext {
   channelId: string
   chatId: string
+  /** 发送者可否执行需审核命令（owner / 直通档 / 批准重放 = true）；help 据此隐藏无权限命令 */
+  gatedAllowed: boolean
   reply: (text: string) => Promise<void>
 }
 
@@ -45,7 +47,7 @@ export class CommandRegistry {
       name: 'help',
       description: '显示可用命令',
       gated: false,
-      handler: () => this.helpText(),
+      handler: (ctx) => this.helpText(ctx.gatedAllowed),
     })
   }
 
@@ -69,8 +71,10 @@ export class CommandRegistry {
     return this.commands.get(name) ?? this.parent?.get(name)
   }
 
-  helpText(): string {
+  /** includeGated=false 时隐藏需审核命令（对无权限发送者不展示其不可用的命令） */
+  helpText(includeGated = true): string {
     return this.list()
+      .filter((command) => includeGated || command.gated === false)
       .map((command) => `/${command.name}: ${command.description}`)
       .join('\n')
   }

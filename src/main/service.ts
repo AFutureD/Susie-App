@@ -61,6 +61,7 @@ export class SusieService {
   readonly codexInstaller: CodexInstaller
 
   private readonly log: Logger
+  private readonly unsubUsers: () => void
 
   constructor(store: ConfigStore, paths: ServicePaths, emit: ServiceEmit, log: Logger) {
     this.log = log
@@ -102,12 +103,20 @@ export class SusieService {
       store,
       attachmentsDir: paths.attachmentsDir,
       listCommands: () => this.chatManager.listCommandSpecs(),
+      // 完整命令菜单只给能执行需审核命令的私聊：owner + 私聊直通档
+      listPrivilegedUserIds: (channelId) =>
+        store.current.users
+          .filter((user) => user.channel === channelId && (user.role === 'owner' || user.private === 'allow'))
+          .map((user) => user.user_id),
       onMessage: (envelope) => this.chatManager.handleInbound(envelope),
       onCallback: (event) => void this.approvals.handleCallback(event),
       onStatuses: emit.channelStatuses,
       onChannelRemoved: (channelId) => this.chatManager.onChannelRemoved(channelId),
       log,
     })
+
+    // 权限名单变化 → 各通道命令菜单重新同步（谁能看到需审核命令随之变化）
+    this.unsubUsers = store.subscribePath('users', () => this.hub.refreshCommandMenus())
   }
 
   async start(): Promise<void> {
@@ -137,6 +146,7 @@ export class SusieService {
   }
 
   async stop(): Promise<void> {
+    this.unsubUsers()
     this.log.info('service stopping: chats')
     this.chatManager.dispose()
     this.log.info('service stopping: hub')
