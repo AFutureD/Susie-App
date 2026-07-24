@@ -28,22 +28,15 @@ npm version <x.y.z> --no-git-tag-version --workspaces-update=false
 git commit -am "chore: v<x.y.z>" && git push
 APPLE_API_KEY=~/.private_keys/AuthKey_<KEYID>.p8 \
 APPLE_API_KEY_ID=<KEYID> APPLE_API_ISSUER=<ISSUER-UUID> \
-GH_TOKEN=$(gh auth token) npm run release
+npm run release
 ```
 
-发布后**必须核对**（electron-builder 已知问题：~100MB 大文件可能静默上传失败，exit 0 但 asset 缺失）：
+`release` = 构建 → 签名+公证（electron-builder，`--publish never`）→ `scripts/publish-release.mjs`
+用 `gh` 创建正式（非 draft）release、上传 5 个产物并逐一核对远端大小。
 
-```bash
-gh release view v<x.y.z> --json isDraft,assets --jq '{draft:.isDraft,assets:[.assets[].name]}'
-```
-
-应包含 5 个 asset：`zip` / `zip.blockmap` / `dmg` / `dmg.blockmap` / `latest-mac.yml`。
-缺失的从本地 `release/` 补传，并把 draft 转正式（draft 对 updater 不可见）：
-
-```bash
-gh release upload v<x.y.z> release/<缺失文件> --clobber
-gh release edit v<x.y.z> --draft=false
-```
+> 为什么上传不走 electron-builder：26.15.3 上传 ~100MB 大文件会**静默失败**（exit 0
+> 但 asset 缺失），且它创建的 release 是 draft（对 electron-updater 不可见）。
+> 脚本幂等，上传中断直接重跑 `node scripts/publish-release.mjs` 即可。
 
 ## 无 Developer ID 证书时的测试构建
 

@@ -148,8 +148,9 @@ async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
       throw new Error(`mcp server not running: ${String(info.mcpUrl)}`)
     }
 
+    // 与 renderer app.tsx 的 NAV_ITEMS 数量同步（channels/agents/assistants/users/intelligence/history/logs/settings）
     const navCount = (await win.webContents.executeJavaScript(`document.querySelectorAll('nav a').length`)) as number
-    if (navCount !== 7) {
+    if (navCount !== 8) {
       throw new Error(`react ui not mounted, nav items = ${navCount}`)
     }
 
