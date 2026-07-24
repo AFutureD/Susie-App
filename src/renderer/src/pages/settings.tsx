@@ -79,13 +79,6 @@ export function SettingsPage() {
             <dt className="text-ink-muted">{intl.formatMessage({ id: 'settings.version' })}</dt>
             <dd className="font-mono text-xs leading-5">v{state.version}</dd>
           </dl>
-          {state.migrations.length > 0 && (
-            <div className="mt-3 rounded-md bg-accent/10 px-3 py-2 text-xs leading-5 text-accent">
-              {state.migrations.map((note) => (
-                <p key={note}>{note}</p>
-              ))}
-            </div>
-          )}
           {state.lastError && (
             <div className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-500">
               {state.lastError}

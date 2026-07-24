@@ -13,6 +13,11 @@ export type CommandHandler = (ctx: CommandContext, args: string[]) => Promise<st
 export interface CommandSpec {
   name: string
   description: string
+  /**
+   * 权限分类：缺省 true = 需要审核（审核档用户执行须经 owner 批准）；
+   * false = 不需要审核（无权限也直接响应；忽略档除外——显式拉黑强于免审）
+   */
+  gated?: boolean
 }
 
 export interface Command extends CommandSpec {
@@ -39,6 +44,7 @@ export class CommandRegistry {
     this.register({
       name: 'help',
       description: '显示可用命令',
+      gated: false,
       handler: () => this.helpText(),
     })
   }

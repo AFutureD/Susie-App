@@ -6,8 +6,8 @@ import type { AgentRuntime } from '../agents/types'
 import type { Command, CommandSpec } from '../core/commands'
 
 const SPECS = {
-  new: { name: 'new', description: '开启新会话' },
-  model: { name: 'model', description: '查看或切换模型（/model 或 /model <value>）' },
+  new: { name: 'new', description: '开启新会话', gated: false },
+  model: { name: 'model', description: '查看或切换模型（/model 或 /model <value>）', gated: true },
 } satisfies Record<string, CommandSpec>
 
 /** per-chat assistant 命令的静态名单（无需 runtime 实例即可枚举） */

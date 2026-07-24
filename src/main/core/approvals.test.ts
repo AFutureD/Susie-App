@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Config } from '../../shared/config'
+import type { ChannelUser, Config } from '../../shared/config'
 import type { ChatMessage, InboundEnvelope, MessagePart } from '../../shared/messages'
 import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
@@ -12,28 +12,26 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     channels: {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
-    bindings: [
-      { channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, members: [], send_output: false },
-    ],
+    bindings: [{ channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, send_output: false }],
     users: [
-      { channel: 'tg', user_id: OWNER_ID, name: 'Boss', role: 'owner' },
-      { channel: 'tg', user_id: '100', role: 'member' },
+      { channel: 'tg', user_id: OWNER_ID, name: 'Boss', role: 'owner', private: 'review', groups: {} },
+      { channel: 'tg', user_id: '100', role: 'user', private: 'review', groups: {} },
     ],
     ...overrides,
   }
 }
 
-function envelope(text: string): InboundEnvelope {
+function envelope(text: string, senderId = '100', sender = 'Mem'): InboundEnvelope {
   return {
     message: {
       id: '10',
       channelId: 'tg',
-      chatId: 'P:100',
+      chatId: `P:${senderId}`,
       receiver: null,
       replyTo: null,
       out: false,
-      sender: 'Mem',
-      senderId: '100',
+      sender,
+      senderId,
       timestamp: 1,
       parts: [{ kind: 'text', text }],
     },
@@ -49,7 +47,16 @@ interface SentRecord {
 
 function makeHarness(config: Config = makeConfig(), options: { channelDown?: boolean; failCardSend?: boolean } = {}) {
   const history = new HistoryStore(':memory:')
-  const storeState = { current: config }
+  const setUsersCalls: ChannelUser[][] = []
+  const storeState = {
+    current: config,
+    currentVersion: 1,
+    setUsers(users: ChannelUser[]) {
+      setUsersCalls.push(users)
+      storeState.current = { ...storeState.current, users }
+      return { ok: true as const, state: null as never }
+    },
+  }
   const store = storeState as unknown as ConfigStore
 
   const sent: SentRecord[] = []
@@ -86,7 +93,7 @@ function makeHarness(config: Config = makeConfig(), options: { channelDown?: boo
     onHistoryMessage: () => {},
     log: { info: () => {}, error: (message) => errors.push(message) },
   })
-  return { manager, history, storeState, sent, answered, edited, dispatched, errors }
+  return { manager, history, storeState, setUsersCalls, sent, answered, edited, dispatched, errors }
 }
 
 function callback(pendingId: number, action: 'allow' | 'deny', fromId = OWNER_ID): ChannelCallbackEvent {
@@ -201,6 +208,25 @@ describe('ApprovalManager.handleCallback', () => {
     expect(answered[0]?.text).toBe('仅 owner 可操作')
     expect(history.getPendingApproval(pending.id)?.status).toBe('pending')
     expect(dispatched).toHaveLength(0)
+  })
+
+  it('registers unknown approved senders with default scope levels (and skips known ones)', async () => {
+    const harness = makeHarness()
+    // 已登记发送者（100）批准后不重复写入
+    await harness.manager.request(envelope('求帮忙'))
+    const known = harness.history.listPendingApprovals('tg')[0]
+    await harness.manager.handleCallback(callback(known?.id ?? 0, 'allow'))
+    expect(harness.setUsersCalls).toHaveLength(0)
+
+    // 陌生发送者（200）批准后自动登记（缺省档位 + 显示名）
+    await harness.manager.request(envelope('hello', '200', '陌生人'))
+    const pending = harness.history.listPendingApprovals('tg')[0]
+    await harness.manager.handleCallback({ ...callback(pending?.id ?? 0, 'allow'), callbackQueryId: 'cq2' })
+
+    expect(harness.setUsersCalls).toHaveLength(1)
+    const registered = harness.setUsersCalls[0]?.find((u) => u.user_id === '200')
+    expect(registered).toMatchObject({ channel: 'tg', role: 'user', private: 'review', name: '陌生人' })
+    expect(harness.dispatched).toHaveLength(2)
   })
 
   it('deduplicates double-clicks: only the first claim wins', async () => {

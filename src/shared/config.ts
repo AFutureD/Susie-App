@@ -40,26 +40,36 @@ export const assistantSchema = z.strictObject({
   instruction: z.string().optional(),
 })
 
-/** 用户角色：owner 全权并负责审核；admin 免审；member 每条消息需 owner 审核 */
-export const USER_ROLES = ['owner', 'admin', 'member'] as const
-export type UserRole = (typeof USER_ROLES)[number]
+/** 范围权限档位：allow 直通 / review 审核后执行 / ignore 忽略 */
+export const PERMISSION_LEVELS = ['allow', 'review', 'ignore'] as const
+export type PermissionLevel = (typeof PERMISSION_LEVELS)[number]
+
+/** 未登记的发送者与未设置的范围一律按此档处理 */
+export const DEFAULT_PERMISSION: PermissionLevel = 'review'
 
 /**
- * 频道内的已登记用户与角色。owner 每频道唯一；未登记的发送者按 member 对待（进审核）。
- * 频道无 owner 时无人可审——member/未登记消息直接忽略。
+ * 频道内的已登记用户。身份轴唯一事实源：是否响应、是否审核全部由此决定，
+ * 且私聊与具体群分开控制；会话绑定只负责路由（chat → assistant）与会话配置。
+ * owner 全局直通并负责审核（每频道唯一）；频道无 owner 时 review 落空 → 不响应。
  */
 export const userSchema = z.strictObject({
   channel: z.string().min(1),
-  /** telegram user id 的字符串形式，与 binding.members / ChatMessage.senderId 同一取值域 */
+  /** telegram user id 的字符串形式，与 ChatMessage.senderId 同一取值域 */
   user_id: z.string().min(1),
-  /** 显示名快照（选人时写入，仅展示用；实时名以历史库为准） */
+  /** 显示名快照（选人/审核入册时写入，仅展示用；实时名以历史库为准） */
   name: z.string().optional(),
-  role: z.enum(USER_ROLES),
+  /** owner 全局直通并负责审核；user 按下方范围档位控制 */
+  role: z.enum(['owner', 'user']).default('user'),
+  /** 私聊权限档位 */
+  private: z.enum(PERMISSION_LEVELS).default(DEFAULT_PERMISSION),
+  /** 具体群的权限档位；key = 群 chat_id（不含 thread 段），未配置的群 = 审核 */
+  groups: z.record(z.string(), z.enum(PERMISSION_LEVELS)).default({}),
 })
 
 /**
- * 绑定即准入：一条 = 一个会话（chat_id 为 CHAT_ALL 时表示「该通道其余会话」的默认）。
- * 没有任何绑定命中的会话不响应（禁止）——不存在全局兜底。
+ * 绑定 = 路由与会话配置：一条 = 一个会话（chat_id 为 CHAT_ALL 时表示「该通道其余会话」的默认）。
+ * 没有任何绑定命中的会话无助手承接（不响应）——不存在全局兜底。
+ * 是否响应与审核由用户模块（users）按发送者身份决定，绑定不参与。
  */
 export const bindingSchema = z.strictObject({
   channel: z.string().min(1),
@@ -68,8 +78,6 @@ export const bindingSchema = z.strictObject({
   assistant_id: z.string().min(1),
   /** 群会话生效：仅响应 @ 提及 */
   only_mention: z.boolean().default(true),
-  /** 群会话生效：可触发的成员 user id；空 = 所有成员 */
-  members: z.array(z.string()).default([]),
   /**
    * 开启后把 agent 运行期间的全部直接产出（命令/推理/工具调用与最终回复文本）发送到会话；
    * 默认关闭——agent 仅通过 susie 的 send_message 工具主动回复
@@ -142,8 +150,6 @@ export interface ConfigState {
   config: Config
   /** 最近一次加载失败的原因（此时 config 为 last-good），null 表示健康 */
   lastError: string | null
-  /** 本次加载时被忽略的 legacy 内容说明（api_id / telegram_user 通道等） */
-  migrations: string[]
 }
 
 export type ConfigMutationResult = { ok: true; state: ConfigState } | { ok: false; message: string; conflict: boolean }

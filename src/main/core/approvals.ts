@@ -7,7 +7,7 @@ import {
   type MessagePart,
   type StoredMessage,
 } from '../../shared/messages'
-import { channelOwner } from '../../shared/users'
+import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
 import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
 import type { HistoryStore, PendingApproval } from '../history/store'
@@ -190,7 +190,25 @@ export class ApprovalManager {
     await this.editCard(channel, pending, '✅ 已允许')
     await channel.answerCallback(event.callbackQueryId, '已允许')
     this.deps.log.info(`approval#${pending.id}: owner 已批准，消息重放处理`)
+    this.registerApprovedSender(pending)
     this.deps.dispatchApproved(pending)
+  }
+
+  /** 批准即入册：陌生发送者按缺省档位登记（带显示名），owner 之后可在用户页调整档位 */
+  private registerApprovedSender(pending: PendingApproval): void {
+    if (pending.senderId === null) return
+    const users = this.deps.store.current.users
+    if (findUser(users, pending.channelId, pending.senderId) !== null) return
+    const result = this.deps.store.setUsers(
+      upsertUser(users, defaultUser(pending.channelId, pending.senderId, pending.sender)),
+      this.deps.store.currentVersion,
+    )
+    if (result.ok) {
+      this.deps.log.info(`approval#${pending.id}: 发送者 ${pending.senderId} 已自动登记（缺省审核档）`)
+    } else {
+      // 极小概率与 UI 编辑撞版本；不影响本次重放，下次批准会再尝试
+      this.deps.log.error(`approval#${pending.id}: 发送者自动登记失败：${result.message}`)
+    }
   }
 
   /** 决定后更新卡片（重建文案 + 追加裁决行 + 撤按钮）；失败不致命 */

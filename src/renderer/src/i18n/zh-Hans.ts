@@ -15,10 +15,8 @@ export const zhHans: Record<string, string> = {
   'common.yes': '是',
   'common.no': '否',
 
-  // 成员白名单通用件（频道页 / 会话绑定页共用）
-  'members.everyone': '所有人',
+  // 选人通用件（用户管理页）
   'members.addMember': '添加成员',
-  'members.remove': '移除 {name}',
   'members.picker.search': '搜索成员',
   'members.picker.noMatch': '没有匹配的成员',
   'members.picker.empty': '暂无发言记录，成员发言后会出现在这里。',
@@ -27,6 +25,14 @@ export const zhHans: Record<string, string> = {
   'members.picker.done': '完成',
 
   'config.errorBanner': '配置文件有错误，正在使用最近一次有效配置：',
+
+  // Owner 绑定件（onboarding 第 2 步 / 频道新增后弹窗共用）
+  'ownerBind.title': '绑定 Owner',
+  'ownerBind.subtitle': 'Owner 拥有全部权限，并在 Telegram 中审核 member 的消息。',
+  'ownerBind.hint': '用你自己的 Telegram 账号私聊 Bot（点「Start」或发一条消息），账号出现在下方后选择绑定。',
+  'ownerBind.waiting': '正在等待你的消息…',
+  'ownerBind.bind': '设为 Owner',
+  'ownerBind.later': '稍后在「用户」页设置',
 
   // 首启引导
   'onboarding.welcome.title': '欢迎使用 Susie',
@@ -40,19 +46,8 @@ export const zhHans: Record<string, string> = {
   'onboarding.channel.submit': '连接',
   'onboarding.channel.connecting': '正在连接…',
   'onboarding.step.owner': '第 2 步 · 绑定 Owner',
-  'onboarding.owner.subtitle': 'Owner 拥有全部权限，并负责审核 member 的消息（在 Telegram 中点按钮允许/拒绝）。',
-  'onboarding.owner.hint':
-    '用你自己的 Telegram 账号私聊 Bot：点击「Start」或发送一条消息，你的账号会出现在下方列表，选择后绑定为 Owner。',
-  'onboarding.owner.waiting': '正在等待你的消息…',
-  'onboarding.owner.bind': '设为 Owner',
   'onboarding.step.binding': '第 3 步 · 会话绑定',
-  'onboarding.binding.subtitle': '选择哪些会话交给助手响应，之后可随时在「助手」页调整。',
-  'onboarding.binding.users.title': '允许的用户',
-  'onboarding.binding.users.hint':
-    '选择可以使用 Susie 的用户，应用到本步创建的绑定；不选 = 所有人。member 的消息需 Owner 审核，Owner 始终可用。新用户给 Bot 发消息后会实时出现在这里。',
-  'onboarding.binding.users.everyone': '所有人',
-  'onboarding.binding.users.waiting': '正在监听新用户…',
-  'onboarding.binding.users.select': '选择',
+  'onboarding.binding.subtitle': '选择哪些会话交给助手响应，之后可随时在「助手」页调整。用户权限在「用户」页设置。',
   'onboarding.binding.all.title': '所有会话（默认）',
   'onboarding.binding.all.desc': '所有私聊和群聊都由助手响应（群内默认仅响应 @ 提及）。点击即完成设置。',
   'onboarding.binding.some.title': '仅指定会话',
@@ -129,7 +124,7 @@ export const zhHans: Record<string, string> = {
 
   'bindings.title': '会话绑定',
   'bindings.hint':
-    '绑定即放行：左侧选择会话，右侧为其指派助手与触发条件。精确绑定优先于频道默认，两者都未命中的会话不响应。',
+    '绑定 = 路由：左侧选择会话，右侧为其指派助手与触发条件。精确绑定优先于频道默认，两者都未命中的会话无助手承接。谁能使用、是否审核在「用户」页设置。',
   'bindings.empty': '还没有配置任何频道。先在「频道」页添加频道，再回来指派助手。',
   'bindings.missingChannel': '频道 "{id}" 已不存在',
   'bindings.tree.defaultChat': '默认（其余会话）',
@@ -147,11 +142,8 @@ export const zhHans: Record<string, string> = {
   'bindings.detail.assistant.none': '无（不响应）',
   'bindings.detail.default.hint': '该频道未被精确绑定的其余会话都由这里的助手处理；选择「无」则不响应。',
   'bindings.detail.trigger': '触发条件',
-  'bindings.detail.trigger.followDefault':
-    '跟随频道默认时：群内需 @ 提及，所有成员可触发。要单独设置，请先为该会话选择助手。',
+  'bindings.detail.trigger.followDefault': '跟随频道默认时：群内需 @ 提及。要单独设置，请先为该会话选择助手。',
   'bindings.detail.group.onlyMention': '群内仅响应 @ 提及',
-  'bindings.detail.group.whitelist': '成员白名单',
-  'bindings.detail.group.whitelist.hint': '空名单 = 所有成员可触发。',
   'bindings.detail.output': '输出',
   'bindings.detail.output.sendOutput': '发送 agent 运行输出',
   'bindings.detail.output.sendOutput.hint':
@@ -165,22 +157,27 @@ export const zhHans: Record<string, string> = {
   'bindings.picker.chat.confirm': '添加',
   'bindings.error.conflictRefreshed': '配置已被其他修改更新，界面已刷新，请重试',
 
-  // 用户管理
+  // 用户管理（身份轴：owner 全局直通；其余按 私聊/具体群 三档）
   'page.users.title': '用户',
-  'users.hint':
-    '角色：Owner 全权并负责审核（每频道唯一）；Admin 免审直通；Member 每条消息需 Owner 在 Telegram 中审核。未登记的发送者按 Member 处理；频道没有 Owner 时，Member 与陌生用户的消息将被忽略。',
-  'users.empty': '还没有配置任何频道。先在「频道」页添加频道，用户会在发消息后出现在候选列表。',
-  'users.channel.noOwner': '该频道未绑定 Owner——Member 与陌生用户的消息将被忽略。请把某位用户设为 Owner。',
-  'users.roster.empty': '尚未登记任何用户。点「添加用户」从发言候选中选择。',
-  'users.role.owner': 'Owner',
-  'users.role.admin': 'Admin',
-  'users.role.member': 'Member',
+  'users.hint': '直通免审；审核由 Owner 在 Telegram 逐条批准；忽略不响应。未登记与未设置的范围默认审核。',
+  'users.empty': '还没有频道。先在「频道」页添加。',
+  'users.channel.noOwner': '未绑定 Owner：无人审核，需审核的消息将不被响应。',
+  'users.roster.empty': '暂无登记用户。陌生用户默认进审核，批准后自动登记到这里。',
+  'users.level.allow': '直通',
+  'users.level.review': '审核',
+  'users.level.ignore': '忽略',
+  'users.scope.private': '私聊',
+  'users.scope.groups': '群权限',
+  'users.scope.groups.empty': '暂无已知群聊；把 Bot 拉进群并有人发言后出现。',
+  'users.scope.groups.hint': '未在列表中的群默认审核。',
+  'users.owner.badge': 'Owner · 全局直通',
+  'users.makeOwner': '设为 Owner',
   'users.add': '添加用户',
+  'users.remove': '移除',
   'users.ghost': '频道已删除',
-  'users.remove.confirm': '确定移除用户 "{name}"？移除后其消息按未登记发送者（Member）处理。',
-  'users.remove.owner.confirm': '确定移除 Owner "{name}"？该频道将没有 Owner，Member 与陌生用户的消息将被忽略。',
-  'users.transfer.confirm': '将 Owner 转让给 "{name}"？原 Owner 将降为 Admin。',
-  'users.demote.confirm': '取消 "{name}" 的 Owner 身份？该频道将没有 Owner，Member 与陌生用户的消息将被忽略。',
+  'users.remove.confirm': '移除用户 "{name}"？其各范围权限设置将一并清除。',
+  'users.remove.owner.confirm': '移除 Owner "{name}"？此后无人审核，需审核的消息将不被响应。',
+  'users.transfer.confirm': '将 Owner 转让给 "{name}"？原 Owner 转为普通用户（档位保留）。',
 
   'page.history.title': '历史',
   'history.empty': '还没有任何消息记录。频道跑起来后，出入消息都会落到本地 SQLite。',

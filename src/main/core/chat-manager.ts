@@ -1,6 +1,6 @@
-import { isSenderAdmitted, resolveBinding } from '../../shared/bindings'
+import { isTriggerSatisfied, resolveBinding } from '../../shared/bindings'
 import { decodeChatId } from '../../shared/chat-id'
-import { channelOwner, roleOf } from '../../shared/users'
+import { channelOwner, permissionFor } from '../../shared/users'
 import type { AssistantConfig } from '../../shared/config'
 import {
   partsToPlainText,
@@ -21,6 +21,10 @@ import { CommandRegistry, parseCommandText, type CommandContext, type CommandSpe
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
 const IGNORE_AFTER_SELF_REPLY_MS = 120_000
+
+// 权限拦截的会话反馈（不静默：被拦下的发送者要知道原因；纯路由缺失不回复）
+const PERMISSION_IGNORED_NOTICE = '⛔ 你没有使用权限。'
+const NO_OWNER_NOTICE = '⚠️ 该频道未绑定 owner，消息无法审核。'
 
 interface ChatEntry {
   key: string
@@ -58,6 +62,7 @@ export class ChatManager {
     this.globalRegistry.register({
       name: 'chat_id',
       description: '显示当前 chat id',
+      gated: false,
       handler: (ctx) => ctx.chatId,
     })
     // binding 变化 → 全部会话下次消息时按新 binding 重建
@@ -69,12 +74,20 @@ export class ChatManager {
     )
   }
 
-  /** 命令全集（全局 + per-chat assistant 命令；同名以 per-chat 为准），供通道注册命令菜单 */
+  /** 命令全集（全局 + per-chat assistant 命令；同名以 per-chat 为准），供通道注册命令菜单与权限分类 */
   listCommandSpecs(): CommandSpec[] {
     const merged = new Map<string, CommandSpec>()
-    for (const { name, description } of this.globalRegistry.list()) merged.set(name, { name, description })
+    for (const { name, description, gated } of this.globalRegistry.list()) {
+      merged.set(name, { name, description, gated })
+    }
     for (const spec of ASSISTANT_COMMAND_SPECS) merged.set(spec.name, spec)
     return [...merged.values()]
+  }
+
+  /** 命令权限分类；未注册的命令会转交 assistant，按普通消息管控（需要审核） */
+  private isCommandGated(name: string): boolean {
+    const spec = this.listCommandSpecs().find((item) => item.name === name)
+    return spec?.gated ?? true
   }
 
   /** 通道入站回调 */
@@ -161,33 +174,49 @@ export class ChatManager {
     const preapproved = opts.preapproved === true
     const key = chatKey(message.channelId, message.chatId)
 
-    // 准入 = 绑定解析：未命中即禁止（静默忽略）；群会话再过发送者触发条件
+    // 路由：绑定未命中 = 无助手承接（不回复——不是权限拒绝，是无路由）
     const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
     if (binding === null) {
       this.deps.log.info(`chat ${key} 无绑定且通道无默认助手，不响应${preapproved ? '（审核通过但绑定已失效）' : ''}`)
       return
     }
-    const users = this.deps.store.current.users
-    const role = roleOf(users, message.channelId, message.senderId)
-    const meta = {
-      chatType: decodeChatId(message.chatId)?.chatType ?? null,
-      senderId: message.senderId,
-      mentioned,
-    }
-    if (!isSenderAdmitted(binding, meta, role)) {
-      this.deps.log.info(`chat ${key} 发送者未通过触发条件（成员名单 / @ 提及要求），不响应`)
+    // 会话触发条件（群内 @ 提及要求）——未触发不算被拦，不回复
+    const chatType = decodeChatId(message.chatId)?.chatType ?? null
+    if (!isTriggerSatisfied(binding, { chatType, mentioned })) {
+      this.deps.log.info(`chat ${key} 群消息未 @ 提及，不触发`)
       return
     }
 
-    // 角色门：owner/admin 直通；member/未登记转 owner 审核（在 ensureChat 之前——暂存消息不建 runtime，命令同样被门住）
-    if (!preapproved && role !== 'owner' && role !== 'admin') {
-      if (channelOwner(users, message.channelId) === null) {
-        this.deps.log.info(`chat ${key} 频道未绑定 owner，member/未登记发送者的消息无人可审，不响应`)
+    // 命令先于身份门解析：命令有权限分类（免审命令无权限也响应）
+    const plain = partsToPlainText(message.parts)
+    const parsed = parseCommandText(plain)
+
+    // 身份门（在 ensureChat 之前——被拦/暂存的消息不建 runtime）：
+    // owner 全局直通；其余按发送者在该范围（私聊/具体群）的档位。被拦下的发送者给出明确反馈，不静默。
+    if (!preapproved) {
+      const users = this.deps.store.current.users
+      const permission = permissionFor(users, message.channelId, message.senderId, message.chatId, chatType)
+      if (permission === 'ignore') {
+        this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 在该范围为忽略档，不响应`)
+        await this.replyText(message, PERMISSION_IGNORED_NOTICE)
         return
       }
-      this.deps.log.info(`chat ${key} 发送者角色 ${role ?? '未登记'}：转 owner 审核`)
-      await this.deps.requestApproval(envelope)
-      return
+      if (permission === 'review') {
+        // 免审命令（help / chat_id / new）：审核档用户也直接执行；忽略档不豁免（显式拉黑强于免审）
+        const exemptCommand = parsed !== null && !this.isCommandGated(parsed.name)
+        if (exemptCommand) {
+          this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：审核档发送者直接执行`)
+        } else {
+          if (channelOwner(users, message.channelId) === null) {
+            this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
+            await this.replyText(message, NO_OWNER_NOTICE)
+            return
+          }
+          this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 为审核档：转 owner 审核`)
+          await this.deps.requestApproval(envelope)
+          return
+        }
+      }
     }
 
     let entry: ChatEntry
@@ -208,8 +237,6 @@ export class ChatManager {
       return
     }
 
-    const plain = partsToPlainText(message.parts)
-    const parsed = parseCommandText(plain)
     if (parsed !== null) {
       const ctx: CommandContext = {
         channelId: message.channelId,

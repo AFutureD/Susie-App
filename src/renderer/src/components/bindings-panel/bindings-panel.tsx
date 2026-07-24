@@ -10,11 +10,11 @@ import { CHAT_ALL, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { susie } from '../../lib/ipc'
 import { Button, CheckboxField, ErrorText, Field, Select, TextInput } from '../form'
-import { MemberChips, MemberPickerModal, useSenders } from '../member-picker'
 import { buildTree, type ChannelTree, type ChatRow, type DraftChat } from './model'
 
 // 两栏主从式：左栏 channel → chat 树形导航，右栏为选中会话的配置。
-// 准入统一由绑定决定：绑定即放行；通道默认选「无」= 其余会话不响应。
+// 绑定 = 路由：会话 → 助手 + 触发/输出配置；通道默认选「无」= 其余会话无助手承接。
+// 发送者的权限（响应/审核/忽略）在「用户」页按私聊/群设置，与绑定无关。
 // config 是唯一事实源：所有操作走 IPC，界面随 config:state 广播重派生。
 
 type Selection =
@@ -33,12 +33,11 @@ const selectionKey = (selection: Selection): string | null => {
 const defaultAssignment = (assistantId: string): ChatAssignment => ({
   assistantId,
   onlyMention: true,
-  members: [],
   sendOutput: false,
 })
 
 /** 指派的可调选项（群触发条件 + 输出选项） */
-type AssignmentPatch = Partial<Pick<ChatAssignment, 'onlyMention' | 'members' | 'sendOutput'>>
+type AssignmentPatch = Partial<Pick<ChatAssignment, 'onlyMention' | 'sendOutput'>>
 
 export function BindingsPanel({ state }: { state: ConfigState }) {
   const intl = useIntl()
@@ -47,7 +46,6 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
   const [drafts, setDrafts] = useState<DraftChat[]>([])
   const [selection, setSelection] = useState<Selection>(null)
   const [pickerChannel, setPickerChannel] = useState<string | null>(null)
-  const [memberPicker, setMemberPicker] = useState<{ channelId: string; chatId: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -190,20 +188,6 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
   const selectedRow =
     selection?.kind === 'chat' ? selectedEntry?.rows.find((row) => row.chatId === selection.chatId) : undefined
 
-  // 添加成员弹窗挂在面板层：ChatDetail 按 version 重挂载，弹窗状态不能放在它里面（每次保存会被关掉）
-  const memberPickerRow =
-    memberPicker === null
-      ? undefined
-      : tree
-          .find((entry) => entry.channelId === memberPicker.channelId)
-          ?.rows.find((row) => row.chatId === memberPicker.chatId)
-  const memberPickerAssignment = memberPickerRow?.assignment ?? undefined
-
-  // 目标行或其绑定消失（外部编辑 / 解绑）→ 关闭弹窗
-  useEffect(() => {
-    if (memberPicker !== null && memberPickerAssignment === undefined) setMemberPicker(null)
-  }, [memberPicker, memberPickerAssignment])
-
   return (
     <section className="mt-10">
       <h2 className="mb-3 text-base font-semibold">{intl.formatMessage({ id: 'bindings.title' })}</h2>
@@ -252,7 +236,6 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
                 busy={busy}
                 onAssign={(assistantId) => setAssistant(selection, assistantId)}
                 onTrigger={setTrigger}
-                onOpenMemberPicker={(row) => setMemberPicker({ channelId: row.channelId, chatId: row.chatId })}
                 onRemove={removeChat}
               />
             )}
@@ -268,16 +251,6 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
           }
           onPick={(chatId, name) => addChat(pickerChannel, chatId, name)}
           onClose={() => setPickerChannel(null)}
-        />
-      )}
-      {memberPickerRow !== undefined && memberPickerAssignment !== undefined && (
-        <MemberPickerModal
-          channelId={memberPickerRow.channelId}
-          chatId={memberPickerRow.chatId}
-          existing={new Set(memberPickerAssignment.members)}
-          busy={busy}
-          onAdd={(id) => setTrigger(memberPickerRow, { members: [...memberPickerAssignment.members, id] })}
-          onClose={() => setMemberPicker(null)}
         />
       )}
     </section>
@@ -481,7 +454,6 @@ function ChatDetail({
   busy,
   onAssign,
   onTrigger,
-  onOpenMemberPicker,
   onRemove,
 }: {
   row: ChatRow
@@ -489,7 +461,6 @@ function ChatDetail({
   busy: boolean
   onAssign: (assistantId: string | null) => void
   onTrigger: (row: ChatRow, patch: AssignmentPatch) => void
-  onOpenMemberPicker: (row: ChatRow) => void
   onRemove: (row: ChatRow) => void
 }) {
   const intl = useIntl()
@@ -541,12 +512,6 @@ function ChatDetail({
                 checked={row.assignment.onlyMention}
                 onChange={(value) => onTrigger(row, { onlyMention: value })}
               />
-              <MemberWhitelist
-                row={row}
-                members={row.assignment.members}
-                onChange={(members) => onTrigger(row, { members })}
-                onOpenPicker={() => onOpenMemberPicker(row)}
-              />
             </fieldset>
           )}
         </div>
@@ -561,43 +526,6 @@ function ChatDetail({
           {intl.formatMessage({ id: 'bindings.detail.remove' })}
         </Button>
         <p className="mt-1 text-xs text-ink-muted/70">{intl.formatMessage({ id: 'bindings.detail.remove.hint' })}</p>
-      </div>
-    </div>
-  )
-}
-
-/** 成员白名单（行内部分）：空名单 = 所有成员；候选列表在滚动弹窗里 */
-function MemberWhitelist({
-  row,
-  members,
-  onChange,
-  onOpenPicker,
-}: {
-  row: ChatRow
-  members: string[]
-  onChange: (members: string[]) => void
-  onOpenPicker: () => void
-}) {
-  const intl = useIntl()
-  const senders = useSenders(row.channelId, row.chatId)
-  const nameOf = (id: string): string => senders.find((sender) => sender.id === id)?.name ?? id
-
-  return (
-    <div>
-      <span className="mb-1 block text-xs font-medium text-ink-muted">
-        {intl.formatMessage({ id: 'bindings.detail.group.whitelist' })}
-      </span>
-      <MemberChips
-        members={members}
-        nameOf={nameOf}
-        emptyText={intl.formatMessage({ id: 'members.everyone' })}
-        onRemove={(id) => onChange(members.filter((memberId) => memberId !== id))}
-      />
-      <span className="mt-1 block text-xs text-ink-muted/70">
-        {intl.formatMessage({ id: 'bindings.detail.group.whitelist.hint' })}
-      </span>
-      <div className="mt-2">
-        <Button onClick={onOpenPicker}>{intl.formatMessage({ id: 'members.addMember' })}</Button>
       </div>
     </div>
   )

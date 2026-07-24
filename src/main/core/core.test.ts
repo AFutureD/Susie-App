@@ -63,8 +63,18 @@ describe('CommandRegistry', () => {
 
 // ---------- ChatManager 失败反馈 ----------
 
-/** 默认名单：发送者 '1' 是 owner（既有用例的消息一律直通角色门） */
-const DEFAULT_USERS: ChannelUser[] = [{ channel: 'tg', user_id: '1', role: 'owner' }]
+/** 名单工厂：新范围权限形态的简写 */
+const user = (userId: string, extra: Partial<ChannelUser> = {}): ChannelUser => ({
+  channel: 'tg',
+  user_id: userId,
+  role: 'user',
+  private: 'review',
+  groups: {},
+  ...extra,
+})
+
+/** 默认名单：发送者 '1' 是 owner（既有用例的消息一律直通身份门） */
+const DEFAULT_USERS: ChannelUser[] = [user('1', { role: 'owner' })]
 
 function makeManager(
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>,
@@ -79,7 +89,6 @@ function makeManager(
         chat_id: '*',
         assistant_id: 'default',
         only_mention: true,
-        members: [],
         send_output: options.sendOutput ?? false,
       },
     ],
@@ -155,10 +164,11 @@ function stubRuntime(overrides: Partial<AgentRuntime>): AgentRuntime {
 }
 
 describe('ChatManager commands', () => {
-  it('exposes the full command catalog for channel menu registration', () => {
+  it('exposes the full command catalog with permission classes', () => {
     const { manager } = makeManager(() => Promise.reject(new Error('unused')))
-    const names = manager.listCommandSpecs().map((spec) => spec.name)
-    expect(names.toSorted()).toEqual(['chat_id', 'help', 'model', 'new'])
+    const gatedOf = Object.fromEntries(manager.listCommandSpecs().map((spec) => [spec.name, spec.gated ?? true]))
+    // help / chat_id / new 不需要审核；model 需要审核
+    expect(gatedOf).toEqual({ help: false, chat_id: false, new: false, model: true })
   })
 
   it('runs assistant commands (/new) against the chat runtime', async () => {
@@ -278,14 +288,15 @@ describe('ChatManager agent output gating', () => {
   })
 })
 
-describe('ChatManager role gate', () => {
+describe('ChatManager permission gate', () => {
   const users: ChannelUser[] = [
-    { channel: 'tg', user_id: '900', role: 'owner' },
-    { channel: 'tg', user_id: '2', role: 'admin' },
-    { channel: 'tg', user_id: '3', role: 'member' },
+    user('900', { role: 'owner' }),
+    user('2', { private: 'allow' }),
+    user('3'), // 私聊 review（缺省）
+    user('4', { private: 'ignore', groups: { 'S:-1': 'allow', 'G:-4': 'ignore' } }),
   ]
 
-  it('parks member messages for approval without creating a runtime (commands included)', async () => {
+  it('parks review-level messages for approval without creating a runtime (gated commands included)', async () => {
     let runtimeCreated = 0
     const { manager, approvalRequests, sent } = makeManager(
       () => {
@@ -296,7 +307,7 @@ describe('ChatManager role gate', () => {
     )
 
     manager.handleInbound(inbound('hello', { senderId: '3', chatId: 'P:3' }))
-    manager.handleInbound(inbound('/new', { senderId: '3', chatId: 'P:3' }))
+    manager.handleInbound(inbound('/model', { senderId: '3', chatId: 'P:3' }))
 
     await vi.waitFor(() => expect(approvalRequests.length).toBe(2))
     expect(runtimeCreated).toBe(0)
@@ -304,7 +315,7 @@ describe('ChatManager role gate', () => {
     expect(approvalRequests[0]?.message.senderId).toBe('3')
   })
 
-  it('parks unknown senders as members', async () => {
+  it('defaults unknown senders to review', async () => {
     const { manager, approvalRequests } = makeManager(() => Promise.resolve(stubRuntime({})), { users })
 
     manager.handleInbound(inbound('hi', { senderId: '999', chatId: 'P:999', sender: '陌生人' }))
@@ -312,7 +323,7 @@ describe('ChatManager role gate', () => {
     await vi.waitFor(() => expect(approvalRequests.length).toBe(1))
   })
 
-  it('lets owner and admin pass straight through', async () => {
+  it('lets owner (globally) and private-allow users pass straight through', async () => {
     const runtime = () =>
       stubRuntime({
         async *prompt() {
@@ -325,21 +336,100 @@ describe('ChatManager role gate', () => {
     })
 
     manager.handleInbound(inbound('from owner', { senderId: '900', chatId: 'P:900' }))
-    manager.handleInbound(inbound('from admin', { senderId: '2', chatId: 'P:2' }))
+    manager.handleInbound(inbound('from allowed', { senderId: '2', chatId: 'P:2' }))
 
     await vi.waitFor(() => expect(sent.length).toBe(2))
     expect(approvalRequests).toHaveLength(0)
   })
 
-  it('ignores member messages when the channel has no owner (nobody can review)', async () => {
-    const noOwner: ChannelUser[] = [{ channel: 'tg', user_id: '2', role: 'admin' }]
-    const { manager, approvalRequests, infos } = makeManager(() => Promise.resolve(stubRuntime({})), {
+  it('splits permissions between private chat and specific groups for one user', async () => {
+    const runtime = () =>
+      stubRuntime({
+        async *prompt() {
+          yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+        },
+      })
+    const { manager, approvalRequests, sent } = makeManager(() => Promise.resolve(runtime()), {
+      users,
+      sendOutput: true,
+    })
+
+    // 用户 4：私聊 ignore（收到反馈）；群 S:-1 allow（直通）；群 G:-4 ignore；未设置的群 → review
+    const mention = (text: string, overrides: Partial<ChatMessage>) => ({
+      ...inbound(text, overrides),
+      mentioned: true,
+    })
+    manager.handleInbound(inbound('dm', { senderId: '4', chatId: 'P:4' }))
+    manager.handleInbound(mention('in allowed group', { senderId: '4', chatId: 'S:-1' }))
+    manager.handleInbound(mention('in unknown group', { senderId: '4', chatId: 'S:-777' }))
+
+    // S:-1 直通产生 1 条 agent 输出；P:4 忽略档产生 1 条反馈
+    await vi.waitFor(() => expect(sent.length).toBe(2))
+    const texts = sent.map((m) => partsToPlainText(m.parts))
+    expect(texts.some((t) => t === 'ok')).toBe(true)
+    expect(texts.some((t) => t.includes('没有使用权限'))).toBe(true)
+    // 未设置的群 → 审核
+    expect(approvalRequests).toHaveLength(1)
+    expect(approvalRequests[0]?.message.chatId).toBe('S:-777')
+  })
+
+  it('replies with a notice instead of silence when review has no owner to route to', async () => {
+    const noOwner: ChannelUser[] = [user('2', { private: 'allow' })]
+    const { manager, approvalRequests, sent } = makeManager(() => Promise.resolve(stubRuntime({})), {
       users: noOwner,
     })
 
     manager.handleInbound(inbound('hi', { senderId: '3', chatId: 'P:3' }))
 
-    await vi.waitFor(() => expect(infos.some((line) => line.includes('未绑定 owner'))).toBe(true))
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('未绑定 owner')
+    expect(approvalRequests).toHaveLength(0)
+  })
+
+  it('executes exempt commands (help/chat_id/new) for review-level senders without approval', async () => {
+    let sessions = 0
+    const runtime = stubRuntime({
+      newSession: () => {
+        sessions += 1
+        return Promise.resolve(`s${sessions}`)
+      },
+    })
+    const { manager, sent, approvalRequests } = makeManager(() => Promise.resolve(runtime), { users })
+
+    // 发送者 '3' 为审核档（缺省）
+    manager.handleInbound(inbound('/chat_id', { senderId: '3', chatId: 'P:3' }))
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('P:3')
+
+    manager.handleInbound(inbound('/help', { senderId: '3', chatId: 'P:3' }))
+    await vi.waitFor(() => expect(sent.length).toBe(2))
+    expect(partsToPlainText(sent[1]!.parts)).toContain('/model')
+
+    manager.handleInbound(inbound('/new', { senderId: '3', chatId: 'P:3' }))
+    await vi.waitFor(() => expect(sent.length).toBe(3))
+    expect(partsToPlainText(sent[2]!.parts)).toBe('ok')
+
+    expect(approvalRequests).toHaveLength(0)
+  })
+
+  it('parks gated commands (/model) and unknown commands from review-level senders', async () => {
+    const { manager, sent, approvalRequests } = makeManager(() => Promise.resolve(stubRuntime({})), { users })
+
+    manager.handleInbound(inbound('/model', { senderId: '3', chatId: 'P:3' }))
+    manager.handleInbound(inbound('/unknown_cmd', { senderId: '3', chatId: 'P:3' }))
+
+    await vi.waitFor(() => expect(approvalRequests.length).toBe(2))
+    expect(sent).toHaveLength(0)
+  })
+
+  it('keeps ignoring exempt commands from ignore-level senders (explicit block wins)', async () => {
+    const { manager, sent, approvalRequests } = makeManager(() => Promise.resolve(stubRuntime({})), { users })
+
+    // 用户 4 私聊为忽略档
+    manager.handleInbound(inbound('/help', { senderId: '4', chatId: 'P:4' }))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('没有使用权限')
     expect(approvalRequests).toHaveLength(0)
   })
 
@@ -369,7 +459,7 @@ describe('ChatManager role gate', () => {
 
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
-    expect(approvalRequests).toHaveLength(0) // 重放不再进审核门
+    expect(approvalRequests).toHaveLength(0) // 重放不再进身份门
   })
 })
 

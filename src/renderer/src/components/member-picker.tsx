@@ -4,7 +4,7 @@ import type { SenderInfo } from '../../../shared/messages'
 import { susie } from '../lib/ipc'
 import { Button, Field, TextInput } from './form'
 
-// 成员白名单的通用件：昵称芯片列表 + 「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
+// 选人通用件：「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
 // UI 全程不显示 peer id（仅当手动添加且从无发言记录时以 id 兜底显示）。
 
 /**
@@ -41,47 +41,6 @@ export function useSenders(channelId: string, chatId?: string, options: { privat
     }
   }, [channelId, chatId, privateOnly])
   return senders
-}
-
-/** 已选成员芯片（限高滚动）；members 为空时显示 emptyText */
-export function MemberChips({
-  members,
-  nameOf,
-  emptyText,
-  disabled,
-  onRemove,
-}: {
-  members: string[]
-  nameOf: (id: string) => string
-  emptyText: string
-  disabled?: boolean
-  onRemove: (id: string) => void
-}) {
-  const intl = useIntl()
-  if (members.length === 0) {
-    return <p className="text-sm text-ink-muted">{emptyText}</p>
-  }
-  return (
-    <div className="flex max-h-28 flex-wrap content-start gap-1.5 overflow-y-auto">
-      {members.map((id) => (
-        <span
-          key={id}
-          className="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent"
-        >
-          {nameOf(id)}
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={intl.formatMessage({ id: 'members.remove' }, { name: nameOf(id) })}
-            onClick={() => onRemove(id)}
-            className="rounded-full px-0.5 transition-colors hover:bg-accent/20 disabled:opacity-40"
-          >
-            ×
-          </button>
-        </span>
-      ))}
-    </div>
-  )
 }
 
 /** 添加成员弹窗：点选即回调 onAdd 且保持打开（可连续添加）；已在 existing 中的候选不再出现 */

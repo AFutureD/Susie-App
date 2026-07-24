@@ -43,16 +43,14 @@ export class ConfigStore {
   private snapshot: Config
   private version = 1
   private lastError: string | null = null
-  private migrations: string[] = []
 
   private readonly pathListeners = new Map<string, Set<PathListener>>()
   private readonly stateListeners = new Set<(state: ConfigState) => void>()
   private readonly pendingSelfHashes = new Set<string>()
 
-  private constructor(configPath: string, snapshot: Config, migrations: string[], lastError: string | null) {
+  private constructor(configPath: string, snapshot: Config, lastError: string | null) {
     this.configPath = configPath
     this.snapshot = snapshot
-    this.migrations = migrations
     this.lastError = lastError
   }
 
@@ -66,12 +64,12 @@ export class ConfigStore {
       const text = fs.readFileSync(configPath, 'utf-8')
       const result = parseConfigText(text)
       if (result.ok) {
-        return new ConfigStore(configPath, result.config, result.migrations, null)
+        return new ConfigStore(configPath, result.config, null)
       }
-      return new ConfigStore(configPath, defaultConfig(), [], result.error)
+      return new ConfigStore(configPath, defaultConfig(), result.error)
     } catch (error) {
       const message = `读取配置失败：${error instanceof Error ? error.message : String(error)}`
-      return new ConfigStore(configPath, defaultConfig(), [], message)
+      return new ConfigStore(configPath, defaultConfig(), message)
     }
   }
 
@@ -89,7 +87,6 @@ export class ConfigStore {
       configPath: this.configPath,
       config: this.snapshot,
       lastError: this.lastError,
-      migrations: this.migrations,
     }
   }
 
@@ -126,7 +123,7 @@ export class ConfigStore {
       this.setError(result.error)
       return
     }
-    this.applySnapshot(result.config, result.migrations)
+    this.applySnapshot(result.config)
   }
 
   // ---------- 引用与订阅 ----------
@@ -225,7 +222,7 @@ export class ConfigStore {
     } catch (error) {
       return fail(`写入配置失败：${error instanceof Error ? error.message : String(error)}`)
     }
-    this.applySnapshot(result.config, result.migrations)
+    this.applySnapshot(result.config)
     return { ok: true, state: this.state() }
   }
 
@@ -253,7 +250,7 @@ export class ConfigStore {
       return fail(`写入配置失败：${error instanceof Error ? error.message : String(error)}`)
     }
 
-    this.applySnapshot(reparsed.data, [])
+    this.applySnapshot(reparsed.data)
     return { ok: true, state: this.state() }
   }
 
@@ -263,12 +260,11 @@ export class ConfigStore {
     this.pendingSelfHashes.add(sha256(text))
   }
 
-  private applySnapshot(next: Config, migrations: string[]): void {
+  private applySnapshot(next: Config): void {
     const prev = this.snapshot
     const changedPaths = diffConfigPaths(prev, next)
 
     this.snapshot = next
-    this.migrations = migrations
     this.lastError = null
     if (changedPaths.length > 0) this.version += 1
 

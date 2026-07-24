@@ -4,13 +4,12 @@ import { useAtomValue } from 'jotai'
 import { canonicalizeBindings, expandBindings, type BindingAssignments } from '../../../../shared/bindings'
 import { decodeChatId } from '../../../../shared/chat-id'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
-import type { ChatInfo, SenderInfo } from '../../../../shared/messages'
-import { channelOwner, transferOwner, upsertUser } from '../../../../shared/users'
+import type { ChatInfo } from '../../../../shared/messages'
 import { configStateAtom } from '../../lib/config-atoms'
 import { susie } from '../../lib/ipc'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import { Button, ErrorText, Field, TextInput } from '../form'
-import { MemberChips, useSenders } from '../member-picker'
+import { OwnerBindPanel } from '../owner-bind'
 import { ONBOARDING_DONE_KEY, onboardingStepFor } from './model'
 
 // 首启引导：三步（添加频道 → 绑定 owner → 会话绑定），把「频道页 + 用户管理 + 会话绑定面板」
@@ -213,80 +212,21 @@ function OwnerStep({
   onBound: () => void
 }) {
   const intl = useIntl()
-  // 仅列私聊发送者：owner 必须私聊过 bot，审核卡片才能送达
-  const senders = useSenders(channelId, undefined, { privateOnly: true })
-  const statuses = useAtomValue(channelStatusesAtom)
-  const status = statuses.find((item) => item.id === channelId)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const bindOwner = async (sender: SenderInfo): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    const users = transferOwner(state.config.users, channelId, sender.id, sender.name ?? undefined)
-    const result = await susie.invoke('config:set-users', { users, expectedVersion: state.version })
-    setBusy(false)
-    if (!result.ok) {
-      setError(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)
-      return
-    }
-    onBound()
-  }
-
   return (
     <section className="flex flex-col gap-3">
       <div>
         <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'onboarding.step.owner' })}</h2>
-        <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'onboarding.owner.subtitle' })}</p>
+        <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'ownerBind.subtitle' })}</p>
       </div>
-
       <div className="rounded-xl border border-line bg-raised p-4">
-        <p className="text-sm leading-6 text-ink-muted">{intl.formatMessage({ id: 'onboarding.owner.hint' })}</p>
-        <div className="mt-3 flex items-center gap-3">
-          <Button
-            variant="primary"
-            disabled={botUsername === null}
-            onClick={() => void susie.invoke('app:open-external', { url: `https://t.me/${botUsername ?? ''}` })}
-          >
-            {intl.formatMessage({ id: 'onboarding.listen.open' })}
-          </Button>
-          {botUsername !== null && (
-            <span className="font-mono text-xs text-ink-muted select-text">t.me/{botUsername}</span>
-          )}
-        </div>
-        {linkError !== null && botUsername === null && (
-          <p className="mt-2 text-xs text-red-500">
-            {intl.formatMessage({ id: 'onboarding.listen.linkFailed' }, { detail: linkError })}
-          </p>
-        )}
-        {status?.state === 'error' && status.detail !== null && (
-          <p className="mt-2 text-xs text-red-500">
-            {intl.formatMessage({ id: 'onboarding.listen.channelError' }, { detail: status.detail })}
-          </p>
-        )}
+        <OwnerBindPanel
+          state={state}
+          channelId={channelId}
+          botUsername={botUsername}
+          linkError={linkError}
+          onBound={onBound}
+        />
       </div>
-
-      <div className="rounded-xl border border-line bg-raised">
-        {senders.length === 0 ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-ink-muted">
-            <span className="size-2 animate-pulse rounded-full bg-amber-500" />
-            {intl.formatMessage({ id: 'onboarding.owner.waiting' })}
-          </div>
-        ) : (
-          <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto p-2">
-            {senders.map((sender) => (
-              <div key={sender.id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
-                <span className="min-w-0 flex-1 truncate text-sm">{sender.name ?? sender.id}</span>
-                <Button disabled={busy} onClick={() => void bindOwner(sender)}>
-                  {intl.formatMessage({ id: 'onboarding.owner.bind' })}
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <ErrorText message={error} />
     </section>
   )
 }
@@ -310,8 +250,6 @@ function BindingStep({
   const [mode, setMode] = useState<'choose' | 'listen'>('choose')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selected, setSelected] = useState<string[]>([])
-  const senders = useSenders(channelId)
 
   // schema 默认保证 assistants 至少有 default；仍以现有列表为准兜底
   const assistantId =
@@ -323,59 +261,26 @@ function BindingStep({
     async (mutate: (assignments: BindingAssignments) => void): Promise<boolean> => {
       if (busy) return false
       setBusy(true)
-      try {
-        // 1) 选中但未登记的用户先以 member 身份登记（用返回的 version 链式提交，避免自我冲突）
-        let version = state.version
-        const roster = state.config.users
-        const missing = selected.filter(
-          (id) => !roster.some((user) => user.channel === channelId && user.user_id === id),
-        )
-        if (missing.length > 0) {
-          let nextUsers = roster
-          for (const id of missing) {
-            const name = senders.find((sender) => sender.id === id)?.name
-            nextUsers = upsertUser(nextUsers, {
-              channel: channelId,
-              user_id: id,
-              role: 'member',
-              ...(name == null ? {} : { name }),
-            })
-          }
-          const usersResult = await susie.invoke('config:set-users', { users: nextUsers, expectedVersion: version })
-          if (!usersResult.ok) {
-            setError(
-              usersResult.conflict
-                ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' })
-                : usersResult.message,
-            )
-            return false
-          }
-          version = usersResult.state.version
-        }
-
-        // 2) 写绑定（选中的用户即绑定的成员名单；空选 = 所有人）
-        const assignments = expandBindings(state.config.bindings)
-        mutate(assignments)
-        const result = await susie.invoke('config:set-bindings', {
-          bindings: canonicalizeBindings(assignments),
-          expectedVersion: version,
-        })
-        if (!result.ok) {
-          setError(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)
-          return false
-        }
-        setError(null)
-        return true
-      } finally {
-        setBusy(false)
+      const assignments = expandBindings(state.config.bindings)
+      mutate(assignments)
+      const result = await susie.invoke('config:set-bindings', {
+        bindings: canonicalizeBindings(assignments),
+        expectedVersion: state.version,
+      })
+      setBusy(false)
+      if (!result.ok) {
+        setError(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)
+        return false
       }
+      setError(null)
+      return true
     },
-    [busy, selected, senders, channelId, state.config.users, state.config.bindings, state.version, intl],
+    [busy, state.config.bindings, state.version, intl],
   )
 
   const bindAll = async (): Promise<void> => {
     const ok = await submit((assignments) => {
-      assignments.wildcard[channelId] = { assistantId, onlyMention: true, members: [...selected], sendOutput: false }
+      assignments.wildcard[channelId] = { assistantId, onlyMention: true, sendOutput: false }
     })
     if (ok) onFinish()
   }
@@ -383,7 +288,7 @@ function BindingStep({
   const bindChat = (chatId: string): void => {
     void submit((assignments) => {
       const channelExact = (assignments.exact[channelId] ??= {})
-      channelExact[chatId] = { assistantId, onlyMention: true, members: [...selected], sendOutput: false }
+      channelExact[chatId] = { assistantId, onlyMention: true, sendOutput: false }
     })
   }
 
@@ -393,15 +298,6 @@ function BindingStep({
         <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'onboarding.step.binding' })}</h2>
         <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'onboarding.binding.subtitle' })}</p>
       </div>
-
-      <UserMultiSelect
-        state={state}
-        channelId={channelId}
-        senders={senders}
-        selected={selected}
-        disabled={busy}
-        onChange={setSelected}
-      />
 
       {mode === 'choose' ? (
         <>
@@ -457,84 +353,6 @@ function OptionCard({
       <span className="block text-sm font-semibold">{title}</span>
       <span className="mt-1 block text-xs leading-5 text-ink-muted">{desc}</span>
     </button>
-  )
-}
-
-// ---------- 允许的用户（多选；应用到本步创建的绑定） ----------
-
-function UserMultiSelect({
-  state,
-  channelId,
-  senders,
-  selected,
-  disabled,
-  onChange,
-}: {
-  state: ConfigState
-  channelId: string
-  /** 频道内出现过的发送者（实时） */
-  senders: SenderInfo[]
-  selected: string[]
-  disabled: boolean
-  onChange: (next: string[]) => void
-}) {
-  const intl = useIntl()
-  const ownerId = channelOwner(state.config.users, channelId)?.user_id ?? null
-  const roster = state.config.users.filter((user) => user.channel === channelId)
-
-  // 候选 = 名单用户 ∪ 历史发送者（去重、排除 owner——owner 始终可用）
-  const candidates = useMemo(() => {
-    const byId = new Map<string, string | null>()
-    for (const user of roster) byId.set(user.user_id, user.name ?? null)
-    for (const sender of senders) {
-      if (!byId.has(sender.id) || byId.get(sender.id) === null) byId.set(sender.id, sender.name)
-    }
-    if (ownerId !== null) byId.delete(ownerId)
-    return [...byId.entries()].map(([id, name]) => ({ id, name }))
-  }, [roster, senders, ownerId])
-
-  const nameOf = (id: string): string => candidates.find((c) => c.id === id)?.name ?? id
-  const unselected = candidates.filter((c) => !selected.includes(c.id))
-
-  return (
-    <section className="rounded-xl border border-line bg-raised p-4">
-      <h3 className="text-sm font-semibold">{intl.formatMessage({ id: 'onboarding.binding.users.title' })}</h3>
-      <p className="mt-1 text-xs leading-5 text-ink-muted">
-        {intl.formatMessage({ id: 'onboarding.binding.users.hint' })}
-      </p>
-      <div className="mt-3">
-        <MemberChips
-          members={selected}
-          nameOf={nameOf}
-          emptyText={intl.formatMessage({ id: 'onboarding.binding.users.everyone' })}
-          disabled={disabled}
-          onRemove={(id) => onChange(selected.filter((x) => x !== id))}
-        />
-      </div>
-      {unselected.length === 0 ? (
-        <div className="mt-2 flex items-center gap-2 border-t border-line pt-3 text-xs text-ink-muted">
-          <span className="size-2 animate-pulse rounded-full bg-amber-500" />
-          {intl.formatMessage({ id: 'onboarding.binding.users.waiting' })}
-        </div>
-      ) : (
-        <div className="mt-2 flex max-h-40 flex-col gap-0.5 overflow-y-auto border-t border-line pt-2">
-          {unselected.map((candidate) => (
-            <button
-              key={candidate.id}
-              type="button"
-              disabled={disabled}
-              onClick={() => onChange([...selected, candidate.id])}
-              className="flex items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-line/40 disabled:opacity-40"
-            >
-              <span className="min-w-0 flex-1 truncate">{candidate.name ?? candidate.id}</span>
-              <span className="shrink-0 text-xs text-accent">
-                {intl.formatMessage({ id: 'onboarding.binding.users.select' })}
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </section>
   )
 }
 

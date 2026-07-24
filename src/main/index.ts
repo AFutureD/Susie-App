@@ -112,7 +112,6 @@ if (!app.requestSingleInstanceLock()) {
     log.info(`Susie started (version=${app.getVersion()}, dev=${isDev}, headless=${appFlags.headless})`)
     log.info(`config: ${state.configPath} (v${state.version}, channels=${Object.keys(state.config.channels).length})`)
     if (state.lastError) log.error(`config error: ${state.lastError}`)
-    for (const note of state.migrations) log.warn(`config migration: ${note}`)
 
     await service.start()
 

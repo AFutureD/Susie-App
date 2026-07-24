@@ -4,7 +4,7 @@ import { onboardingStepFor } from './model'
 
 const emptyConfig = configSchema.parse({})
 
-function configWith(partial: Partial<Config>): Config {
+function configWith(partial: Record<string, unknown>): Config {
   return configSchema.parse({
     channels: { my_bot: { type: 'telegram_bot', token: '1:x' } },
     bindings: [{ channel: 'my_bot', assistant_id: 'default' }],
@@ -30,11 +30,11 @@ describe('onboardingStepFor', () => {
         false,
       ),
     ).toBe('owner')
-    // 仅有 admin/member 不算 owner
+    // 仅有普通用户不算 owner
     expect(
       onboardingStepFor(
         {
-          config: configWith({ users: [{ channel: 'my_bot', user_id: '1', role: 'admin' }], bindings: [] }),
+          config: configWith({ users: [{ channel: 'my_bot', user_id: '1', role: 'user' }], bindings: [] }),
           lastError: null,
         },
         false,

@@ -50,13 +50,19 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })
 
-test('UI 新建频道并落盘 config.toml', async () => {
+test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async () => {
   await win.getByRole('button', { name: '新增频道' }).click()
   await win.getByPlaceholder('my_bot').fill('e2e_bot')
   await win.getByPlaceholder('123456:bot-token').fill('10001:e2e-token')
   await expect(win.getByPlaceholder('my_bot')).toHaveValue('e2e_bot')
   await expect(win.getByPlaceholder('123456:bot-token')).toHaveValue('10001:e2e-token')
   await win.getByRole('button', { name: '保存', exact: true }).click()
+
+  // 新建成功 → 立即弹出 Owner 绑定（假 token 拿不到深链，但监听面板照常出现）；此处稍后再设
+  await expect(win.getByRole('heading', { name: '绑定 Owner' })).toBeVisible()
+  await expect(win.getByText('正在等待你的消息…')).toBeVisible()
+  await win.getByRole('button', { name: '稍后在「用户」页设置' }).click()
+  await expect(win.getByRole('heading', { name: '绑定 Owner' })).toHaveCount(0)
 
   await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
   // token 打码展示
@@ -92,12 +98,12 @@ test('树形面板把「默认」会话指派给助手并落盘', async () => {
   expect(text).toContain('chat_id = "*"')
 })
 
-test('用户页：无 Owner 警示与空名单，角色说明可见', async () => {
+test('用户页：无 Owner 警示、空名单与绑定入口', async () => {
   await win.getByRole('link', { name: '用户' }).click()
-  await expect(win.getByText(/Owner 全权并负责审核/)).toBeVisible()
-  // 两个频道卡片都渲染，且都提示未绑定 Owner
-  await expect(win.getByText(/该频道未绑定 Owner/).first()).toBeVisible()
-  await expect(win.getByText('尚未登记任何用户').first()).toBeVisible()
+  // 两个频道卡片都渲染，且都提示未绑定 Owner + 直达绑定入口
+  await expect(win.getByText(/未绑定 Owner/).first()).toBeVisible()
+  await expect(win.getByRole('button', { name: '绑定 Owner' }).first()).toBeVisible()
+  await expect(win.getByText('暂无登记用户').first()).toBeVisible()
   await expect(win.getByRole('button', { name: '添加用户' }).first()).toBeVisible()
 })
 

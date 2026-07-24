@@ -24,7 +24,7 @@ describe('buildTree', () => {
   it('derives rows from exact bindings and carries trigger attributes', () => {
     const config = makeConfig({
       bindings: [
-        { channel: 'bot', chat_id: 'S:-1', assistant_id: 'ops', only_mention: false, members: ['7'] },
+        { channel: 'bot', chat_id: 'S:-1', assistant_id: 'ops', only_mention: false },
         { channel: 'bot', chat_id: '*', assistant_id: 'default' },
       ],
     })
@@ -33,7 +33,6 @@ describe('buildTree', () => {
     expect(tree[0]?.defaultAssignment).toEqual({
       assistantId: 'default',
       onlyMention: true,
-      members: [],
       sendOutput: false,
     })
     expect(tree[0]?.rows).toEqual([
@@ -43,7 +42,7 @@ describe('buildTree', () => {
         name: '大群',
         chatType: 'supergroup',
         threadId: null,
-        assignment: { assistantId: 'ops', onlyMention: false, members: ['7'], sendOutput: false },
+        assignment: { assistantId: 'ops', onlyMention: false, sendOutput: false },
       },
     ])
   })

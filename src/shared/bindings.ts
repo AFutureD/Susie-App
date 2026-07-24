@@ -1,15 +1,13 @@
-import { CHAT_ALL, type ChatBinding, type UserRole } from './config'
+import { CHAT_ALL, type ChatBinding } from './config'
 
-// 准入统一由绑定决定：β(x) = 精确绑定 | 通道默认（chat_id='*'） | null（禁止，不响应）。
-// 不存在全局兜底——没有绑定命中就是不响应。群会话在命中后还要过发送者准入
-// （成员名单 + @ 提及要求，来自命中的那条绑定）。
+// 绑定 = 路由：β(x) = 精确绑定 | 通道默认（chat_id='*'） | null（无助手承接，不响应）。
+// 不存在全局兜底。群会话在命中后还要过触发条件（@ 提及要求，来自命中的那条绑定）；
+// 是否响应与审核由用户模块按发送者身份决定，不在本层。
 
 /** 一个会话的指派（含群触发属性与输出选项） */
 export interface ChatAssignment {
   assistantId: string
   onlyMention: boolean
-  /** 空 = 所有成员 */
-  members: string[]
   /** 开启后把 agent 运行期间的全部直接产出（过程与结果）发送到会话 */
   sendOutput: boolean
 }
@@ -26,7 +24,6 @@ export function assignmentOf(binding: ChatBinding): ChatAssignment {
   return {
     assistantId: binding.assistant_id,
     onlyMention: binding.only_mention,
-    members: binding.members,
     sendOutput: binding.send_output,
   }
 }
@@ -72,7 +69,6 @@ function toBinding(channel: string, chatId: string, assignment: ChatAssignment):
     chat_id: chatId,
     assistant_id: assignment.assistantId,
     only_mention: assignment.onlyMention,
-    members: assignment.members,
     send_output: assignment.sendOutput,
   }
 }
@@ -94,20 +90,15 @@ export function resolveBinding(bindings: ChatBinding[], channelId: string, chatI
 export interface SenderMeta {
   /** private/group/supergroup/channel/sender；无法解析时为 null */
   chatType: string | null
-  senderId: string | null
   /** 群内消息是否 @ 了 bot 或回复了 bot */
   mentioned: boolean
 }
 
 /**
- * 发送者准入：私聊命中绑定即放行（chat=user，会话粒度已含用户粒度）；
- * 群会话再按命中绑定的成员名单与 @ 要求过滤。
- * owner 豁免成员名单（不豁免 @ 要求——否则 owner 在群里每句话都触发 bot）。
+ * 会话触发条件：私聊恒触发；群会话按命中绑定的 @ 提及要求过滤。
+ * 纯会话侧配置——发送者的权限（响应/审核/忽略）由用户模块判定，不在本层。
  */
-export function isSenderAdmitted(binding: ChatBinding, meta: SenderMeta, role: UserRole | null = null): boolean {
+export function isTriggerSatisfied(binding: ChatBinding, meta: SenderMeta): boolean {
   if (meta.chatType === 'private') return true
-  if (binding.only_mention && !meta.mentioned) return false
-  if (binding.members.length === 0) return true
-  if (role === 'owner') return true
-  return meta.senderId !== null && binding.members.includes(meta.senderId)
+  return !binding.only_mention || meta.mentioned
 }

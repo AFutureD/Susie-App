@@ -3,6 +3,7 @@ import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { ChannelSettings, ConfigState, TelegramBotChannelSettings } from '../../../shared/config'
 import { Button, CheckboxField, ErrorText, Field, TextInput } from '../components/form'
+import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { susie } from '../lib/ipc'
@@ -25,6 +26,8 @@ export function ChannelsPage() {
   const state = useAtomValue(configStateAtom)
   const statuses = useAtomValue(channelStatusesAtom)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
+  // 新建频道后立即进入 owner 绑定（之后仍可在「用户」页调整）
+  const [ownerBindChannel, setOwnerBindChannel] = useState<string | null>(null)
 
   if (!state) {
     return <Page titleId="page.channels.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
@@ -112,7 +115,7 @@ export function ChannelsPage() {
 
         {editing === 'new' ? (
           <div className="rounded-xl border border-line bg-raised p-4">
-            <ChannelForm state={state} onDone={() => setEditing(null)} />
+            <ChannelForm state={state} onDone={() => setEditing(null)} onCreated={setOwnerBindChannel} />
           </div>
         ) : (
           <div>
@@ -122,6 +125,10 @@ export function ChannelsPage() {
           </div>
         )}
       </div>
+
+      {ownerBindChannel !== null && ownerBindChannel in state.config.channels && (
+        <OwnerBindModal state={state} channelId={ownerBindChannel} onClose={() => setOwnerBindChannel(null)} />
+      )}
     </Page>
   )
 }
@@ -131,11 +138,14 @@ function ChannelForm({
   initial,
   state,
   onDone,
+  onCreated,
 }: {
   channelId?: string
   initial?: TelegramBotChannelSettings
   state: ConfigState
   onDone: () => void
+  /** 仅新建成功时回调（进入 owner 绑定） */
+  onCreated?: (id: string) => void
 }) {
   const intl = useIntl()
 
@@ -184,6 +194,7 @@ function ChannelForm({
       return
     }
     onDone()
+    if (channelId === undefined) onCreated?.(finalId)
   }
 
   return (

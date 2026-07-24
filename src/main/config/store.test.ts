@@ -9,22 +9,10 @@ function tempConfigPath(): string {
   return path.join(mkdtempSync(path.join(tmpdir(), 'susie-config-')), 'config.toml')
 }
 
-const LEGACY_TOML = `
-api_id = 123
-api_hash = "abc"
-
-[channels.legacy_user]
-type = "telegram_user"
-session_name = "s"
-
+const BASE_TOML = `
 [channels.bot]
 type = "telegram_bot"
 token = "123:token"
-whitelist = ["1"]
-
-[channels.bot.groups."*"]
-whitelist = ["*"]
-only_mention = true
 
 [[assistants]]
 id = "default"
@@ -33,7 +21,6 @@ agent_id = "codex"
 [[bindings]]
 channel = "bot"
 assistant_id = "default"
-chat_ids = ["*"]
 `
 
 describe('ConfigStore.init', () => {
@@ -46,25 +33,31 @@ describe('ConfigStore.init', () => {
     expect(store.current.assistants.map((a) => a.id)).toContain('default')
   })
 
-  it('ignores legacy content in memory without rewriting the file', () => {
+  it('rejects legacy Python-era configs outright (no compatibility): default + lastError', () => {
     const configPath = tempConfigPath()
-    writeFileSync(configPath, LEGACY_TOML)
+    writeFileSync(
+      configPath,
+      `
+api_id = 123
 
+[channels.bot]
+type = "telegram_bot"
+token = "123:token"
+whitelist = ["1"]
+`,
+    )
     const store = ConfigStore.init(configPath)
-    const state = store.state()
-
-    expect(state.lastError).toBeNull()
-    expect(Object.keys(state.config.channels)).toEqual(['bot'])
-    expect(state.migrations).toHaveLength(5) // api_id + api_hash + telegram_user 通道 + 准入字段剥离 + chat_ids 展开
-    // 文件本身保持原样
-    expect(readFileSync(configPath, 'utf-8')).toBe(LEGACY_TOML)
+    expect(store.state().lastError).toContain('配置校验失败')
+    // 退化为内存默认配置；文件保持原样
+    expect(Object.keys(store.current.channels)).toEqual([])
+    expect(readFileSync(configPath, 'utf-8')).toContain('api_id')
   })
 })
 
 describe('hot reload', () => {
   it('applies external changes and notifies only affected paths', () => {
     const configPath = tempConfigPath()
-    writeFileSync(configPath, LEGACY_TOML)
+    writeFileSync(configPath, BASE_TOML)
     const store = ConfigStore.init(configPath)
 
     const botEvents: unknown[] = []
@@ -73,7 +66,7 @@ describe('hot reload', () => {
     store.ref('assistants.default').onChange((next) => assistantEvents.push(next))
 
     const versionBefore = store.currentVersion
-    store.applyExternalText(LEGACY_TOML.replace('123:token', '123:token-b'))
+    store.applyExternalText(BASE_TOML.replace('123:token', '123:token-b'))
 
     expect(store.currentVersion).toBe(versionBefore + 1)
     expect(botEvents).toHaveLength(1)
@@ -83,7 +76,7 @@ describe('hot reload', () => {
 
   it('keeps last-good config when the new text is invalid, then recovers', () => {
     const configPath = tempConfigPath()
-    writeFileSync(configPath, LEGACY_TOML)
+    writeFileSync(configPath, BASE_TOML)
     const store = ConfigStore.init(configPath)
     const versionBefore = store.currentVersion
 
@@ -92,13 +85,13 @@ describe('hot reload', () => {
     expect(store.currentVersion).toBe(versionBefore)
     expect(Object.keys(store.current.channels)).toEqual(['bot'])
 
-    store.applyExternalText(LEGACY_TOML)
+    store.applyExternalText(BASE_TOML)
     expect(store.state().lastError).toBeNull()
   })
 
   it('resolves refs to undefined after the entity is removed', () => {
     const configPath = tempConfigPath()
-    writeFileSync(configPath, LEGACY_TOML)
+    writeFileSync(configPath, BASE_TOML)
     const store = ConfigStore.init(configPath)
 
     const ref = store.ref<TelegramBotChannelSettings>('channels.bot')
@@ -218,8 +211,8 @@ assistant_id = "default"
     const versionBefore = store.currentVersion
     const replaced = store.setBindings(
       [
-        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, members: [], send_output: false },
-        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, members: [], send_output: false },
+        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, send_output: false },
+        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, send_output: false },
       ],
       versionBefore,
     )
@@ -230,7 +223,7 @@ assistant_id = "default"
 
     // 引用未知 assistant → superRefine 拒绝，状态不变
     const invalid = store.setBindings(
-      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, members: [], send_output: false }],
+      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, send_output: false }],
       store.currentVersion,
     )
     expect(invalid.ok).toBe(false)
@@ -243,7 +236,7 @@ assistant_id = "default"
     if (!stale.ok) expect(stale.conflict).toBe(true)
   })
 
-  it('replaces users wholesale and persists the section to disk', () => {
+  it('replaces users wholesale and persists scope permissions to disk', () => {
     const configPath = tempConfigPath()
     const store = ConfigStore.init(configPath)
 
@@ -252,8 +245,8 @@ assistant_id = "default"
 
     const result = store.setUsers(
       [
-        { channel: 'bot', user_id: '1', name: 'Alice', role: 'owner' },
-        { channel: 'bot', user_id: '2', role: 'member' },
+        { channel: 'bot', user_id: '1', name: 'Alice', role: 'owner', private: 'review', groups: {} },
+        { channel: 'bot', user_id: '2', role: 'user', private: 'allow', groups: { 'S:-100': 'ignore' } },
       ],
       store.currentVersion,
     )
@@ -262,11 +255,13 @@ assistant_id = "default"
     const text = readFileSync(configPath, 'utf-8')
     expect(text).toContain('[[users]]')
     expect(text).toContain('role = "owner"')
+    expect(text).toContain('private = "allow"')
 
-    // 重新加载：users 段完整往返
+    // 重新加载：users 段（含群档位）完整往返
     const reloaded = ConfigStore.init(configPath)
     expect(reloaded.current.users).toHaveLength(2)
     expect(reloaded.current.users[0]?.role).toBe('owner')
+    expect(reloaded.current.users[1]?.groups['S:-100']).toBe('ignore')
   })
 
   it('parses configs without a users section as an empty roster', () => {
@@ -282,8 +277,8 @@ assistant_id = "default"
 
     const dup = store.setUsers(
       [
-        { channel: 'bot', user_id: '1', role: 'member' },
-        { channel: 'bot', user_id: '1', role: 'admin' },
+        { channel: 'bot', user_id: '1', role: 'user', private: 'review', groups: {} },
+        { channel: 'bot', user_id: '1', role: 'user', private: 'allow', groups: {} },
       ],
       store.currentVersion,
     )
@@ -292,8 +287,8 @@ assistant_id = "default"
 
     const twoOwners = store.setUsers(
       [
-        { channel: 'bot', user_id: '1', role: 'owner' },
-        { channel: 'bot', user_id: '2', role: 'owner' },
+        { channel: 'bot', user_id: '1', role: 'owner', private: 'review', groups: {} },
+        { channel: 'bot', user_id: '2', role: 'owner', private: 'review', groups: {} },
       ],
       store.currentVersion,
     )
@@ -303,12 +298,31 @@ assistant_id = "default"
     // 不同频道各自一个 owner 合法
     const ok = store.setUsers(
       [
-        { channel: 'a', user_id: '1', role: 'owner' },
-        { channel: 'b', user_id: '1', role: 'owner' },
+        { channel: 'a', user_id: '1', role: 'owner', private: 'review', groups: {} },
+        { channel: 'b', user_id: '1', role: 'owner', private: 'review', groups: {} },
       ],
       store.currentVersion,
     )
     expect(ok.ok).toBe(true)
+  })
+
+  it('rejects configs with removed fields (no migration): last-good stays active', () => {
+    const configPath = tempConfigPath()
+    writeFileSync(
+      configPath,
+      `
+[[assistants]]
+id = "default"
+
+[[bindings]]
+channel = "bot"
+assistant_id = "default"
+members = ["7"]
+`,
+    )
+    const store = ConfigStore.init(configPath)
+    // strictObject 拒绝已删除的 members 字段 → 退化为默认配置 + lastError
+    expect(store.state().lastError).toContain('members')
   })
 
   it('rejects invalid raw text without touching state', () => {
