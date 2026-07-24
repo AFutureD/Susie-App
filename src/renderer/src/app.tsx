@@ -6,10 +6,12 @@ import { OnboardingOverlay } from './components/onboarding/onboarding'
 import { configStateAtom } from './lib/config-atoms'
 import { susie } from './lib/ipc'
 import { channelStatusesAtom } from './lib/service-atoms'
+import { updateStateAtom } from './lib/update-atoms'
 import { AgentsPage } from './pages/agents'
 import { AssistantsPage } from './pages/assistants'
 import { ChannelsPage } from './pages/channels'
 import { HistoryPage } from './pages/history'
+import { IntelligencePage } from './pages/intelligence'
 import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
 import { UsersPage } from './pages/users'
@@ -19,6 +21,7 @@ const NAV_ITEMS = [
   { to: '/agents', id: 'nav.agents' },
   { to: '/assistants', id: 'nav.assistants' },
   { to: '/users', id: 'nav.users' },
+  { to: '/intelligence', id: 'nav.intelligence' },
   { to: '/history', id: 'nav.history' },
   { to: '/logs', id: 'nav.logs' },
   { to: '/settings', id: 'nav.settings' },
@@ -28,6 +31,7 @@ const NAV_ITEMS = [
 function ConfigBootstrap() {
   const setState = useSetAtom(configStateAtom)
   const setStatuses = useSetAtom(channelStatusesAtom)
+  const setUpdateState = useSetAtom(updateStateAtom)
 
   useEffect(() => {
     let alive = true
@@ -37,14 +41,19 @@ function ConfigBootstrap() {
     void susie.invoke('channel:statuses').then((statuses) => {
       if (alive) setStatuses(statuses)
     })
+    void susie.invoke('update:get-state').then((state) => {
+      if (alive) setUpdateState(state)
+    })
     const offConfig = susie.on('config:state', setState)
     const offStatus = susie.on('channel:status', setStatuses)
+    const offUpdate = susie.on('update:state', setUpdateState)
     return () => {
       alive = false
       offConfig()
       offStatus()
+      offUpdate()
     }
-  }, [setState, setStatuses])
+  }, [setState, setStatuses, setUpdateState])
 
   return null
 }
@@ -98,6 +107,7 @@ export function App() {
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/assistants" element={<AssistantsPage />} />
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/intelligence" element={<IntelligencePage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

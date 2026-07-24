@@ -40,8 +40,14 @@ export const assistantSchema = z.strictObject({
   instruction: z.string().optional(),
 })
 
-/** 范围权限档位：allow 直通 / review 审核后执行 / ignore 忽略 */
-export const PERMISSION_LEVELS = ['allow', 'review', 'ignore'] as const
+/**
+ * 范围权限档位：
+ * - allow 直通
+ * - auto  自动审核：先由「智能 · 自动审核」评估消息，通过则放行，未通过回落人工审核
+ * - review 人工审核后执行
+ * - ignore 忽略
+ */
+export const PERMISSION_LEVELS = ['allow', 'auto', 'review', 'ignore'] as const
 export type PermissionLevel = (typeof PERMISSION_LEVELS)[number]
 
 /** 未登记的发送者与未设置的范围一律按此档处理 */
@@ -64,6 +70,31 @@ export const userSchema = z.strictObject({
   private: z.enum(PERMISSION_LEVELS).default(DEFAULT_PERMISSION),
   /** 具体群的权限档位；key = 群 chat_id（不含 thread 段），未配置的群 = 审核 */
   groups: z.record(z.string(), z.enum(PERMISSION_LEVELS)).default({}),
+})
+
+/** 「智能 · 自动审核」默认审核标准（可在 UI 编辑） */
+export const DEFAULT_AUTO_REVIEW_CONTENT = '评估用户消息，拒绝获取原始文件、打包文件等行为，避免核心代码与文件泄漏。'
+
+/** 自动审核的推荐 agent / 模型 / 思考深度（仅用于 UI 文案提示，不写入配置） */
+export const RECOMMENDED_AUTO_REVIEW = {
+  agent_id: 'codex',
+  model: 'gpt-5.6-terra',
+  thinking_level: 'medium',
+} as const
+
+/**
+ * 智能 · 自动审核配置：当用户在某范围被设为 `auto` 档时，先用此处配置的 agent
+ * 评估其消息是否符合 `content` 标准，通过则放行、否则回落人工审核。
+ */
+export const autoReviewSchema = z.strictObject({
+  /** 审核标准（作为审核 agent 的判定依据；支持编辑） */
+  content: z.string().default(DEFAULT_AUTO_REVIEW_CONTENT),
+  /** 承担审核的 agent id（默认 codex） */
+  agent_id: z.string().min(1).default('codex'),
+  /** 审核模型；空表示 agent 默认 */
+  model: z.string().optional(),
+  /** 思考深度；空表示 agent 默认（目前仅 codex 生效） */
+  thinking_level: z.enum(THINKING_LEVELS).optional(),
 })
 
 /**
@@ -93,6 +124,8 @@ export const configSchema = z
     assistants: z.array(assistantSchema).default([{ id: DEFAULT_ASSISTANT_ID, agent_id: 'codex' }]),
     bindings: z.array(bindingSchema).default([]),
     users: z.array(userSchema).default([]),
+    // 内部字段有各自默认；用函数默认确保 defaultConfig() 也填充内层默认值
+    auto_review: autoReviewSchema.default(() => autoReviewSchema.parse({})),
   })
   .superRefine((config, ctx) => {
     const ids = config.assistants.map((a) => a.id)
@@ -140,6 +173,7 @@ export type ChannelSettings = z.infer<typeof channelSettingsSchema>
 export type AssistantConfig = z.infer<typeof assistantSchema>
 export type ChatBinding = z.infer<typeof bindingSchema>
 export type ChannelUser = z.infer<typeof userSchema>
+export type AutoReviewConfig = z.infer<typeof autoReviewSchema>
 export type Config = z.infer<typeof configSchema>
 
 /** 推给 UI / IPC 的配置状态快照 */

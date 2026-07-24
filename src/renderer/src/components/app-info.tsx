@@ -1,7 +1,84 @@
 import { useEffect, useState } from 'react'
-import { FormattedMessage } from 'react-intl'
+import { FormattedMessage, useIntl } from 'react-intl'
+import { useAtomValue } from 'jotai'
 import type { AppInfo } from '../../../shared/ipc'
 import { susie } from '../lib/ipc'
+import { updateStateAtom } from '../lib/update-atoms'
+import { Button } from './form'
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+/** 自动更新状态 + 手动检查/安装入口（状态由主进程 update:state 推送） */
+function UpdateSection() {
+  const intl = useIntl()
+  const update = useAtomValue(updateStateAtom)
+  const [busy, setBusy] = useState(false)
+
+  const check = async () => {
+    setBusy(true)
+    const result = await susie.invoke('update:check')
+    setBusy(false)
+    if (!result.ok) window.alert(result.message)
+  }
+
+  const install = async () => {
+    const result = await susie.invoke('update:install')
+    if (!result.ok) window.alert(result.message)
+  }
+
+  const statusText = (() => {
+    switch (update.status) {
+      case 'idle':
+        return intl.formatMessage({ id: 'update.idle' })
+      case 'checking':
+        return intl.formatMessage({ id: 'update.checking' })
+      case 'available':
+        return intl.formatMessage({ id: 'update.available' }, { version: update.version })
+      case 'not-available':
+        return intl.formatMessage({ id: 'update.upToDate' })
+      case 'downloading':
+        return intl.formatMessage(
+          { id: 'update.downloading' },
+          {
+            version: update.version,
+            percent: update.percent.toFixed(0),
+            transferred: formatMegabytes(update.transferred),
+            total: formatMegabytes(update.total),
+          },
+        )
+      case 'ready':
+        return intl.formatMessage({ id: 'update.ready' }, { version: update.version })
+      case 'error':
+        return intl.formatMessage({ id: 'update.error' }, { message: update.message })
+    }
+  })()
+
+  return (
+    <div className="mt-4 border-t border-line pt-4">
+      <div className="flex items-center justify-between gap-4">
+        <p className={`text-xs leading-5 ${update.status === 'error' ? 'text-red-500' : 'text-ink-muted'}`}>
+          {statusText}
+        </p>
+        {update.status === 'ready' ? (
+          <Button variant="primary" onClick={() => void install()}>
+            <FormattedMessage id="update.install" />
+          </Button>
+        ) : (
+          <Button disabled={busy || update.status === 'checking' || update.status === 'downloading'} onClick={() => void check()}>
+            <FormattedMessage id="update.check" />
+          </Button>
+        )}
+      </div>
+      {update.status === 'downloading' && (
+        <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-line">
+          <div className="h-full rounded-full bg-accent transition-[width]" style={{ width: `${update.percent}%` }} />
+        </div>
+      )}
+    </div>
+  )
+}
 
 export function AppInfoCard() {
   const [info, setInfo] = useState<AppInfo | null>(null)
@@ -51,6 +128,7 @@ export function AppInfoCard() {
           </dd>
         </div>
       </dl>
+      <UpdateSection />
     </div>
   )
 }

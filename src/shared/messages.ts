@@ -51,6 +51,28 @@ export interface SenderInfo {
   name: string | null
 }
 
+/**
+ * 自动审核记录（智能 · 自动审核的历史与进度）。
+ * running = 审核中；passed = 通过（放行）；rejected = 未通过（转人工审核）；error = 异常（转人工审核）。
+ */
+export type AutoReviewStatus = 'running' | 'passed' | 'rejected' | 'error'
+
+export interface AutoReviewRecord {
+  id: number
+  channelId: string
+  chatId: string
+  senderId: string | null
+  sender: string | null
+  /** 待审核消息文本摘要 */
+  text: string
+  status: AutoReviewStatus
+  /** 未通过/异常的原因；通过或审核中为 null */
+  reason: string | null
+  createdTs: number
+  /** 完成判定时间；审核中为 null */
+  decidedTs: number | null
+}
+
 export type ChannelState = 'stopped' | 'starting' | 'running' | 'error'
 
 export interface ChannelStatus {
@@ -123,3 +145,24 @@ export function partsToPlainText(parts: MessagePart[]): string {
     .map((part) => part.text)
     .join('\n')
 }
+
+/**
+ * 自动更新状态机（对位 ChatGPT 的 idle/checking/ready/installing）。
+ * 主进程 updater 归一化 electron-updater 事件后经 IPC 推给渲染层。
+ */
+export type UpdateState =
+  | { status: 'idle' }
+  | { status: 'checking' }
+  | { status: 'available'; version: string; notes: string | null }
+  | { status: 'not-available'; currentVersion: string }
+  | {
+      status: 'downloading'
+      version: string
+      percent: number
+      bytesPerSecond: number
+      transferred: number
+      total: number
+    }
+  /** 已下载完成，等待重启安装 */
+  | { status: 'ready'; version: string }
+  | { status: 'error'; message: string }

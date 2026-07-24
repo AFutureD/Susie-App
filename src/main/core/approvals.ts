@@ -47,6 +47,9 @@ export function buildCardParts(pending: PendingApproval, decision?: string): Mes
   const lines = [`【待审核】${sender} 在「${chatLabel}」发来消息：`]
   if (clipped !== '') lines.push(clipped)
   if (files > 0) lines.push(`（含 ${files} 个附件）`)
+  if (pending.autoReviewReason !== null) {
+    lines.push('', `🤖 自动审核未通过：${pending.autoReviewReason}`)
+  }
   if (decision !== undefined) lines.push('', decision)
   return [{ kind: 'text', text: lines.join('\n') }]
 }
@@ -68,7 +71,7 @@ export class ApprovalManager {
   }
 
   /** 暂存 member 消息并向 owner 私聊发送审核卡片；本方法不抛异常（失败落 failed + 日志） */
-  async request(envelope: InboundEnvelope): Promise<void> {
+  async request(envelope: InboundEnvelope, options: { autoReviewReason?: string | null } = {}): Promise<void> {
     const { message } = envelope
     const channelId = message.channelId
 
@@ -86,6 +89,7 @@ export class ApprovalManager {
       sender: message.sender,
       envelope,
       createdTs: Date.now(),
+      autoReviewReason: options.autoReviewReason ?? null,
     })
 
     const channel = this.deps.getChannel(channelId)

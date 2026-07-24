@@ -5,6 +5,7 @@ import {
   ID_PATTERN,
   configSchema,
   type AssistantConfig,
+  type AutoReviewConfig,
   type ChannelSettings,
   type ChannelUser,
   type ChatBinding,
@@ -211,6 +212,13 @@ export class ConfigStore {
     })
   }
 
+  /** 整体替换「智能 · 自动审核」配置 */
+  setAutoReview(autoReview: AutoReviewConfig, expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      draft.auto_review = autoReview
+    })
+  }
+
   /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。 */
   saveRaw(text: string, expectedVersion: number): ConfigMutationResult {
     if (expectedVersion !== this.version) return conflict(this.version, expectedVersion)
@@ -320,12 +328,14 @@ export function diffConfigPaths(prev: Config, next: Config): string[] {
 
   if (!deepEqual(prev.users, next.users)) changed.push('users')
 
+  if (!deepEqual(prev.auto_review, next.auto_review)) changed.push('auto_review')
+
   if (changed.length > 0) changed.push('')
   return changed
 }
 
 /**
- * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users'。
+ * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users' | 'auto_review'。
  * id 由 schema 保证不含 '.'。
  */
 export function resolveConfigPath(config: Config, refPath: string): unknown {
@@ -346,6 +356,9 @@ export function resolveConfigPath(config: Config, refPath: string): unknown {
     case 'users':
       if (rest !== null) throw new Error(`users 不支持子路径：${refPath}`)
       return config.users
+    case 'auto_review':
+      if (rest !== null) throw new Error(`auto_review 不支持子路径：${refPath}`)
+      return config.auto_review
     default:
       throw new Error(`未知的配置 path：${refPath}`)
   }

@@ -20,6 +20,12 @@ electronLanguages:
   - zh_CN
 asar: true
 npmRebuild: false
+# 自动更新 feed：GitHub Releases（公开仓库可匿名下载）。
+# `electron-builder --publish` 会生成并上传 latest-mac.yml；打包时把 feed 信息写进 app-update.yml 供 electron-updater 读取
+publish:
+  - provider: github
+    owner: AFutureD
+    repo: Susie-App
 mac:
   category: public.app-category.productivity
   darkModeSupport: true

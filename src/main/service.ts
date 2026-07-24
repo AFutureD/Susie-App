@@ -1,10 +1,11 @@
 import fs from 'node:fs'
 import os from 'node:os'
-import type { AssistantConfig } from '../shared/config'
+import type { AssistantConfig, AutoReviewConfig } from '../shared/config'
 import type {
   AgentModelOption,
   AgentProgress,
   AgentsOverview,
+  AutoReviewRecord,
   ChannelStatus,
   MessagePart,
   StoredMessage,
@@ -20,6 +21,7 @@ import { getWorkspaceDir } from './config/paths'
 import type { ConfigStore } from './config/store'
 import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
 import { ApprovalManager } from './core/approvals'
+import { AutoReviewer } from './core/auto-review'
 import { ChatManager } from './core/chat-manager'
 import { HistoryStore } from './history/store'
 import { SusieMcpServer } from './mcp/server'
@@ -33,6 +35,7 @@ export interface ServiceEmit {
   channelStatuses: (statuses: ChannelStatus[]) => void
   historyMessage: (message: StoredMessage) => void
   agentsProgress: (progress: AgentProgress) => void
+  autoReview: (record: AutoReviewRecord) => void
 }
 
 export interface ServicePaths {
@@ -56,6 +59,7 @@ export class SusieService {
   readonly hub: ChannelHub
   readonly chatManager: ChatManager
   readonly approvals: ApprovalManager
+  readonly autoReviewer: AutoReviewer
   readonly mcp: SusieMcpServer
   readonly acpRegistry: AcpRegistryManager
   readonly codexInstaller: CodexInstaller
@@ -88,6 +92,14 @@ export class SusieService {
       log,
     })
 
+    this.autoReviewer = new AutoReviewer({
+      store,
+      history: this.history,
+      createRuntime: (config) => this.createReviewRuntime(config),
+      emit: emit.autoReview,
+      log,
+    })
+
     this.chatManager = new ChatManager({
       store,
       history: this.history,
@@ -96,6 +108,7 @@ export class SusieService {
       createRuntime: (assistant) => this.createRuntime(assistant),
       onHistoryMessage: emit.historyMessage,
       requestApproval: (envelope) => this.approvals.request(envelope),
+      autoReview: (envelope) => this.autoReviewer.review(envelope),
       log,
     })
 
@@ -159,38 +172,68 @@ export class SusieService {
   }
 
   /** agent_id === 'codex' 用 Codex SDK；其余按 ACP registry 已安装的 agent 解析 */
-  private async createRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
+  private createRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
     const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
-    fs.mkdirSync(cwd, { recursive: true })
+    return this.buildRuntime({
+      agentId: assistant.agent_id,
+      model: assistant.model ?? null,
+      thinkingLevel: assistant.thinking_level ?? null,
+      models: assistant.models ?? [],
+      cwd,
+      mcpUrl: this.mcp.url,
+    })
+  }
 
-    if (assistant.agent_id === CODEX_AGENT_ID) {
+  /** 自动审核运行时：不注入 susie MCP（审核 agent 不应对外发消息），用独立工作目录 */
+  private createReviewRuntime(config: AutoReviewConfig): Promise<AgentRuntime> {
+    return this.buildRuntime({
+      agentId: config.agent_id,
+      model: config.model ?? null,
+      thinkingLevel: config.thinking_level ?? null,
+      models: [],
+      cwd: getWorkspaceDir('auto-review'),
+      mcpUrl: null,
+    })
+  }
+
+  private async buildRuntime(spec: {
+    agentId: string
+    model: string | null
+    thinkingLevel: AssistantConfig['thinking_level'] | null
+    models: string[]
+    cwd: string
+    mcpUrl: string | null
+  }): Promise<AgentRuntime> {
+    fs.mkdirSync(spec.cwd, { recursive: true })
+
+    if (spec.agentId === CODEX_AGENT_ID) {
       const codex = this.codexInstaller.resolve()
       if (codex === null) {
         throw new Error('codex 未安装——请到 Agent 页下载 codex 后重试')
       }
       return new CodexRuntime({
-        cwd,
-        mcpUrl: this.mcp.url,
+        cwd: spec.cwd,
+        mcpUrl: spec.mcpUrl,
         mcpName: SUSIE_MCP_NAME,
-        model: assistant.model ?? null,
-        thinkingLevel: assistant.thinking_level ?? null,
-        models: assistant.models ?? [],
+        model: spec.model,
+        thinkingLevel: spec.thinkingLevel ?? null,
+        models: spec.models,
         codexPath: codex.executablePath,
         codexPathDir: codex.pathDir,
         log: this.log,
       })
     }
 
-    const manifest = this.acpRegistry.installedManifest(assistant.agent_id)
+    const manifest = this.acpRegistry.installedManifest(spec.agentId)
     if (manifest === null) {
-      throw new Error(`ACP agent "${assistant.agent_id}" 未安装——请到 Agent 页安装后重试`)
+      throw new Error(`ACP agent "${spec.agentId}" 未安装——请到 Agent 页安装后重试`)
     }
     return new AcpRuntime({
       cmd: manifest.cmd,
       args: manifest.args,
       env: manifest.env,
-      cwd,
-      mcpUrl: this.mcp.url,
+      cwd: spec.cwd,
+      mcpUrl: spec.mcpUrl,
       mcpName: SUSIE_MCP_NAME,
       log: this.log,
     })

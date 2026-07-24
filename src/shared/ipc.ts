@@ -3,6 +3,7 @@
 
 import type {
   AssistantConfig,
+  AutoReviewConfig,
   ChannelSettings,
   ChannelUser,
   ChatBinding,
@@ -13,10 +14,12 @@ import type {
   AgentModelOption,
   AgentProgress,
   AgentsOverview,
+  AutoReviewRecord,
   ChannelStatus,
   ChatInfo,
   SenderInfo,
   StoredMessage,
+  UpdateState,
 } from './messages'
 
 export interface AppInfo {
@@ -55,6 +58,11 @@ export interface IpcInvokeSchema {
   'config:set-bindings': { req: { bindings: ChatBinding[]; expectedVersion: number }; res: ConfigMutationResult }
   /** 整组替换用户名单（用户管理/引导都是全量状态编辑） */
   'config:set-users': { req: { users: ChannelUser[]; expectedVersion: number }; res: ConfigMutationResult }
+  /** 整体替换「智能 · 自动审核」配置 */
+  'config:set-auto-review': {
+    req: { autoReview: AutoReviewConfig; expectedVersion: number }
+    res: ConfigMutationResult
+  }
 
   /** 在 Finder 打开 assistant 的生效工作目录（缺省为 workspace/<id>，会自动创建） */
   'assistants:open-workdir': { req: { id: string }; res: ActionResult }
@@ -83,6 +91,16 @@ export interface IpcInvokeSchema {
   'agents:uninstall': { req: { id: string }; res: ActionResult }
 
   'logs:tail': { req: { lines?: number; file?: 'main' | 'error' }; res: { path: string; lines: string[] } }
+
+  /** 智能 · 自动审核的历史与进度（新 → 旧） */
+  'autoreview:list': { req: { limit?: number }; res: AutoReviewRecord[] }
+
+  /** 手动触发检查更新（dev/未打包时返回 not-ok） */
+  'update:check': { req: undefined; res: ActionResult }
+  /** 立即重启并安装已下载的更新 */
+  'update:install': { req: undefined; res: ActionResult }
+  /** 拉取当前更新状态快照（新窗口订阅前回填） */
+  'update:get-state': { req: undefined; res: UpdateState }
 }
 
 export const IPC_INVOKE_CHANNELS = [
@@ -99,6 +117,7 @@ export const IPC_INVOKE_CHANNELS = [
   'config:delete-assistant',
   'config:set-bindings',
   'config:set-users',
+  'config:set-auto-review',
   'assistants:open-workdir',
   'channel:statuses',
   'channels:resolve-username',
@@ -112,6 +131,10 @@ export const IPC_INVOKE_CHANNELS = [
   'agents:install',
   'agents:uninstall',
   'logs:tail',
+  'autoreview:list',
+  'update:check',
+  'update:install',
+  'update:get-state',
 ] as const satisfies readonly (keyof IpcInvokeSchema)[]
 
 /** 事件（主进程 → 渲染进程推送）通道 */
@@ -120,6 +143,10 @@ export interface IpcEventSchema {
   'channel:status': ChannelStatus[]
   'history:message': StoredMessage
   'agents:progress': AgentProgress
+  /** 自动审核记录新增/状态更新（按 id 去重合并） */
+  'autoreview:record': AutoReviewRecord
+  /** 自动更新状态推送 */
+  'update:state': UpdateState
 }
 
 export const IPC_EVENT_CHANNELS = [
@@ -127,6 +154,8 @@ export const IPC_EVENT_CHANNELS = [
   'channel:status',
   'history:message',
   'agents:progress',
+  'autoreview:record',
+  'update:state',
 ] as const satisfies readonly (keyof IpcEventSchema)[]
 
 /** req 为 undefined 的通道，调用时省略 payload 参数。 */

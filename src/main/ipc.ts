@@ -5,6 +5,7 @@ import log from 'electron-log/main'
 import { z } from 'zod'
 import {
   assistantSchema,
+  autoReviewSchema,
   bindingSchema,
   channelSettingsSchema,
   userSchema,
@@ -17,6 +18,7 @@ import type { ConfigStore } from './config/store'
 import { appFlags } from './env'
 import { errorLog } from './logging'
 import type { SusieService } from './service'
+import { checkForUpdates, getUpdateState, quitAndInstall } from './updater'
 
 type InvokeHandler<K extends keyof IpcInvokeSchema> = (
   payload: IpcInvokeSchema[K]['req'],
@@ -116,6 +118,12 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
     return config.setUsers(users.data, payload.expectedVersion)
   })
 
+  handle('config:set-auto-review', (payload) => {
+    const autoReview = autoReviewSchema.safeParse(payload.autoReview)
+    if (!autoReview.success) return invalid(autoReview.error.issues[0]?.message)
+    return config.setAutoReview(autoReview.data, payload.expectedVersion)
+  })
+
   handle('assistants:open-workdir', async (payload) => {
     const assistant = config.state().config.assistants.find((item) => item.id === payload.id)
     if (assistant === undefined) return { ok: false, message: `assistant 不存在：${payload.id}` }
@@ -189,6 +197,14 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
       return { path: file, lines: [] }
     }
   })
+
+  handle('autoreview:list', (payload) => service.history.listAutoReviews(payload.limit))
+
+  // ---------- 自动更新 ----------
+
+  handle('update:check', () => checkForUpdates())
+  handle('update:install', () => quitAndInstall())
+  handle('update:get-state', () => getUpdateState())
 }
 
 function invalid(message: string | undefined): ConfigMutationResult {

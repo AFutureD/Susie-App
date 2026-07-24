@@ -13,6 +13,7 @@ import { lifecycle } from './lifecycle'
 import { serviceLogger, setupLogging } from './logging'
 import { SusieService } from './service'
 import { createTray } from './tray'
+import { initUpdater } from './updater'
 import { withTimeout } from './util/async'
 import { showMainWindow, updateDockVisibility } from './window'
 
@@ -54,6 +55,7 @@ if (!app.requestSingleInstanceLock()) {
       channelStatuses: (statuses) => broadcast('channel:status', statuses),
       historyMessage: (message) => broadcast('history:message', message),
       agentsProgress: (progress) => broadcast('agents:progress', progress),
+      autoReview: (record) => broadcast('autoreview:record', record),
     },
     serviceLogger,
   )
@@ -99,6 +101,7 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     registerIpcHandlers(configStore, service)
+    initUpdater((state) => broadcast('update:state', state))
     createTray()
     watchConfigFile(configStore, serviceLogger)
 

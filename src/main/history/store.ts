@@ -2,6 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type {
+  AutoReviewRecord,
+  AutoReviewStatus,
   ChatInfo,
   ChatMessage,
   InboundEnvelope,
@@ -46,6 +48,19 @@ CREATE TABLE IF NOT EXISTS pending_approvals(
   decided_ts INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status, channel_id);
+CREATE TABLE IF NOT EXISTS auto_reviews(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  sender_id TEXT,
+  sender TEXT,
+  text TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  reason TEXT,
+  created_ts INTEGER NOT NULL,
+  decided_ts INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_auto_reviews_created ON auto_reviews(created_ts);
 `
 
 interface MessageRow {
@@ -76,6 +91,8 @@ export interface PendingApproval {
   /** 审核卡片所在会话（owner 私聊）与消息 id，用于事后编辑 */
   cardChatId: string | null
   cardMsgId: string | null
+  /** 由自动审核未通过回落而来时的原因；纯人工审核为 null */
+  autoReviewReason: string | null
   createdTs: number
   decidedTs: number | null
 }
@@ -90,6 +107,7 @@ interface PendingApprovalRow {
   status: string
   card_chat_id: string | null
   card_msg_id: string | null
+  auto_review_reason: string | null
   created_ts: number
   decided_ts: number | null
 }
@@ -113,6 +131,35 @@ function rowToPendingApproval(row: PendingApprovalRow): PendingApproval | null {
     status: row.status as ApprovalStatus,
     cardChatId: row.card_chat_id,
     cardMsgId: row.card_msg_id,
+    autoReviewReason: row.auto_review_reason,
+    createdTs: row.created_ts,
+    decidedTs: row.decided_ts,
+  }
+}
+
+interface AutoReviewRow {
+  id: number
+  channel_id: string
+  chat_id: string
+  sender_id: string | null
+  sender: string | null
+  text: string
+  status: string
+  reason: string | null
+  created_ts: number
+  decided_ts: number | null
+}
+
+function rowToAutoReview(row: AutoReviewRow): AutoReviewRecord {
+  return {
+    id: row.id,
+    channelId: row.channel_id,
+    chatId: row.chat_id,
+    senderId: row.sender_id,
+    sender: row.sender,
+    text: row.text,
+    status: row.status as AutoReviewStatus,
+    reason: row.reason,
     createdTs: row.created_ts,
     decidedTs: row.decided_ts,
   }
@@ -162,6 +209,12 @@ export class HistoryStore {
     const columns = this.db.prepare('PRAGMA table_info(messages)').all() as unknown as { name: string }[]
     if (!columns.some((column) => column.name === 'sender_id')) {
       this.db.exec('ALTER TABLE messages ADD COLUMN sender_id TEXT')
+    }
+    const pendingColumns = this.db.prepare('PRAGMA table_info(pending_approvals)').all() as unknown as {
+      name: string
+    }[]
+    if (!pendingColumns.some((column) => column.name === 'auto_review_reason')) {
+      this.db.exec('ALTER TABLE pending_approvals ADD COLUMN auto_review_reason TEXT')
     }
   }
 
@@ -269,13 +322,24 @@ export class HistoryStore {
     sender: string | null
     envelope: InboundEnvelope
     createdTs: number
+    /** 由自动审核未通过回落而来时的原因（附到审核卡片）；纯人工审核省略 */
+    autoReviewReason?: string | null
   }): PendingApproval {
+    const autoReviewReason = input.autoReviewReason ?? null
     const result = this.db
       .prepare(
-        `INSERT INTO pending_approvals(channel_id, chat_id, sender_id, sender, envelope, status, created_ts)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+        `INSERT INTO pending_approvals(channel_id, chat_id, sender_id, sender, envelope, status, auto_review_reason, created_ts)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
       )
-      .run(input.channelId, input.chatId, input.senderId, input.sender, JSON.stringify(input.envelope), input.createdTs)
+      .run(
+        input.channelId,
+        input.chatId,
+        input.senderId,
+        input.sender,
+        JSON.stringify(input.envelope),
+        autoReviewReason,
+        input.createdTs,
+      )
     return {
       id: Number(result.lastInsertRowid),
       channelId: input.channelId,
@@ -286,9 +350,68 @@ export class HistoryStore {
       status: 'pending',
       cardChatId: null,
       cardMsgId: null,
+      autoReviewReason,
       createdTs: input.createdTs,
       decidedTs: null,
     }
+  }
+
+  // ---------- 自动审核历史与进度 ----------
+
+  /** 建一条自动审核记录（status = running），供进度展示 */
+  createAutoReview(input: {
+    channelId: string
+    chatId: string
+    senderId: string | null
+    sender: string | null
+    text: string
+    createdTs: number
+  }): AutoReviewRecord {
+    const result = this.db
+      .prepare(
+        `INSERT INTO auto_reviews(channel_id, chat_id, sender_id, sender, text, status, created_ts)
+         VALUES (?, ?, ?, ?, ?, 'running', ?)`,
+      )
+      .run(input.channelId, input.chatId, input.senderId, input.sender, input.text, input.createdTs)
+    return {
+      id: Number(result.lastInsertRowid),
+      channelId: input.channelId,
+      chatId: input.chatId,
+      senderId: input.senderId,
+      sender: input.sender,
+      text: input.text,
+      status: 'running',
+      reason: null,
+      createdTs: input.createdTs,
+      decidedTs: null,
+    }
+  }
+
+  /** 落定自动审核结论（passed/rejected/error）；记录不存在返回 null */
+  finishAutoReview(
+    id: number,
+    status: Exclude<AutoReviewStatus, 'running'>,
+    reason: string | null,
+    decidedTs: number,
+  ): AutoReviewRecord | null {
+    this.db
+      .prepare('UPDATE auto_reviews SET status = ?, reason = ?, decided_ts = ? WHERE id = ?')
+      .run(status, reason, decidedTs, id)
+    return this.getAutoReview(id)
+  }
+
+  getAutoReview(id: number): AutoReviewRecord | null {
+    const row = this.db.prepare('SELECT * FROM auto_reviews WHERE id = ?').get(id) as unknown as
+      AutoReviewRow | undefined
+    return row === undefined ? null : rowToAutoReview(row)
+  }
+
+  /** 最近的自动审核记录（新 → 旧） */
+  listAutoReviews(limit = 50): AutoReviewRecord[] {
+    const rows = this.db
+      .prepare('SELECT * FROM auto_reviews ORDER BY id DESC LIMIT ?')
+      .all(Math.min(Math.max(limit, 1), 200)) as unknown as AutoReviewRow[]
+    return rows.map(rowToAutoReview)
   }
 
   getPendingApproval(id: number): PendingApproval | null {

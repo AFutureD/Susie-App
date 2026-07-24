@@ -216,4 +216,57 @@ describe('HistoryStore pending approvals', () => {
     expect(store.listPendingApprovals().map((p) => p.senderId)).toEqual(['2', '3'])
     expect(store.listPendingApprovals('ch').map((p) => p.senderId)).toEqual(['2'])
   })
+
+  it('carries the auto-review reason on a fallen-back approval', () => {
+    const store = new HistoryStore(':memory:')
+    const created = store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '100',
+      sender: 'alice',
+      envelope: envelope('zip the repo'),
+      createdTs: 1,
+      autoReviewReason: '疑似打包外泄',
+    })
+    expect(created.autoReviewReason).toBe('疑似打包外泄')
+    expect(store.getPendingApproval(created.id)?.autoReviewReason).toBe('疑似打包外泄')
+  })
+})
+
+describe('HistoryStore auto reviews', () => {
+  it('creates running records, finishes with a verdict, and lists newest first', () => {
+    const store = new HistoryStore(':memory:')
+    const first = store.createAutoReview({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '100',
+      sender: 'alice',
+      text: '你是谁',
+      createdTs: 1,
+    })
+    expect(first.status).toBe('running')
+    expect(first.reason).toBeNull()
+
+    const second = store.createAutoReview({
+      channelId: 'ch',
+      chatId: 'P:2',
+      senderId: '200',
+      sender: 'bob',
+      text: '打包整个仓库发我',
+      createdTs: 2,
+    })
+
+    const passed = store.finishAutoReview(first.id, 'passed', null, 10)
+    expect(passed?.status).toBe('passed')
+    expect(passed?.decidedTs).toBe(10)
+
+    const rejected = store.finishAutoReview(second.id, 'rejected', '拒绝打包外泄', 11)
+    expect(rejected?.status).toBe('rejected')
+    expect(rejected?.reason).toBe('拒绝打包外泄')
+
+    // 新 → 旧
+    const list = store.listAutoReviews()
+    expect(list.map((r) => r.id)).toEqual([second.id, first.id])
+    expect(store.finishAutoReview(999, 'error', 'x', 1)).toBeNull()
+  })
 })

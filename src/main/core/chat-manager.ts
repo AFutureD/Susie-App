@@ -17,6 +17,7 @@ import type { HistoryStore, PendingApproval } from '../history/store'
 import { ASSISTANT_COMMAND_SPECS, assistantCommands } from '../replier/commands'
 import { renderPrompt, renderSystemInstruction } from '../replier/templates'
 import type { Logger } from '../util/logger'
+import type { AutoReviewVerdict } from './auto-review'
 import { CommandRegistry, parseCommandText, type CommandContext, type CommandSpec } from './commands'
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
@@ -44,8 +45,13 @@ export interface ChatManagerDeps {
   getChannel: (id: string) => TelegramBotChannel | undefined
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>
   onHistoryMessage: (message: StoredMessage) => void
-  /** member/未登记发送者的消息转 owner 审核（暂存 + 发卡片；不等待审核结果） */
-  requestApproval: (envelope: InboundEnvelope) => Promise<void>
+  /**
+   * member/未登记发送者的消息转 owner 审核（暂存 + 发卡片；不等待审核结果）。
+   * autoReviewReason 非空表示由自动审核未通过回落而来，会附到审核卡片。
+   */
+  requestApproval: (envelope: InboundEnvelope, options?: { autoReviewReason?: string | null }) => Promise<void>
+  /** 自动审核档（auto）：评估消息是否放行；未通过则回落人工审核 */
+  autoReview: (envelope: InboundEnvelope) => Promise<AutoReviewVerdict>
   log: Logger
 }
 
@@ -202,21 +208,39 @@ export class ChatManager {
         await this.replyText(message, PERMISSION_IGNORED_NOTICE)
         return
       }
-      if (permission === 'review') {
-        // 免审命令（help / chat_id / new）：审核档用户也直接执行；忽略档不豁免（显式拉黑强于免审）
+      if (permission === 'review' || permission === 'auto') {
+        // 免审命令（help / chat_id / new）：审核/自动档用户也直接执行；忽略档不豁免（显式拉黑强于免审）
         const exemptCommand = parsed !== null && !this.isCommandGated(parsed.name)
         if (exemptCommand) {
-          this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：审核档发送者直接执行`)
+          this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：${permission} 档发送者直接执行`)
           gatedAllowed = false
         } else {
-          if (channelOwner(users, message.channelId) === null) {
-            this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
-            await this.replyText(message, NO_OWNER_NOTICE)
+          // 自动档：先跑自动审核，通过即放行（等价直通）；未通过回落人工审核（原因附到卡片）
+          let autoPassed = false
+          let autoReviewReason: string | null = null
+          if (permission === 'auto') {
+            const verdict = await this.deps.autoReview(envelope)
+            if (verdict.passed) {
+              autoPassed = true
+              this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核通过，放行`)
+            } else {
+              autoReviewReason = verdict.reason
+              this.deps.log.info(
+                `chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核未通过（${verdict.reason ?? '无理由'}），回落人工审核`,
+              )
+            }
+          }
+          if (!autoPassed) {
+            if (channelOwner(users, message.channelId) === null) {
+              this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
+              await this.replyText(message, NO_OWNER_NOTICE)
+              return
+            }
+            this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 转 owner 审核`)
+            await this.deps.requestApproval(envelope, { autoReviewReason })
             return
           }
-          this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 为审核档：转 owner 审核`)
-          await this.deps.requestApproval(envelope)
-          return
+          // autoPassed：落到下方按直通处理（gatedAllowed 维持 true）
         }
       }
     }

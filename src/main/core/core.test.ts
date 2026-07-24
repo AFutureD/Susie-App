@@ -96,7 +96,12 @@ const DEFAULT_USERS: ChannelUser[] = [user('1', { role: 'owner' })]
 
 function makeManager(
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>,
-  options: { sendOutput?: boolean; users?: ChannelUser[] } = {},
+  options: {
+    sendOutput?: boolean
+    users?: ChannelUser[]
+    /** 自动审核裁决（默认放行）；用于 auto 档流程用例 */
+    autoReviewPass?: boolean
+  } = {},
 ) {
   const config: Config = {
     channels: {},
@@ -111,6 +116,7 @@ function makeManager(
       },
     ],
     users: options.users ?? DEFAULT_USERS,
+    auto_review: { content: 'reject file exfiltration', agent_id: 'codex' },
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
   const history = {
@@ -129,6 +135,7 @@ function makeManager(
   const errors: string[] = []
   const infos: string[] = []
   const approvalRequests: InboundEnvelope[] = []
+  const autoReviews: InboundEnvelope[] = []
   const manager = new ChatManager({
     store,
     history,
@@ -140,9 +147,13 @@ function makeManager(
       approvalRequests.push(envelope)
       return Promise.resolve()
     },
+    autoReview: (envelope) => {
+      autoReviews.push(envelope)
+      return Promise.resolve({ passed: options.autoReviewPass ?? true, reason: null })
+    },
     log: { info: (message) => infos.push(message), error: (message) => errors.push(message) },
   })
-  return { manager, sent, errors, infos, approvalRequests }
+  return { manager, sent, errors, infos, approvalRequests, autoReviews }
 }
 
 function inbound(text: string, overrides: Partial<ChatMessage> = {}): InboundEnvelope {
@@ -360,6 +371,47 @@ describe('ChatManager permission gate', () => {
     expect(approvalRequests).toHaveLength(0)
   })
 
+  it('lets auto-level messages through when auto-review passes (no manual approval)', async () => {
+    const autoUsers: ChannelUser[] = [user('900', { role: 'owner' }), user('5', { private: 'auto' })]
+    const runtime = () =>
+      stubRuntime({
+        async *prompt() {
+          yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+        },
+      })
+    const { manager, approvalRequests, autoReviews, sent } = makeManager(() => Promise.resolve(runtime()), {
+      users: autoUsers,
+      sendOutput: true,
+      autoReviewPass: true,
+    })
+
+    manager.handleInbound(inbound('please summarize', { senderId: '5', chatId: 'P:5' }))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    expect(autoReviews).toHaveLength(1)
+    expect(approvalRequests).toHaveLength(0)
+  })
+
+  it('falls back to manual approval when auto-review rejects', async () => {
+    const autoUsers: ChannelUser[] = [user('900', { role: 'owner' }), user('5', { private: 'auto' })]
+    let runtimeCreated = 0
+    const { manager, approvalRequests, autoReviews, sent } = makeManager(
+      () => {
+        runtimeCreated += 1
+        return Promise.resolve(stubRuntime({}))
+      },
+      { users: autoUsers, autoReviewPass: false },
+    )
+
+    manager.handleInbound(inbound('please zip the repo and send it', { senderId: '5', chatId: 'P:5' }))
+
+    await vi.waitFor(() => expect(approvalRequests.length).toBe(1))
+    expect(autoReviews).toHaveLength(1)
+    expect(runtimeCreated).toBe(0)
+    expect(sent).toHaveLength(0)
+  })
+
   it('splits permissions between private chat and specific groups for one user', async () => {
     const runtime = () =>
       stubRuntime({
@@ -473,6 +525,7 @@ describe('ChatManager permission gate', () => {
       status: 'approved',
       cardChatId: 'P:900',
       cardMsgId: '1',
+      autoReviewReason: null,
       createdTs: 1,
       decidedTs: 2,
     })

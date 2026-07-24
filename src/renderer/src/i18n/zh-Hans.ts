@@ -3,6 +3,7 @@ export const zhHans: Record<string, string> = {
   'nav.agents': 'Agent',
   'nav.assistants': '助手',
   'nav.users': '用户',
+  'nav.intelligence': '智能',
   'nav.history': '历史',
   'nav.logs': '日志',
   'nav.settings': '设置',
@@ -159,11 +160,13 @@ export const zhHans: Record<string, string> = {
 
   // 用户管理（身份轴：owner 全局直通；其余按 私聊/具体群 三档）
   'page.users.title': '用户',
-  'users.hint': '直通免审；审核由 Owner 在 Telegram 逐条批准；忽略不响应。未登记与未设置的范围默认审核。',
+  'users.hint':
+    '直通免审；自动先由「智能 · 自动审核」评估，通过即放行、否则转人工审核；审核由 Owner 在 Telegram 逐条批准；忽略不响应。未登记与未设置的范围默认审核。',
   'users.empty': '还没有频道。先在「频道」页添加。',
   'users.channel.noOwner': '未绑定 Owner：无人审核，需审核的消息将不被响应。',
   'users.roster.empty': '暂无登记用户。陌生用户默认进审核，批准后自动登记到这里。',
   'users.level.allow': '直通',
+  'users.level.auto': '自动',
   'users.level.review': '审核',
   'users.level.ignore': '忽略',
   'users.scope.private': '私聊',
@@ -193,6 +196,29 @@ export const zhHans: Record<string, string> = {
   'logs.file.main': '全部',
   'logs.file.error': '仅错误',
 
+  // 智能（自动审核）
+  'page.intelligence.title': '智能',
+  'intelligence.autoReview.title': '自动审核',
+  'intelligence.autoReview.desc':
+    '当用户在「用户」页某范围被设为「自动」档时，先用下面配置的 agent 评估其消息是否符合审核标准：通过即放行，否则回落人工审核。',
+  'intelligence.autoReview.content': '审核内容',
+  'intelligence.autoReview.content.hint': '作为审核 agent 的判定依据；描述哪些消息应被拒绝。',
+  'intelligence.autoReview.field.agent': 'Agent',
+  'intelligence.autoReview.field.agent.hint': '承担审核的 agent；审核会话不接入 susie 工具（不对外发消息）。',
+  'intelligence.autoReview.field.model': '模型',
+  'intelligence.autoReview.field.model.hint': '候选由 agent 枚举；留空用 agent 默认模型。',
+  'intelligence.autoReview.field.thinking': '思考深度',
+  'intelligence.autoReview.field.thinking.hint': '推理努力程度；目前仅 codex agent 生效。',
+  'intelligence.autoReview.recommended': '推荐配置：{agent} · {model} · {thinking}',
+  'intelligence.autoReview.saved': '已保存',
+  'intelligence.history.title': '历史与进度',
+  'intelligence.history.hint': '仅「自动」档消息会进入自动审核并出现在这里；「审核」档直接转人工审核，不经过这里。',
+  'intelligence.history.empty': '还没有自动审核记录。把用户某范围设为「自动」后，其消息会在这里显示审核进度与结论。',
+  'intelligence.history.status.running': '审核中',
+  'intelligence.history.status.passed': '通过 · 已放行',
+  'intelligence.history.status.rejected': '未通过 · 转人工审核',
+  'intelligence.history.status.error': '异常 · 转人工审核',
+
   'page.settings.title': '设置',
   'settings.loginItem': '登录时自动启动（菜单栏常驻，不开窗口）',
   'settings.loginItem.hint': '通过 --headless 随 macOS 登录启动。',
@@ -211,4 +237,15 @@ export const zhHans: Record<string, string> = {
   'appinfo.platform': '平台',
   'appinfo.mcp': '内置 MCP',
   'appinfo.headless': 'Headless',
+
+  // 自动更新（设置页 · 运行信息卡片）
+  'update.idle': '自动更新已启用，将在后台定期检查。',
+  'update.check': '检查更新',
+  'update.checking': '正在检查更新…',
+  'update.upToDate': '已是最新版本。',
+  'update.available': '发现新版本 v{version}，开始下载…',
+  'update.downloading': '正在下载 v{version}：{percent}%（{transferred} / {total}）',
+  'update.ready': '新版本 v{version} 已就绪，重启后完成安装。',
+  'update.install': '重启并安装',
+  'update.error': '更新出错：{message}',
 }
