@@ -11,10 +11,14 @@ Susie 用 **electron-updater + GitHub Releases**（`AFutureD/Susie-App`，公开
    - 或在 [developer.apple.com/certificates](https://developer.apple.com/account/resources/certificates/list)
      创建后下载双击导入。
    - 注意：`Developer ID Application` 仅付费 Program 的 **Account Holder** 能创建。
-2. **公证凭证**（notarytool 用）：
-   - `APPLE_ID`：`the.trip@outlook.com`
-   - `APPLE_APP_SPECIFIC_PASSWORD`：在 [account.apple.com](https://account.apple.com) → 登录与安全 → App 专用密码 生成
-   - `APPLE_TEAM_ID`：developer.apple.com → Membership 页可查
+2. **公证凭证：App Store Connect API Key**（notarytool 用）：
+   - [App Store Connect](https://appstoreconnect.apple.com) → 用户和访问 → 集成 → App Store Connect API → 团队密钥 → 生成
+     （角色选 Developer 及以上；**.p8 只能下载一次**）
+   - 把 `.p8` 存到固定路径，例如 `~/.private_keys/AuthKey_<KEYID>.p8`
+   - 发布时以环境变量传入：
+     - `APPLE_API_KEY`：`.p8` 文件路径
+     - `APPLE_API_KEY_ID`：Key ID（生成页显示）
+     - `APPLE_API_ISSUER`：Issuer ID（同页顶部的 UUID）
 3. **GitHub token**：`GH_TOKEN=$(gh auth token)`（需 `repo` scope，上传 Release 用）。
 
 ## 发布一个新版本
@@ -22,7 +26,8 @@ Susie 用 **electron-updater + GitHub Releases**（`AFutureD/Susie-App`，公开
 ```bash
 npm version <x.y.z> --no-git-tag-version --workspaces-update=false
 git commit -am "chore: v<x.y.z>" && git push
-APPLE_ID=… APPLE_APP_SPECIFIC_PASSWORD=… APPLE_TEAM_ID=… \
+APPLE_API_KEY=~/.private_keys/AuthKey_<KEYID>.p8 \
+APPLE_API_KEY_ID=<KEYID> APPLE_API_ISSUER=<ISSUER-UUID> \
 GH_TOKEN=$(gh auth token) npm run release
 ```
 
