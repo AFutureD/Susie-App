@@ -45,7 +45,7 @@ npm run release
 ```bash
 npm version <x.y.z> --no-git-tag-version --workspaces-update=false
 git commit -am "chore: v<x.y.z>"
-git tag v<x.y.z> && git push --follow-tags
+git tag -a v<x.y.z> -m "v<x.y.z>" && git push --follow-tags
 ```
 
 前置：仓库 Settings → Secrets 配好 `CSC_LINK` / `CSC_KEY_PASSWORD` /

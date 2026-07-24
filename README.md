@@ -32,7 +32,7 @@ npm run dist           # dmg + zip（需签名/公证凭证）
 ```bash
 npm version <x.y.z> --no-git-tag-version --workspaces-update=false
 git commit -am "chore: v<x.y.z>"
-git tag v<x.y.z> && git push --follow-tags
+git tag -a v<x.y.z> -m "v<x.y.z>" && git push --follow-tags
 ```
 
 装好的 app 经 electron-updater 自动升级（15 分钟轮询 + 设置页手动检查）。
