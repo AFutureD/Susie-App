@@ -20,9 +20,23 @@ npm run build          # typecheck + main/preload + renderer
 npm run check          # typecheck + lint + format:check + vitest
 npm run smoke          # headless 冒烟：启动即自检退出
 npm run test:e2e       # Playwright E2E（先 npm run build）
-npm run pack           # electron-builder --dir（本地验证）
-npm run dist           # dmg + zip
+npm run pack           # electron-builder --dir（本地验证；无签名、自动更新禁用）
+npm run dist           # dmg + zip（需签名/公证凭证）
 ```
+
+## 发布
+
+发布一律走 CI（推 `v*` tag 触发 `.github/workflows/release.yml`：构建 → Developer ID 签名 →
+公证 → 上传 GitHub Release → 产物核对）。**先 bump 版本再打 tag**，CI 会校验两者一致：
+
+```bash
+npm version <x.y.z> --no-git-tag-version --workspaces-update=false
+git commit -am "chore: v<x.y.z>"
+git tag v<x.y.z> && git push --follow-tags
+```
+
+装好的 app 经 electron-updater 自动升级（15 分钟轮询 + 设置页手动检查）。
+凭证配置、本地发布兜底与踩坑记录见 [docs/developer/release.md](./docs/developer/release.md)。
 
 ## 结构
 
