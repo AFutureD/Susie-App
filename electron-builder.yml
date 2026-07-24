@@ -1,4 +1,4 @@
-appId: ltd.inston.susie
+appId: me.afuture.susie
 productName: Susie
 artifactName: ${productName}-${version}-${arch}.${ext}
 directories:
