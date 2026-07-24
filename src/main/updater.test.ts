@@ -3,7 +3,7 @@ import type { UpdateState } from '../shared/messages'
 
 // electron / electron-updater 在 vitest node 环境不可用，全部 mock；
 // autoUpdaterMock 手写最小事件表（Map 单监听即可，updater 每个事件只注册一次）。
-const { autoUpdaterMock, envMock, electronMock } = vi.hoisted(() => {
+const { autoUpdaterMock, envMock, electronMock, fsMock } = vi.hoisted(() => {
   const listeners = new Map<string, (arg: never) => void>()
   const autoUpdaterMock = {
     listeners,
@@ -22,13 +22,15 @@ const { autoUpdaterMock, envMock, electronMock } = vi.hoisted(() => {
   }
   const envMock = { isDev: false, appFlags: { headless: false, smoke: false }, devServerUrl: undefined }
   const electronMock = { app: { isPackaged: true } }
-  return { autoUpdaterMock, envMock, electronMock }
+  const fsMock = { existsSync: vi.fn(() => true) }
+  return { autoUpdaterMock, envMock, electronMock, fsMock }
 })
 
 vi.mock('electron', () => electronMock)
 vi.mock('electron-log/main', () => ({ default: { info: vi.fn(), error: vi.fn() } }))
 vi.mock('electron-updater', () => ({ default: { autoUpdater: autoUpdaterMock } }))
 vi.mock('./env', () => envMock)
+vi.mock('node:fs', () => ({ default: fsMock }))
 
 /** 模块内有状态（state/targetVersion/timer），每个用例重新加载取干净实例 */
 async function loadUpdater() {
@@ -42,6 +44,9 @@ beforeEach(() => {
   autoUpdaterMock.listeners.clear()
   envMock.isDev = false
   electronMock.app.isPackaged = true
+  fsMock.existsSync.mockReturnValue(true)
+  // Electron 注入的资源路径，node 测试环境下手工指定
+  ;(process as { resourcesPath?: string }).resourcesPath = '/fake/Resources'
 })
 
 afterEach(() => {
@@ -124,7 +129,21 @@ describe('updater 状态机', () => {
     updater.initUpdater(() => {})
 
     expect(autoUpdaterMock.listeners.size).toBe(0)
-    expect(await updater.checkForUpdates()).toEqual({ ok: false, message: '开发模式或未打包版本不支持自动更新' })
+    expect(await updater.checkForUpdates()).toEqual({
+      ok: false,
+      message: '此构建不支持自动更新（开发模式，或 pack/--dir 构建缺 app-update.yml）',
+    })
     expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+  })
+
+  it('构建缺 app-update.yml（pack/--dir）时 no-op，不让 electron-updater 报 ENOENT', async () => {
+    fsMock.existsSync.mockReturnValue(false)
+    const updater = await loadUpdater()
+    updater.initUpdater(() => {})
+
+    expect(autoUpdaterMock.listeners.size).toBe(0)
+    await vi.advanceTimersByTimeAsync(20 * 60_000)
+    expect(autoUpdaterMock.checkForUpdates).not.toHaveBeenCalled()
+    expect((await updater.checkForUpdates()).ok).toBe(false)
   })
 })

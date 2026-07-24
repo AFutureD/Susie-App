@@ -3,6 +3,8 @@
 // macOS 走 Squirrel.Mac，校验新包的 Developer ID 代码签名后由独立进程替换并重启。
 // 事件被归一化为 UpdateState（对位 ChatGPT 的 idle/checking/ready/installing）经 IPC 推给渲染层。
 
+import fs from 'node:fs'
+import path from 'node:path'
 import { app } from 'electron'
 import log from 'electron-log/main'
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-updater'
@@ -32,9 +34,15 @@ export function getUpdateState(): UpdateState {
   return state
 }
 
-/** dev 或未打包时无 app-update.yml，自动更新不可用 */
+/**
+ * 自动更新可用条件：非 dev、已打包、且构建包含 app-update.yml。
+ * pack/--dir 构建不生成 app-update.yml（只有 zip 等可更新 target 才生成），
+ * 此时应静默禁用而不是让 electron-updater 报 ENOENT。
+ */
 function isSupported(): boolean {
-  return !isDev && app.isPackaged
+  if (isDev || !app.isPackaged) return false
+  const resources = process.resourcesPath
+  return typeof resources === 'string' && fs.existsSync(path.join(resources, 'app-update.yml'))
 }
 
 /** releaseNotes 可能是字符串或 ReleaseNoteInfo[]，只取纯文本，否则 null */
@@ -46,7 +54,7 @@ function releaseNotesToText(notes: UpdateInfo['releaseNotes']): string | null {
 export function initUpdater(onState: (next: UpdateState) => void): void {
   onStateChange = onState
   if (!isSupported()) {
-    log.info('[updater] 跳过：dev 或未打包，自动更新不可用')
+    log.info('[updater] 跳过：dev / 未打包 / 构建缺 app-update.yml（pack 或 --dir 构建），自动更新不可用')
     return
   }
 
@@ -92,7 +100,7 @@ export function initUpdater(onState: (next: UpdateState) => void): void {
 
 /** 手动触发检查（供 IPC 调用） */
 export async function checkForUpdates(): Promise<ActionResult> {
-  if (!isSupported()) return { ok: false, message: '开发模式或未打包版本不支持自动更新' }
+  if (!isSupported()) return { ok: false, message: '此构建不支持自动更新（开发模式，或 pack/--dir 构建缺 app-update.yml）' }
   try {
     await autoUpdater.checkForUpdates()
     return { ok: true }
