@@ -107,4 +107,16 @@ describe('isSenderAdmitted', () => {
     const open = bind('a', 'S:-1', 'ops', { only_mention: false })
     expect(isSenderAdmitted(open, { chatType: 'group', senderId: '8', mentioned: false })).toBe(true)
   })
+
+  it('lets the owner bypass the member list but not the mention requirement', () => {
+    const restricted = bind('a', 'S:-1', 'ops', { only_mention: true, members: ['7'] })
+    expect(isSenderAdmitted(restricted, { chatType: 'group', senderId: '9', mentioned: true }, 'owner')).toBe(true)
+    expect(isSenderAdmitted(restricted, { chatType: 'group', senderId: '9', mentioned: false }, 'owner')).toBe(false)
+  })
+
+  it('does not exempt admin/member from the member list', () => {
+    const restricted = bind('a', 'S:-1', 'ops', { only_mention: false, members: ['7'] })
+    expect(isSenderAdmitted(restricted, { chatType: 'group', senderId: '9', mentioned: false }, 'admin')).toBe(false)
+    expect(isSenderAdmitted(restricted, { chatType: 'group', senderId: '9', mentioned: false }, 'member')).toBe(false)
+  })
 })

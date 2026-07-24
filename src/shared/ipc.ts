@@ -1,7 +1,14 @@
 // 主进程 ↔ 渲染进程的 IPC 契约。三端（main/preload/renderer）共享此文件。
 // 新增通道：在 Schema 里加类型，并同步登记到下方的通道清单（preload 按清单做运行时白名单）。
 
-import type { AssistantConfig, ChannelSettings, ChatBinding, ConfigMutationResult, ConfigState } from './config'
+import type {
+  AssistantConfig,
+  ChannelSettings,
+  ChannelUser,
+  ChatBinding,
+  ConfigMutationResult,
+  ConfigState,
+} from './config'
 import type {
   AgentModelOption,
   AgentProgress,
@@ -46,6 +53,8 @@ export interface IpcInvokeSchema {
   'config:delete-assistant': { req: { id: string; expectedVersion: number }; res: ConfigMutationResult }
   /** 整组替换 bindings（节点编辑器是全量状态编辑，index 式 API 不适配） */
   'config:set-bindings': { req: { bindings: ChatBinding[]; expectedVersion: number }; res: ConfigMutationResult }
+  /** 整组替换用户名单（用户管理/引导都是全量状态编辑） */
+  'config:set-users': { req: { users: ChannelUser[]; expectedVersion: number }; res: ConfigMutationResult }
 
   /** 在 Finder 打开 assistant 的生效工作目录（缺省为 workspace/<id>，会自动创建） */
   'assistants:open-workdir': { req: { id: string }; res: ActionResult }
@@ -58,8 +67,8 @@ export interface IpcInvokeSchema {
   }
 
   'history:chats': { req: undefined; res: ChatInfo[] }
-  /** 出现过的发送者（白名单候选）；chatId 省略时跨该频道全部会话 */
-  'history:senders': { req: { channelId: string; chatId?: string }; res: SenderInfo[] }
+  /** 出现过的发送者（白名单/用户候选）；chatId 省略时跨该频道全部会话；privateOnly 仅私聊发送者（owner 候选） */
+  'history:senders': { req: { channelId: string; chatId?: string; privateOnly?: boolean }; res: SenderInfo[] }
   'history:messages': {
     req: { channelId: string; chatId: string; limit?: number; beforeId?: number }
     res: StoredMessage[]
@@ -89,6 +98,7 @@ export const IPC_INVOKE_CHANNELS = [
   'config:upsert-assistant',
   'config:delete-assistant',
   'config:set-bindings',
+  'config:set-users',
   'assistants:open-workdir',
   'channel:statuses',
   'channels:resolve-username',

@@ -1,7 +1,14 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { ChatInfo, ChatMessage, MessagePart, SenderInfo, StoredMessage } from '../../shared/messages'
+import type {
+  ChatInfo,
+  ChatMessage,
+  InboundEnvelope,
+  MessagePart,
+  SenderInfo,
+  StoredMessage,
+} from '../../shared/messages'
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS messages(
@@ -25,6 +32,20 @@ CREATE TABLE IF NOT EXISTS chats(
   last_ts INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY(channel_id, chat_id)
 );
+CREATE TABLE IF NOT EXISTS pending_approvals(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  channel_id TEXT NOT NULL,
+  chat_id TEXT NOT NULL,
+  sender_id TEXT,
+  sender TEXT,
+  envelope TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  card_chat_id TEXT,
+  card_msg_id TEXT,
+  created_ts INTEGER NOT NULL,
+  decided_ts INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status, channel_id);
 `
 
 interface MessageRow {
@@ -39,6 +60,62 @@ interface MessageRow {
   out: number
   ts: number
   parts: string
+}
+
+export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'failed'
+
+/** member 消息的审核暂存（重启后 Telegram 卡片按钮仍要可用，故持久化） */
+export interface PendingApproval {
+  id: number
+  channelId: string
+  chatId: string
+  senderId: string | null
+  sender: string | null
+  envelope: InboundEnvelope
+  status: ApprovalStatus
+  /** 审核卡片所在会话（owner 私聊）与消息 id，用于事后编辑 */
+  cardChatId: string | null
+  cardMsgId: string | null
+  createdTs: number
+  decidedTs: number | null
+}
+
+interface PendingApprovalRow {
+  id: number
+  channel_id: string
+  chat_id: string
+  sender_id: string | null
+  sender: string | null
+  envelope: string
+  status: string
+  card_chat_id: string | null
+  card_msg_id: string | null
+  created_ts: number
+  decided_ts: number | null
+}
+
+/** envelope JSON 损坏时返回 null（视为该请求已丢失） */
+function rowToPendingApproval(row: PendingApprovalRow): PendingApproval | null {
+  let envelope: InboundEnvelope
+  try {
+    envelope = JSON.parse(row.envelope) as InboundEnvelope
+  } catch {
+    return null
+  }
+  if (typeof envelope !== 'object' || envelope === null || typeof envelope.message !== 'object') return null
+  return {
+    id: row.id,
+    channelId: row.channel_id,
+    chatId: row.chat_id,
+    senderId: row.sender_id,
+    sender: row.sender,
+    envelope,
+    status: row.status as ApprovalStatus,
+    cardChatId: row.card_chat_id,
+    cardMsgId: row.card_msg_id,
+    createdTs: row.created_ts,
+    decidedTs: row.decided_ts,
+  }
 }
 
 function rowToMessage(row: MessageRow): StoredMessage {
@@ -161,14 +238,17 @@ export class HistoryStore {
 
   /**
    * 出现过的发送者（按最近发言排序，名字取最近一次）；chatId 省略时跨该频道全部会话。
-   * 排除本方消息与无 id 的旧记录。
+   * 排除本方消息与无 id 的旧记录。privateOnly 仅统计私聊（owner 候选：私聊过 bot 才能收到审核卡片）。
    */
-  listSenders(channelId: string, chatId?: string): SenderInfo[] {
+  listSenders(channelId: string, chatId?: string, options: { privateOnly?: boolean } = {}): SenderInfo[] {
     const clauses = ['channel_id = ?', 'sender_id IS NOT NULL', 'out = 0']
     const params: string[] = [channelId]
     if (chatId !== undefined) {
       clauses.push('chat_id = ?')
       params.push(chatId)
+    }
+    if (options.privateOnly === true) {
+      clauses.push("chat_id LIKE 'P:%'")
     }
     const rows = this.db
       .prepare(
@@ -178,6 +258,72 @@ export class HistoryStore {
       )
       .all(...params) as unknown as { sender_id: string; sender: string | null }[]
     return rows.map((row) => ({ id: row.sender_id, name: row.sender }))
+  }
+
+  // ---------- member 消息审核暂存 ----------
+
+  createPendingApproval(input: {
+    channelId: string
+    chatId: string
+    senderId: string | null
+    sender: string | null
+    envelope: InboundEnvelope
+    createdTs: number
+  }): PendingApproval {
+    const result = this.db
+      .prepare(
+        `INSERT INTO pending_approvals(channel_id, chat_id, sender_id, sender, envelope, status, created_ts)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
+      )
+      .run(input.channelId, input.chatId, input.senderId, input.sender, JSON.stringify(input.envelope), input.createdTs)
+    return {
+      id: Number(result.lastInsertRowid),
+      channelId: input.channelId,
+      chatId: input.chatId,
+      senderId: input.senderId,
+      sender: input.sender,
+      envelope: input.envelope,
+      status: 'pending',
+      cardChatId: null,
+      cardMsgId: null,
+      createdTs: input.createdTs,
+      decidedTs: null,
+    }
+  }
+
+  getPendingApproval(id: number): PendingApproval | null {
+    const row = this.db.prepare('SELECT * FROM pending_approvals WHERE id = ?').get(id) as unknown as
+      PendingApprovalRow | undefined
+    if (row === undefined) return null
+    return rowToPendingApproval(row)
+  }
+
+  /** 记录审核卡片位置（发送成功后回填，用于事后编辑卡片） */
+  setPendingApprovalCard(id: number, cardChatId: string, cardMsgId: string | null): void {
+    this.db
+      .prepare('UPDATE pending_approvals SET card_chat_id = ?, card_msg_id = ? WHERE id = ?')
+      .run(cardChatId, cardMsgId, id)
+  }
+
+  /**
+   * 原子认领：仅 pending 态可迁移到目标态。返回 false = 已被处理
+   * （owner 双击按钮 / 重启后 Telegram 重放回调的去重依据）。
+   */
+  claimPendingApproval(id: number, status: Exclude<ApprovalStatus, 'pending'>, decidedTs: number): boolean {
+    const result = this.db
+      .prepare(`UPDATE pending_approvals SET status = ?, decided_ts = ? WHERE id = ? AND status = 'pending'`)
+      .run(status, decidedTs, id)
+    return Number(result.changes) === 1
+  }
+
+  /** 未决审核（老 → 新）；envelope 损坏的行跳过 */
+  listPendingApprovals(channelId?: string): PendingApproval[] {
+    const rows = (channelId === undefined
+      ? this.db.prepare(`SELECT * FROM pending_approvals WHERE status = 'pending' ORDER BY id`).all()
+      : this.db
+          .prepare(`SELECT * FROM pending_approvals WHERE status = 'pending' AND channel_id = ? ORDER BY id`)
+          .all(channelId)) as unknown as PendingApprovalRow[]
+    return rows.map(rowToPendingApproval).filter((row) => row !== null)
   }
 
   upsertChat(channelId: string, chatId: string, name: string | null): void {

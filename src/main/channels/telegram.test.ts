@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decodeChatId, encodeChatId } from '../../shared/chat-id'
-import { toBotCommands } from './telegram-bot'
+import { toBotCommands, toInlineKeyboard } from './telegram-bot'
 import { markdownToTelegramHtml } from './telegram-markdown'
 import { escapeHtml, renderMessageHtml, renderMessagePlain } from './telegram-render'
 
@@ -47,6 +47,29 @@ describe('toBotCommands', () => {
     ])
     expect(long!.description).toHaveLength(256)
     expect(empty!.description).toBe('empty')
+  })
+})
+
+describe('toInlineKeyboard', () => {
+  it('maps button rows to the Bot API inline keyboard shape', () => {
+    expect(
+      toInlineKeyboard([
+        [
+          { id: 'apv:1:allow', label: '允许' },
+          { id: 'apv:1:deny', label: '拒绝' },
+        ],
+        [{ id: 'x', label: 'X' }],
+      ]),
+    ).toEqual({
+      inline_keyboard: [
+        [
+          { text: '允许', callback_data: 'apv:1:allow' },
+          { text: '拒绝', callback_data: 'apv:1:deny' },
+        ],
+        [{ text: 'X', callback_data: 'x' }],
+      ],
+    })
+    expect(toInlineKeyboard([])).toEqual({ inline_keyboard: [] })
   })
 })
 

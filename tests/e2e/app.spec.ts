@@ -46,7 +46,7 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
 
   // 主界面：侧边栏挂载，频道页为空态
-  await expect(win.locator('nav a')).toHaveCount(6)
+  await expect(win.locator('nav a')).toHaveCount(7)
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })
 
@@ -90,6 +90,15 @@ test('树形面板把「默认」会话指派给助手并落盘', async () => {
   expect(text).toContain('channel = "e2e_bot"')
   expect(text).toContain('assistant_id = "default"')
   expect(text).toContain('chat_id = "*"')
+})
+
+test('用户页：无 Owner 警示与空名单，角色说明可见', async () => {
+  await win.getByRole('link', { name: '用户' }).click()
+  await expect(win.getByText(/Owner 全权并负责审核/)).toBeVisible()
+  // 两个频道卡片都渲染，且都提示未绑定 Owner
+  await expect(win.getByText(/该频道未绑定 Owner/).first()).toBeVisible()
+  await expect(win.getByText('尚未登记任何用户').first()).toBeVisible()
+  await expect(win.getByRole('button', { name: '添加用户' }).first()).toBeVisible()
 })
 
 test('Raw 编辑器：非法配置被拒绝，不影响运行态', async () => {

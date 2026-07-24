@@ -7,8 +7,12 @@ import { Button, Field, TextInput } from './form'
 // 成员白名单的通用件：昵称芯片列表 + 「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
 // UI 全程不显示 peer id（仅当手动添加且从无发言记录时以 id 兜底显示）。
 
-/** 会话/频道内出现过的发送者（chatId 省略 = 整个频道） */
-export function useSenders(channelId: string, chatId?: string): SenderInfo[] {
+/**
+ * 会话/频道内出现过的发送者（chatId 省略 = 整个频道；privateOnly 仅私聊发送者）。
+ * 订阅 history:message 实时刷新——新用户发言后立刻出现在候选列表。
+ */
+export function useSenders(channelId: string, chatId?: string, options: { privateOnly?: boolean } = {}): SenderInfo[] {
+  const privateOnly = options.privateOnly === true
   const [senders, setSenders] = useState<SenderInfo[]>([])
   useEffect(() => {
     if (channelId === '') {
@@ -16,14 +20,26 @@ export function useSenders(channelId: string, chatId?: string): SenderInfo[] {
       return
     }
     let alive = true
-    const payload = chatId === undefined ? { channelId } : { channelId, chatId }
-    void susie.invoke('history:senders', payload).then((list) => {
-      if (alive) setSenders(list)
+    const refresh = (): void => {
+      void susie
+        .invoke('history:senders', {
+          channelId,
+          ...(chatId === undefined ? {} : { chatId }),
+          ...(privateOnly ? { privateOnly: true } : {}),
+        })
+        .then((list) => {
+          if (alive) setSenders(list)
+        })
+    }
+    refresh()
+    const unsubscribe = susie.on('history:message', (message) => {
+      if (message.channelId === channelId && !message.out) refresh()
     })
     return () => {
       alive = false
+      unsubscribe()
     }
-  }, [channelId, chatId])
+  }, [channelId, chatId, privateOnly])
   return senders
 }
 

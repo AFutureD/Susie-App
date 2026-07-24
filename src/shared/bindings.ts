@@ -1,4 +1,4 @@
-import { CHAT_ALL, type ChatBinding } from './config'
+import { CHAT_ALL, type ChatBinding, type UserRole } from './config'
 
 // 准入统一由绑定决定：β(x) = 精确绑定 | 通道默认（chat_id='*'） | null（禁止，不响应）。
 // 不存在全局兜底——没有绑定命中就是不响应。群会话在命中后还要过发送者准入
@@ -102,10 +102,12 @@ export interface SenderMeta {
 /**
  * 发送者准入：私聊命中绑定即放行（chat=user，会话粒度已含用户粒度）；
  * 群会话再按命中绑定的成员名单与 @ 要求过滤。
+ * owner 豁免成员名单（不豁免 @ 要求——否则 owner 在群里每句话都触发 bot）。
  */
-export function isSenderAdmitted(binding: ChatBinding, meta: SenderMeta): boolean {
+export function isSenderAdmitted(binding: ChatBinding, meta: SenderMeta, role: UserRole | null = null): boolean {
   if (meta.chatType === 'private') return true
   if (binding.only_mention && !meta.mentioned) return false
   if (binding.members.length === 0) return true
+  if (role === 'owner') return true
   return meta.senderId !== null && binding.members.includes(meta.senderId)
 }

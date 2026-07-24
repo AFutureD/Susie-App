@@ -105,11 +105,16 @@ export function formatZodError(error: ZodError): string {
   return `配置校验失败：${lines.join('；')}`
 }
 
-/** 序列化为 canonical TOML（键序固定：channels → assistants → bindings） */
+/** 序列化为 canonical TOML（键序固定：channels → assistants → bindings → users） */
 export function serializeConfig(config: Config): string {
   // JSON 往返去掉 undefined 值（TOML 无 null/undefined）
   const clean = JSON.parse(
-    JSON.stringify({ channels: config.channels, assistants: config.assistants, bindings: config.bindings }),
+    JSON.stringify({
+      channels: config.channels,
+      assistants: config.assistants,
+      bindings: config.bindings,
+      users: config.users,
+    }),
   ) as Record<string, unknown>
   return `${stringify(clean)}\n`
 }

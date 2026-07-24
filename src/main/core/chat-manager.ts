@@ -1,17 +1,19 @@
 import { isSenderAdmitted, resolveBinding } from '../../shared/bindings'
 import { decodeChatId } from '../../shared/chat-id'
+import { channelOwner, roleOf } from '../../shared/users'
 import type { AssistantConfig } from '../../shared/config'
 import {
   partsToPlainText,
   partsToPromptText,
   type ChatMessage,
+  type InboundEnvelope,
   type MessagePart,
   type StoredMessage,
 } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
-import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-bot'
+import type { TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore, Unsubscribe } from '../config/store'
-import type { HistoryStore } from '../history/store'
+import type { HistoryStore, PendingApproval } from '../history/store'
 import { ASSISTANT_COMMAND_SPECS, assistantCommands } from '../replier/commands'
 import { renderPrompt, renderSystemInstruction } from '../replier/templates'
 import type { Logger } from '../util/logger'
@@ -38,6 +40,8 @@ export interface ChatManagerDeps {
   getChannel: (id: string) => TelegramBotChannel | undefined
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>
   onHistoryMessage: (message: StoredMessage) => void
+  /** member/未登记发送者的消息转 owner 审核（暂存 + 发卡片；不等待审核结果） */
+  requestApproval: (envelope: InboundEnvelope) => Promise<void>
   log: Logger
 }
 
@@ -75,7 +79,7 @@ export class ChatManager {
 
   /** 通道入站回调 */
   handleInbound(envelope: InboundEnvelope): void {
-    const { message, chatName, mentioned } = envelope
+    const { message, chatName } = envelope
     const stored = this.deps.history.record(message, chatName)
     this.deps.onHistoryMessage(stored)
 
@@ -94,7 +98,13 @@ export class ChatManager {
       return
     }
 
-    this.enqueue(key, () => this.process(message, mentioned))
+    this.enqueue(key, () => this.process(envelope))
+  }
+
+  /** owner 批准后的重放入口：不再落库（到达时已记录），跳过角色门与免打扰窗 */
+  handleApproved(pending: PendingApproval): void {
+    const key = chatKey(pending.channelId, pending.chatId)
+    this.enqueue(key, () => this.process(pending.envelope, { preapproved: true }))
   }
 
   /** UI composer / MCP send_message 出站入口 */
@@ -146,22 +156,37 @@ export class ChatManager {
     this.queues.set(key, next)
   }
 
-  private async process(message: ChatMessage, mentioned: boolean): Promise<void> {
+  private async process(envelope: InboundEnvelope, opts: { preapproved?: boolean } = {}): Promise<void> {
+    const { message, mentioned } = envelope
+    const preapproved = opts.preapproved === true
     const key = chatKey(message.channelId, message.chatId)
 
     // 准入 = 绑定解析：未命中即禁止（静默忽略）；群会话再过发送者触发条件
     const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
     if (binding === null) {
-      this.deps.log.info(`chat ${key} 无绑定且通道无默认助手，不响应`)
+      this.deps.log.info(`chat ${key} 无绑定且通道无默认助手，不响应${preapproved ? '（审核通过但绑定已失效）' : ''}`)
       return
     }
+    const users = this.deps.store.current.users
+    const role = roleOf(users, message.channelId, message.senderId)
     const meta = {
       chatType: decodeChatId(message.chatId)?.chatType ?? null,
       senderId: message.senderId,
       mentioned,
     }
-    if (!isSenderAdmitted(binding, meta)) {
+    if (!isSenderAdmitted(binding, meta, role)) {
       this.deps.log.info(`chat ${key} 发送者未通过触发条件（成员名单 / @ 提及要求），不响应`)
+      return
+    }
+
+    // 角色门：owner/admin 直通；member/未登记转 owner 审核（在 ensureChat 之前——暂存消息不建 runtime，命令同样被门住）
+    if (!preapproved && role !== 'owner' && role !== 'admin') {
+      if (channelOwner(users, message.channelId) === null) {
+        this.deps.log.info(`chat ${key} 频道未绑定 owner，member/未登记发送者的消息无人可审，不响应`)
+        return
+      }
+      this.deps.log.info(`chat ${key} 发送者角色 ${role ?? '未登记'}：转 owner 审核`)
+      await this.deps.requestApproval(envelope)
       return
     }
 
@@ -175,7 +200,8 @@ export class ChatManager {
       return
     }
 
-    if (Date.now() < entry.ignoreUntil) {
+    // owner 的显式批准优先于本人回复后的静默窗
+    if (!preapproved && Date.now() < entry.ignoreUntil) {
       this.deps.log.info(
         `chat ${key} 处于本人回复后的免打扰窗口（剩余 ${Math.ceil((entry.ignoreUntil - Date.now()) / 1000)}s），消息不处理`,
       )

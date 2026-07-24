@@ -40,6 +40,23 @@ export const assistantSchema = z.strictObject({
   instruction: z.string().optional(),
 })
 
+/** 用户角色：owner 全权并负责审核；admin 免审；member 每条消息需 owner 审核 */
+export const USER_ROLES = ['owner', 'admin', 'member'] as const
+export type UserRole = (typeof USER_ROLES)[number]
+
+/**
+ * 频道内的已登记用户与角色。owner 每频道唯一；未登记的发送者按 member 对待（进审核）。
+ * 频道无 owner 时无人可审——member/未登记消息直接忽略。
+ */
+export const userSchema = z.strictObject({
+  channel: z.string().min(1),
+  /** telegram user id 的字符串形式，与 binding.members / ChatMessage.senderId 同一取值域 */
+  user_id: z.string().min(1),
+  /** 显示名快照（选人时写入，仅展示用；实时名以历史库为准） */
+  name: z.string().optional(),
+  role: z.enum(USER_ROLES),
+})
+
 /**
  * 绑定即准入：一条 = 一个会话（chat_id 为 CHAT_ALL 时表示「该通道其余会话」的默认）。
  * 没有任何绑定命中的会话不响应（禁止）——不存在全局兜底。
@@ -67,6 +84,7 @@ export const configSchema = z
       .default({}),
     assistants: z.array(assistantSchema).default([{ id: DEFAULT_ASSISTANT_ID, agent_id: 'codex' }]),
     bindings: z.array(bindingSchema).default([]),
+    users: z.array(userSchema).default([]),
   })
   .superRefine((config, ctx) => {
     const ids = config.assistants.map((a) => a.id)
@@ -83,12 +101,37 @@ export const configSchema = z
         })
       }
     })
+    // 用户与 bindings 一样容忍幽灵频道（频道删除不级联）；只校验频道内部一致性
+    const seenUsers = new Set<string>()
+    const ownerChannels = new Set<string>()
+    config.users.forEach((user, index) => {
+      const key = `${user.channel} ${user.user_id}`
+      if (seenUsers.has(key)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['users', index, 'user_id'],
+          message: `用户在频道 ${user.channel} 重复登记：${user.user_id}`,
+        })
+      }
+      seenUsers.add(key)
+      if (user.role === 'owner') {
+        if (ownerChannels.has(user.channel)) {
+          ctx.addIssue({
+            code: 'custom',
+            path: ['users', index, 'role'],
+            message: `频道 ${user.channel} 只能有一个 owner`,
+          })
+        }
+        ownerChannels.add(user.channel)
+      }
+    })
   })
 
 export type TelegramBotChannelSettings = z.infer<typeof telegramBotChannelSchema>
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>
 export type AssistantConfig = z.infer<typeof assistantSchema>
 export type ChatBinding = z.infer<typeof bindingSchema>
+export type ChannelUser = z.infer<typeof userSchema>
 export type Config = z.infer<typeof configSchema>
 
 /** 推给 UI / IPC 的配置状态快照 */

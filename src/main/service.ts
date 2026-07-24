@@ -19,6 +19,7 @@ import { ChannelHub } from './channels/hub'
 import { getWorkspaceDir } from './config/paths'
 import type { ConfigStore } from './config/store'
 import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
+import { ApprovalManager } from './core/approvals'
 import { ChatManager } from './core/chat-manager'
 import { HistoryStore } from './history/store'
 import { SusieMcpServer } from './mcp/server'
@@ -54,6 +55,7 @@ export class SusieService {
   readonly history: HistoryStore
   readonly hub: ChannelHub
   readonly chatManager: ChatManager
+  readonly approvals: ApprovalManager
   readonly mcp: SusieMcpServer
   readonly acpRegistry: AcpRegistryManager
   readonly codexInstaller: CodexInstaller
@@ -75,6 +77,16 @@ export class SusieService {
     this.acpRegistry = new AcpRegistryManager(paths.acpDataDir, agentsProgress)
     this.codexInstaller = new CodexInstaller(paths.codexDataDir, agentsProgress)
 
+    // approvals ↔ chatManager ↔ hub 相互引用，一律用延迟闭包解环（构造顺序无关）
+    this.approvals = new ApprovalManager({
+      store,
+      history: this.history,
+      getChannel: (id) => this.hub.get(id),
+      dispatchApproved: (pending) => this.chatManager.handleApproved(pending),
+      onHistoryMessage: emit.historyMessage,
+      log,
+    })
+
     this.chatManager = new ChatManager({
       store,
       history: this.history,
@@ -82,6 +94,7 @@ export class SusieService {
       getChannel: (id) => this.hub.get(id),
       createRuntime: (assistant) => this.createRuntime(assistant),
       onHistoryMessage: emit.historyMessage,
+      requestApproval: (envelope) => this.approvals.request(envelope),
       log,
     })
 
@@ -90,6 +103,7 @@ export class SusieService {
       attachmentsDir: paths.attachmentsDir,
       listCommands: () => this.chatManager.listCommandSpecs(),
       onMessage: (envelope) => this.chatManager.handleInbound(envelope),
+      onCallback: (event) => void this.approvals.handleCallback(event),
       onStatuses: emit.channelStatuses,
       onChannelRemoved: (channelId) => this.chatManager.onChannelRemoved(channelId),
       log,

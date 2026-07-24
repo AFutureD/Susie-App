@@ -12,11 +12,13 @@ import { ChannelsPage } from './pages/channels'
 import { HistoryPage } from './pages/history'
 import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
+import { UsersPage } from './pages/users'
 
 const NAV_ITEMS = [
   { to: '/channels', id: 'nav.channels' },
   { to: '/agents', id: 'nav.agents' },
   { to: '/assistants', id: 'nav.assistants' },
+  { to: '/users', id: 'nav.users' },
   { to: '/history', id: 'nav.history' },
   { to: '/logs', id: 'nav.logs' },
   { to: '/settings', id: 'nav.settings' },
@@ -95,6 +97,7 @@ export function App() {
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/assistants" element={<AssistantsPage />} />
+            <Route path="/users" element={<UsersPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

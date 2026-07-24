@@ -3,7 +3,13 @@ import process from 'node:process'
 import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
 import log from 'electron-log/main'
 import { z } from 'zod'
-import { assistantSchema, bindingSchema, channelSettingsSchema, type ConfigMutationResult } from '../shared/config'
+import {
+  assistantSchema,
+  bindingSchema,
+  channelSettingsSchema,
+  userSchema,
+  type ConfigMutationResult,
+} from '../shared/config'
 import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
 import { getWorkspaceDir } from './config/paths'
 import { fetchBotUsername } from './channels/telegram-bot'
@@ -104,6 +110,12 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
     return config.setBindings(bindings.data, payload.expectedVersion)
   })
 
+  handle('config:set-users', (payload) => {
+    const users = z.array(userSchema).safeParse(payload.users)
+    if (!users.success) return invalid(users.error.issues[0]?.message)
+    return config.setUsers(users.data, payload.expectedVersion)
+  })
+
   handle('assistants:open-workdir', async (payload) => {
     const assistant = config.state().config.assistants.find((item) => item.id === payload.id)
     if (assistant === undefined) return { ok: false, message: `assistant 不存在：${payload.id}` }
@@ -122,7 +134,9 @@ export function registerIpcHandlers(config: ConfigStore, service: SusieService):
   handle('channel:statuses', () => service.hub.statuses())
 
   handle('history:chats', () => service.history.listChats())
-  handle('history:senders', (payload) => service.history.listSenders(payload.channelId, payload.chatId))
+  handle('history:senders', (payload) =>
+    service.history.listSenders(payload.channelId, payload.chatId, { privateOnly: payload.privateOnly ?? false }),
+  )
   handle('history:messages', (payload) =>
     service.history.listMessages(payload.channelId, payload.chatId, {
       limit: payload.limit ?? 80,

@@ -2,6 +2,7 @@ export const zhHans: Record<string, string> = {
   'nav.channels': '频道',
   'nav.agents': 'Agent',
   'nav.assistants': '助手',
+  'nav.users': '用户',
   'nav.history': '历史',
   'nav.logs': '日志',
   'nav.settings': '设置',
@@ -29,8 +30,8 @@ export const zhHans: Record<string, string> = {
 
   // 首启引导
   'onboarding.welcome.title': '欢迎使用 Susie',
-  'onboarding.welcome.subtitle': '两步完成初始设置：连接 Telegram Bot，并选择由助手响应的会话。',
-  'onboarding.skip': '跳过引导（之后可在「频道」与「助手」页手动配置）',
+  'onboarding.welcome.subtitle': '三步完成初始设置：连接 Telegram Bot，绑定 Owner，并选择由助手响应的会话。',
+  'onboarding.skip': '跳过引导（之后可在「频道」「用户」与「助手」页手动配置）',
   'onboarding.step.channel': '第 1 步 · 添加 Telegram Bot',
   'onboarding.channel.guide.step1': '在 Telegram 中找 @BotFather 创建 Bot，获取 token。',
   'onboarding.channel.guide.step2':
@@ -38,8 +39,20 @@ export const zhHans: Record<string, string> = {
   'onboarding.channel.guide.open': '打开 @BotFather',
   'onboarding.channel.submit': '连接',
   'onboarding.channel.connecting': '正在连接…',
-  'onboarding.step.binding': '第 2 步 · 会话绑定',
+  'onboarding.step.owner': '第 2 步 · 绑定 Owner',
+  'onboarding.owner.subtitle': 'Owner 拥有全部权限，并负责审核 member 的消息（在 Telegram 中点按钮允许/拒绝）。',
+  'onboarding.owner.hint':
+    '用你自己的 Telegram 账号私聊 Bot：点击「Start」或发送一条消息，你的账号会出现在下方列表，选择后绑定为 Owner。',
+  'onboarding.owner.waiting': '正在等待你的消息…',
+  'onboarding.owner.bind': '设为 Owner',
+  'onboarding.step.binding': '第 3 步 · 会话绑定',
   'onboarding.binding.subtitle': '选择哪些会话交给助手响应，之后可随时在「助手」页调整。',
+  'onboarding.binding.users.title': '允许的用户',
+  'onboarding.binding.users.hint':
+    '选择可以使用 Susie 的用户，应用到本步创建的绑定；不选 = 所有人。member 的消息需 Owner 审核，Owner 始终可用。新用户给 Bot 发消息后会实时出现在这里。',
+  'onboarding.binding.users.everyone': '所有人',
+  'onboarding.binding.users.waiting': '正在监听新用户…',
+  'onboarding.binding.users.select': '选择',
   'onboarding.binding.all.title': '所有会话（默认）',
   'onboarding.binding.all.desc': '所有私聊和群聊都由助手响应（群内默认仅响应 @ 提及）。点击即完成设置。',
   'onboarding.binding.some.title': '仅指定会话',
@@ -56,7 +69,8 @@ export const zhHans: Record<string, string> = {
   'onboarding.listen.back': '返回',
   'onboarding.listen.finish': '完成',
   'onboarding.done.title': '设置完成',
-  'onboarding.done.desc': '现在可以在 Telegram 里给 Bot 发消息了。频道与会话绑定可随时在「频道」和「助手」页调整。',
+  'onboarding.done.desc':
+    '现在可以在 Telegram 里给 Bot 发消息了。频道、用户与会话绑定可随时在「频道」「用户」和「助手」页调整。',
   'onboarding.done.cta': '开始使用',
 
   'page.channels.title': '频道',
@@ -150,6 +164,23 @@ export const zhHans: Record<string, string> = {
   'bindings.picker.chat.manual': '或手动输入会话 ID',
   'bindings.picker.chat.confirm': '添加',
   'bindings.error.conflictRefreshed': '配置已被其他修改更新，界面已刷新，请重试',
+
+  // 用户管理
+  'page.users.title': '用户',
+  'users.hint':
+    '角色：Owner 全权并负责审核（每频道唯一）；Admin 免审直通；Member 每条消息需 Owner 在 Telegram 中审核。未登记的发送者按 Member 处理；频道没有 Owner 时，Member 与陌生用户的消息将被忽略。',
+  'users.empty': '还没有配置任何频道。先在「频道」页添加频道，用户会在发消息后出现在候选列表。',
+  'users.channel.noOwner': '该频道未绑定 Owner——Member 与陌生用户的消息将被忽略。请把某位用户设为 Owner。',
+  'users.roster.empty': '尚未登记任何用户。点「添加用户」从发言候选中选择。',
+  'users.role.owner': 'Owner',
+  'users.role.admin': 'Admin',
+  'users.role.member': 'Member',
+  'users.add': '添加用户',
+  'users.ghost': '频道已删除',
+  'users.remove.confirm': '确定移除用户 "{name}"？移除后其消息按未登记发送者（Member）处理。',
+  'users.remove.owner.confirm': '确定移除 Owner "{name}"？该频道将没有 Owner，Member 与陌生用户的消息将被忽略。',
+  'users.transfer.confirm': '将 Owner 转让给 "{name}"？原 Owner 将降为 Admin。',
+  'users.demote.confirm': '取消 "{name}" 的 Owner 身份？该频道将没有 Owner，Member 与陌生用户的消息将被忽略。',
 
   'page.history.title': '历史',
   'history.empty': '还没有任何消息记录。频道跑起来后，出入消息都会落到本地 SQLite。',

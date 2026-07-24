@@ -147,7 +147,7 @@ async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
     }
 
     const navCount = (await win.webContents.executeJavaScript(`document.querySelectorAll('nav a').length`)) as number
-    if (navCount !== 6) {
+    if (navCount !== 7) {
       throw new Error(`react ui not mounted, nav items = ${navCount}`)
     }
 

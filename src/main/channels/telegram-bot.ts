@@ -1,9 +1,15 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import TelegramBot, { type BotCommand, type Chat, type Message, type User } from 'node-telegram-bot-api'
+import TelegramBot, {
+  type BotCommand,
+  type Chat,
+  type InlineKeyboardMarkup,
+  type Message,
+  type User,
+} from 'node-telegram-bot-api'
 import type { TelegramBotChannelSettings } from '../../shared/config'
-import type { ChannelStatus, ChatMessage } from '../../shared/messages'
+import type { ChannelStatus, ChatMessage, InboundEnvelope, MessagePart } from '../../shared/messages'
 import type { ConfigRef } from '../config/store'
 import type { CommandSpec } from '../core/commands'
 import { withDeadline, withTimeout } from '../util/async'
@@ -15,11 +21,24 @@ type SendMessageForm = NonNullable<Parameters<TelegramBot['sendMessage']>[2]>
 type SendDocumentForm = NonNullable<Parameters<TelegramBot['sendDocument']>[2]>
 type SendChatActionForm = NonNullable<Parameters<TelegramBot['sendChatAction']>[2]>
 
-export interface InboundEnvelope {
-  message: ChatMessage
-  chatName: string | null
-  /** 群内消息是否 @ 了 bot 或回复了 bot（准入判定在 ChatManager 按绑定进行） */
-  mentioned: boolean
+/** inline 按钮：id 直接作为 callback_data（Bot API 限 ≤64 字节，由调用方保证） */
+export interface InlineButton {
+  id: string
+  label: string
+}
+
+/** inline 按钮点击事件（bot.on('callback_query') 的领域化投影） */
+export interface ChannelCallbackEvent {
+  channelId: string
+  /** answerCallbackQuery 的凭据（不应答则点按者客户端一直转圈） */
+  callbackQueryId: string
+  /** 点按者的 telegram user id（字符串形式，与 ChatMessage.senderId 同域） */
+  fromId: string
+  /** callback_data；缺失时为 '' */
+  data: string
+  /** 按钮所在会话/消息（inline 模式无 message 时为 null） */
+  chatId: string | null
+  messageId: string | null
 }
 
 export interface TelegramBotChannelDeps {
@@ -30,6 +49,7 @@ export interface TelegramBotChannelDeps {
   /** 命令菜单（Bot API setMyCommands）名单，启动时注册 */
   listCommands: () => CommandSpec[]
   onMessage: (envelope: InboundEnvelope) => void
+  onCallback: (event: ChannelCallbackEvent) => void
   onStatus: (status: ChannelStatus) => void
   log: Logger
 }
@@ -63,6 +83,13 @@ function chatTitle(chat: Chat): string | null {
   const full = [chat.first_name, chat.last_name].filter((x) => x !== undefined && x !== '').join(' ')
   if (full !== '') return full
   return chat.username ?? null
+}
+
+/** 按钮行列 → Bot API inline keyboard */
+export function toInlineKeyboard(buttons: InlineButton[][]): InlineKeyboardMarkup {
+  return {
+    inline_keyboard: buttons.map((row) => row.map((button) => ({ text: button.label, callback_data: button.id }))),
+  }
 }
 
 export class TelegramBotChannel {
@@ -141,6 +168,29 @@ export class TelegramBotChannel {
       }
     })
 
+    // inline 按钮点击（审核卡片等）。注意：drop_pending_updates 开启时，
+    // 应用离线期间的点击会随积压更新一并丢弃——卡片按钮仍在，点按者重按即可。
+    bot.on('callback_query', (query) => {
+      try {
+        if (this.deps.settingsRef.current === undefined) return
+        // 卡片超过 48h 后回调里的 message 退化为 InaccessibleMessage（无 thread id 等字段）
+        const source = query.message
+        const threadId =
+          source !== undefined && 'message_thread_id' in source ? (source.message_thread_id ?? null) : null
+        this.deps.onCallback({
+          channelId: this.id,
+          callbackQueryId: query.id,
+          fromId: String(query.from.id),
+          data: query.data ?? '',
+          chatId: source === undefined ? null : encodeChatId(source.chat.type, source.chat.id, threadId),
+          messageId: source === undefined ? null : String(source.message_id),
+        })
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.deps.log.error(`channel ${this.id}: 按钮回调处理异常：${detail}`)
+      }
+    })
+
     bot.on('polling_error', (error) => {
       const text = describeTelegramError(error)
       if (text.includes('409')) {
@@ -207,7 +257,7 @@ export class TelegramBotChannel {
     return () => clearInterval(timer)
   }
 
-  async sendMessage(message: ChatMessage): Promise<ChatMessage> {
+  async sendMessage(message: ChatMessage, options: { buttons?: InlineButton[][] } = {}): Promise<ChatMessage> {
     const bot = this.bot
     if (bot === null) throw new Error(`通道未运行：${this.id}`)
 
@@ -219,6 +269,9 @@ export class TelegramBotChannel {
     const base: SendMessageForm = {}
     if (target.threadId !== null) base.message_thread_id = target.threadId
     if (replyToId !== null) base.reply_parameters = { message_id: replyToId }
+    if (options.buttons !== undefined && options.buttons.length > 0) {
+      base.reply_markup = toInlineKeyboard(options.buttons)
+    }
 
     let sentId: string | null = null
     const html = renderMessageHtml(message.parts)
@@ -227,7 +280,7 @@ export class TelegramBotChannel {
         const sent = await bot.sendMessage(target.rawChatId, html, { ...base, parse_mode: 'HTML' })
         sentId = String(sent.message_id)
       } catch (error) {
-        // HTML 实体问题降级为纯文本
+        // HTML 实体问题降级为纯文本（base 已含 reply_markup，按钮不丢）
         this.deps.log.info(
           `channel ${this.id}: HTML 渲染被 Telegram 拒绝，降级纯文本重发：${error instanceof Error ? error.message : String(error)}`,
         )
@@ -247,6 +300,51 @@ export class TelegramBotChannel {
     }
 
     return { ...message, id: sentId, timestamp: Date.now() }
+  }
+
+  /** 应答 inline 按钮点击（Telegram 要求必须应答，否则点按者客户端转圈 ~30s）；失败仅留日志 */
+  async answerCallback(callbackQueryId: string, text?: string): Promise<void> {
+    const bot = this.bot
+    if (bot === null) return
+    try {
+      await bot.answerCallbackQuery(callbackQueryId, text === undefined ? {} : { text })
+    } catch (error) {
+      // 过期的 callback query 会 400，不影响业务状态
+      this.deps.log.info(
+        `channel ${this.id}: answerCallbackQuery 失败（query 可能已过期）：${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
+
+  /** 编辑已发消息（审核卡片决定后更新文案/撤按钮）；编辑失败不致命，仅留日志 */
+  async editMessage(
+    chatId: string,
+    messageId: string,
+    parts: MessagePart[],
+    buttons: InlineButton[][] | null,
+  ): Promise<void> {
+    const bot = this.bot
+    if (bot === null) return
+    const target = decodeChatId(chatId)
+    if (target === null || !/^\d+$/.test(messageId)) return
+
+    const form = {
+      chat_id: target.rawChatId,
+      message_id: Number(messageId),
+      reply_markup: toInlineKeyboard(buttons ?? []),
+    }
+    try {
+      await bot.editMessageText(renderMessageHtml(parts), { ...form, parse_mode: 'HTML' })
+    } catch {
+      try {
+        // HTML 实体问题降级为纯文本（与 sendMessage 同款策略）
+        await bot.editMessageText(renderMessagePlain(parts), form)
+      } catch (error) {
+        this.deps.log.error(
+          `channel ${this.id}: 编辑消息失败（chat=${chatId}, msg=${messageId}）：${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
   }
 
   private handleInbound(message: Message): void {

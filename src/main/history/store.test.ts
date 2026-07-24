@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, it } from 'vitest'
-import type { ChatMessage } from '../../shared/messages'
+import type { ChatMessage, InboundEnvelope } from '../../shared/messages'
 import { HistoryStore } from './store'
 
 function msg(overrides: Partial<ChatMessage> = {}): ChatMessage {
@@ -111,5 +111,109 @@ describe('HistoryStore (node:sqlite)', () => {
 
     expect(store.search('100%').map((m) => m.id)).toEqual(['x'])
     expect(store.search('missing')).toHaveLength(0)
+  })
+
+  it('filters senders to private chats with privateOnly (owner candidates)', () => {
+    const store = new HistoryStore(':memory:')
+    store.record(msg({ id: 'a', chatId: 'P:100', senderId: '100', sender: 'Alice', timestamp: 1000 }))
+    store.record(msg({ id: 'b', chatId: 'G:9', senderId: '200', sender: 'Bob', timestamp: 2000 }))
+
+    expect(store.listSenders('ch', undefined, { privateOnly: true })).toEqual([{ id: '100', name: 'Alice' }])
+    expect(store.listSenders('ch').map((sender) => sender.id)).toEqual(['200', '100'])
+  })
+})
+
+describe('HistoryStore pending approvals', () => {
+  const envelope = (text: string): InboundEnvelope => ({
+    message: msg({ parts: [{ kind: 'text', text }] }),
+    chatName: '客厅',
+    mentioned: false,
+  })
+
+  it('creates, reads back and round-trips the envelope', () => {
+    const store = new HistoryStore(':memory:')
+    const created = store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '100',
+      sender: 'alice',
+      envelope: envelope('please'),
+      createdTs: 1234,
+    })
+    expect(created.status).toBe('pending')
+
+    const loaded = store.getPendingApproval(created.id)
+    expect(loaded).not.toBeNull()
+    expect(loaded?.envelope).toEqual(envelope('please'))
+    expect(loaded?.cardChatId).toBeNull()
+    expect(store.getPendingApproval(999)).toBeNull()
+  })
+
+  it('stores the approval card location', () => {
+    const store = new HistoryStore(':memory:')
+    const created = store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '100',
+      sender: 'alice',
+      envelope: envelope('hi'),
+      createdTs: 1,
+    })
+    store.setPendingApprovalCard(created.id, 'P:900', '42')
+    const loaded = store.getPendingApproval(created.id)
+    expect(loaded?.cardChatId).toBe('P:900')
+    expect(loaded?.cardMsgId).toBe('42')
+  })
+
+  it('claims atomically: only the first transition from pending wins', () => {
+    const store = new HistoryStore(':memory:')
+    const created = store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '100',
+      sender: 'alice',
+      envelope: envelope('hi'),
+      createdTs: 1,
+    })
+
+    expect(store.claimPendingApproval(created.id, 'approved', 2000)).toBe(true)
+    // 双击/重放：第二次认领失败
+    expect(store.claimPendingApproval(created.id, 'denied', 3000)).toBe(false)
+
+    const loaded = store.getPendingApproval(created.id)
+    expect(loaded?.status).toBe('approved')
+    expect(loaded?.decidedTs).toBe(2000)
+  })
+
+  it('lists only pending rows, oldest first, scoped by channel', () => {
+    const store = new HistoryStore(':memory:')
+    const first = store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:1',
+      senderId: '1',
+      sender: 'a',
+      envelope: envelope('1'),
+      createdTs: 1,
+    })
+    store.createPendingApproval({
+      channelId: 'ch',
+      chatId: 'P:2',
+      senderId: '2',
+      sender: 'b',
+      envelope: envelope('2'),
+      createdTs: 2,
+    })
+    store.createPendingApproval({
+      channelId: 'other',
+      chatId: 'P:3',
+      senderId: '3',
+      sender: 'c',
+      envelope: envelope('3'),
+      createdTs: 3,
+    })
+    store.claimPendingApproval(first.id, 'denied', 9)
+
+    expect(store.listPendingApprovals().map((p) => p.senderId)).toEqual(['2', '3'])
+    expect(store.listPendingApprovals('ch').map((p) => p.senderId)).toEqual(['2'])
   })
 })

@@ -6,6 +6,7 @@ import {
   configSchema,
   type AssistantConfig,
   type ChannelSettings,
+  type ChannelUser,
   type ChatBinding,
   type Config,
   type ConfigMutationResult,
@@ -206,6 +207,13 @@ export class ConfigStore {
     })
   }
 
+  /** 整组替换用户名单（owner 唯一性等约束由 schema 校验拦截） */
+  setUsers(users: ChannelUser[], expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      draft.users = users
+    })
+  }
+
   /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。 */
   saveRaw(text: string, expectedVersion: number): ConfigMutationResult {
     if (expectedVersion !== this.version) return conflict(this.version, expectedVersion)
@@ -314,12 +322,14 @@ export function diffConfigPaths(prev: Config, next: Config): string[] {
 
   if (!deepEqual(prev.bindings, next.bindings)) changed.push('bindings')
 
+  if (!deepEqual(prev.users, next.users)) changed.push('users')
+
   if (changed.length > 0) changed.push('')
   return changed
 }
 
 /**
- * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings'。
+ * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users'。
  * id 由 schema 保证不含 '.'。
  */
 export function resolveConfigPath(config: Config, refPath: string): unknown {
@@ -337,6 +347,9 @@ export function resolveConfigPath(config: Config, refPath: string): unknown {
     case 'bindings':
       if (rest !== null) throw new Error(`bindings 不支持子路径：${refPath}`)
       return config.bindings
+    case 'users':
+      if (rest !== null) throw new Error(`users 不支持子路径：${refPath}`)
+      return config.users
     default:
       throw new Error(`未知的配置 path：${refPath}`)
   }

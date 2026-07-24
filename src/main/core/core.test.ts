@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { AssistantConfig, Config } from '../../shared/config'
-import { partsToPlainText, type ChatMessage, type StoredMessage } from '../../shared/messages'
+import type { AssistantConfig, ChannelUser, Config } from '../../shared/config'
+import { partsToPlainText, type ChatMessage, type InboundEnvelope, type StoredMessage } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
-import type { InboundEnvelope, TelegramBotChannel } from '../channels/telegram-bot'
+import type { TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
 import type { HistoryStore } from '../history/store'
 import { ChatManager } from './chat-manager'
@@ -63,9 +63,12 @@ describe('CommandRegistry', () => {
 
 // ---------- ChatManager 失败反馈 ----------
 
+/** 默认名单：发送者 '1' 是 owner（既有用例的消息一律直通角色门） */
+const DEFAULT_USERS: ChannelUser[] = [{ channel: 'tg', user_id: '1', role: 'owner' }]
+
 function makeManager(
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>,
-  options: { sendOutput?: boolean } = {},
+  options: { sendOutput?: boolean; users?: ChannelUser[] } = {},
 ) {
   const config: Config = {
     channels: {},
@@ -80,6 +83,7 @@ function makeManager(
         send_output: options.sendOutput ?? false,
       },
     ],
+    users: options.users ?? DEFAULT_USERS,
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
   const history = {
@@ -96,6 +100,8 @@ function makeManager(
   } as unknown as TelegramBotChannel
 
   const errors: string[] = []
+  const infos: string[] = []
+  const approvalRequests: InboundEnvelope[] = []
   const manager = new ChatManager({
     store,
     history,
@@ -103,12 +109,16 @@ function makeManager(
     getChannel: () => channel,
     createRuntime,
     onHistoryMessage: () => {},
-    log: { info: () => {}, error: (message) => errors.push(message) },
+    requestApproval: (envelope) => {
+      approvalRequests.push(envelope)
+      return Promise.resolve()
+    },
+    log: { info: (message) => infos.push(message), error: (message) => errors.push(message) },
   })
-  return { manager, sent, errors }
+  return { manager, sent, errors, infos, approvalRequests }
 }
 
-function inbound(text: string): InboundEnvelope {
+function inbound(text: string, overrides: Partial<ChatMessage> = {}): InboundEnvelope {
   return {
     message: {
       id: '10',
@@ -121,6 +131,7 @@ function inbound(text: string): InboundEnvelope {
       senderId: '1',
       timestamp: 1,
       parts: [{ kind: 'text', text }],
+      ...overrides,
     },
     chatName: null,
     mentioned: false,
@@ -264,6 +275,101 @@ describe('ChatManager agent output gating', () => {
     await vi.waitFor(() => expect(sent.length).toBe(1))
     // agent 的部分产出被省略，只保留本层的 Error 反馈
     expect(sent[0]!.parts).toEqual([{ kind: 'text', text: 'Error: boom' }])
+  })
+})
+
+describe('ChatManager role gate', () => {
+  const users: ChannelUser[] = [
+    { channel: 'tg', user_id: '900', role: 'owner' },
+    { channel: 'tg', user_id: '2', role: 'admin' },
+    { channel: 'tg', user_id: '3', role: 'member' },
+  ]
+
+  it('parks member messages for approval without creating a runtime (commands included)', async () => {
+    let runtimeCreated = 0
+    const { manager, approvalRequests, sent } = makeManager(
+      () => {
+        runtimeCreated += 1
+        return Promise.resolve(stubRuntime({}))
+      },
+      { users },
+    )
+
+    manager.handleInbound(inbound('hello', { senderId: '3', chatId: 'P:3' }))
+    manager.handleInbound(inbound('/new', { senderId: '3', chatId: 'P:3' }))
+
+    await vi.waitFor(() => expect(approvalRequests.length).toBe(2))
+    expect(runtimeCreated).toBe(0)
+    expect(sent).toHaveLength(0)
+    expect(approvalRequests[0]?.message.senderId).toBe('3')
+  })
+
+  it('parks unknown senders as members', async () => {
+    const { manager, approvalRequests } = makeManager(() => Promise.resolve(stubRuntime({})), { users })
+
+    manager.handleInbound(inbound('hi', { senderId: '999', chatId: 'P:999', sender: '陌生人' }))
+
+    await vi.waitFor(() => expect(approvalRequests.length).toBe(1))
+  })
+
+  it('lets owner and admin pass straight through', async () => {
+    const runtime = () =>
+      stubRuntime({
+        async *prompt() {
+          yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+        },
+      })
+    const { manager, approvalRequests, sent } = makeManager(() => Promise.resolve(runtime()), {
+      users,
+      sendOutput: true,
+    })
+
+    manager.handleInbound(inbound('from owner', { senderId: '900', chatId: 'P:900' }))
+    manager.handleInbound(inbound('from admin', { senderId: '2', chatId: 'P:2' }))
+
+    await vi.waitFor(() => expect(sent.length).toBe(2))
+    expect(approvalRequests).toHaveLength(0)
+  })
+
+  it('ignores member messages when the channel has no owner (nobody can review)', async () => {
+    const noOwner: ChannelUser[] = [{ channel: 'tg', user_id: '2', role: 'admin' }]
+    const { manager, approvalRequests, infos } = makeManager(() => Promise.resolve(stubRuntime({})), {
+      users: noOwner,
+    })
+
+    manager.handleInbound(inbound('hi', { senderId: '3', chatId: 'P:3' }))
+
+    await vi.waitFor(() => expect(infos.some((line) => line.includes('未绑定 owner'))).toBe(true))
+    expect(approvalRequests).toHaveLength(0)
+  })
+
+  it('replays approved messages through the gate (commands run on approval)', async () => {
+    let sessions = 0
+    const runtime = stubRuntime({
+      newSession: () => {
+        sessions += 1
+        return Promise.resolve(`s${sessions}`)
+      },
+    })
+    const { manager, sent, approvalRequests } = makeManager(() => Promise.resolve(runtime), { users })
+
+    manager.handleApproved({
+      id: 1,
+      channelId: 'tg',
+      chatId: 'P:3',
+      senderId: '3',
+      sender: 'Mem',
+      envelope: inbound('/new', { senderId: '3', chatId: 'P:3' }),
+      status: 'approved',
+      cardChatId: 'P:900',
+      cardMsgId: '1',
+      createdTs: 1,
+      decidedTs: 2,
+    })
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    expect(approvalRequests).toHaveLength(0) // 重放不再进审核门
   })
 })
 

@@ -243,6 +243,74 @@ assistant_id = "default"
     if (!stale.ok) expect(stale.conflict).toBe(true)
   })
 
+  it('replaces users wholesale and persists the section to disk', () => {
+    const configPath = tempConfigPath()
+    const store = ConfigStore.init(configPath)
+
+    const events: unknown[] = []
+    store.subscribePath('users', (next) => events.push(next))
+
+    const result = store.setUsers(
+      [
+        { channel: 'bot', user_id: '1', name: 'Alice', role: 'owner' },
+        { channel: 'bot', user_id: '2', role: 'member' },
+      ],
+      store.currentVersion,
+    )
+    expect(result.ok).toBe(true)
+    expect(events).toHaveLength(1)
+    const text = readFileSync(configPath, 'utf-8')
+    expect(text).toContain('[[users]]')
+    expect(text).toContain('role = "owner"')
+
+    // 重新加载：users 段完整往返
+    const reloaded = ConfigStore.init(configPath)
+    expect(reloaded.current.users).toHaveLength(2)
+    expect(reloaded.current.users[0]?.role).toBe('owner')
+  })
+
+  it('parses configs without a users section as an empty roster', () => {
+    const configPath = tempConfigPath()
+    writeFileSync(configPath, '[[assistants]]\nid = "default"\n')
+    const store = ConfigStore.init(configPath)
+    expect(store.state().lastError).toBeNull()
+    expect(store.current.users).toEqual([])
+  })
+
+  it('rejects duplicate users and a second owner per channel', () => {
+    const store = ConfigStore.init(tempConfigPath())
+
+    const dup = store.setUsers(
+      [
+        { channel: 'bot', user_id: '1', role: 'member' },
+        { channel: 'bot', user_id: '1', role: 'admin' },
+      ],
+      store.currentVersion,
+    )
+    expect(dup.ok).toBe(false)
+    if (!dup.ok) expect(dup.message).toContain('重复登记')
+
+    const twoOwners = store.setUsers(
+      [
+        { channel: 'bot', user_id: '1', role: 'owner' },
+        { channel: 'bot', user_id: '2', role: 'owner' },
+      ],
+      store.currentVersion,
+    )
+    expect(twoOwners.ok).toBe(false)
+    if (!twoOwners.ok) expect(twoOwners.message).toContain('owner')
+
+    // 不同频道各自一个 owner 合法
+    const ok = store.setUsers(
+      [
+        { channel: 'a', user_id: '1', role: 'owner' },
+        { channel: 'b', user_id: '1', role: 'owner' },
+      ],
+      store.currentVersion,
+    )
+    expect(ok.ok).toBe(true)
+  })
+
   it('rejects invalid raw text without touching state', () => {
     const store = ConfigStore.init(tempConfigPath())
     const versionBefore = store.currentVersion

@@ -26,6 +26,17 @@ export interface StoredMessage extends ChatMessage {
   rowid: number
 }
 
+/**
+ * 通道入站信封（channels → core）。审核暂存需要把它整体 JSON 持久化，
+ * 故放 shared 而非 channels 层（历史库不能反向依赖通道实现）。
+ */
+export interface InboundEnvelope {
+  message: ChatMessage
+  chatName: string | null
+  /** 群内消息是否 @ 了 bot 或回复了 bot（准入判定在 ChatManager 按绑定进行） */
+  mentioned: boolean
+}
+
 export interface ChatInfo {
   channelId: string
   chatId: string
