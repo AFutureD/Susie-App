@@ -239,6 +239,7 @@ export class SusieService {
       cwd: spec.cwd,
       mcpUrl: spec.mcpUrl,
       mcpName: SUSIE_MCP_NAME,
+      model: spec.model,
       log: this.log,
     })
   }
@@ -294,6 +295,7 @@ export class SusieService {
         cwd: os.tmpdir(),
         mcpUrl: null,
         mcpName: SUSIE_MCP_NAME,
+        model: null,
         log: this.log,
       })
       try {

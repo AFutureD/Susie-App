@@ -10,7 +10,7 @@ import {
 import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
 import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
-import type { HistoryStore, PendingApproval } from '../history/store'
+import type { ApprovalStatus, HistoryStore, PendingApproval } from '../history/store'
 import type { Logger } from '../util/logger'
 
 // member 消息审核流：暂存 → owner 私聊卡片 → 回调裁决 → 重放或丢弃。
@@ -30,6 +30,17 @@ const CARD_TEXT_LIMIT = 500
 const MEMBER_PENDING_NOTICE = '⏳ 消息已提交 owner 审核。'
 const MEMBER_DENIED_NOTICE = '🚫 消息未获 owner 批准。'
 const MEMBER_UNDELIVERABLE_NOTICE = 'Error: 审核请求发送失败（owner 不可达），消息未处理。'
+
+/** 卡片标题状态 tag：随裁决更新（曾经固定「待审核」，自动放行后的卡片标签误导 owner） */
+const STATUS_TAGS: Record<ApprovalStatus, string> = {
+  pending: '待审核',
+  auto_reviewing: '自动审核中',
+  auto_passed: '已放行',
+  terminated: '已终止',
+  approved: '已允许',
+  denied: '已拒绝',
+  failed: '未执行',
+}
 
 export interface ApprovalManagerDeps {
   store: ConfigStore
@@ -52,7 +63,7 @@ export function buildCardParts(pending: PendingApproval, decision?: string): Mes
   const clipped = text.length > CARD_TEXT_LIMIT ? `${text.slice(0, CARD_TEXT_LIMIT)}…` : text
   const files = envelope.message.parts.filter((part) => part.kind === 'file').length
 
-  const lines = [`【待审核】${sender} 在「${chatLabel}」发来消息：`]
+  const lines = [`【${STATUS_TAGS[pending.status]}】${sender} 在「${chatLabel}」发来消息：`]
   if (clipped !== '') lines.push(clipped)
   if (files > 0) lines.push(`（含 ${files} 个附件）`)
   if (pending.status === 'auto_reviewing') {
@@ -276,7 +287,7 @@ export class ApprovalManager {
         await channel.answerCallback(event.callbackQueryId, '已处理')
         return
       }
-      await this.editCard(channel, pending, '🚫 已拒绝')
+      await this.editCard(channel, { ...pending, status: 'denied' }, '🚫 已拒绝')
       await channel.answerCallback(event.callbackQueryId, '已拒绝')
       await this.notifyChat(pending.channelId, pending.chatId, MEMBER_DENIED_NOTICE, pending.envelope.message.id)
       this.deps.log.info(`approval#${pending.id}: owner 已拒绝`)
@@ -289,7 +300,7 @@ export class ApprovalManager {
       binding !== null && this.deps.store.current.assistants.some((a) => a.id === binding.assistant_id)
     if (binding === null || !assistantExists) {
       if (this.deps.history.claimPendingApproval(pending.id, 'failed', Date.now())) {
-        await this.editCard(channel, pending, '⚠️ 绑定已失效，未执行')
+        await this.editCard(channel, { ...pending, status: 'failed' }, '⚠️ 绑定已失效，未执行')
       }
       await channel.answerCallback(event.callbackQueryId, '绑定已失效，未执行')
       this.deps.log.error(`approval#${pending.id}: 批准时绑定/assistant 已失效，未重放`)
@@ -300,7 +311,7 @@ export class ApprovalManager {
       await channel.answerCallback(event.callbackQueryId, '已处理')
       return
     }
-    await this.editCard(channel, pending, '✅ 已允许')
+    await this.editCard(channel, { ...pending, status: 'approved' }, '✅ 已允许')
     await channel.answerCallback(event.callbackQueryId, '已允许')
     this.deps.log.info(`approval#${pending.id}: owner 已批准，消息重放处理`)
     this.registerApprovedSender(pending)

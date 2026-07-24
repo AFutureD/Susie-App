@@ -15,6 +15,7 @@ import { SusieService } from './service'
 import { createTray } from './tray'
 import { initUpdater } from './updater'
 import { withTimeout } from './util/async'
+import { mergeLoginShellPath } from './util/shell-path'
 import { showMainWindow, updateDockVisibility } from './window'
 
 // 测试/冒烟隔离：userData 可被环境变量覆盖（须在单实例锁之前设置——锁按 userData 计算）
@@ -29,6 +30,10 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.setName('Susie')
   setupLogging()
+
+  // GUI 启动只继承 launchd 最小 PATH，npx 分发的 ACP agent 会 spawn ENOENT——
+  // 尽早并行解析 login shell PATH，whenReady 后合并完成再注册 IPC/启动 service
+  const shellPathMerged = mergeLoginShellPath(serviceLogger)
 
   const configStore = ConfigStore.init(getConfigPath())
   // 配置热加载失败只体现在 state.lastError（last-good 降级），必须留日志痕迹
@@ -100,6 +105,7 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(async () => {
+    await shellPathMerged
     registerIpcHandlers(configStore, service)
     initUpdater((state) => broadcast('update:state', state))
     createTray()

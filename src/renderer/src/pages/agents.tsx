@@ -144,6 +144,14 @@ export function AgentsPage() {
                           {intl.formatMessage({ id: 'agents.installed' }, { version: agent.installedVersion })}
                         </span>
                       )}
+                      {agent.installedVersion !== null && agent.mcpHttp === false && (
+                        <span
+                          className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600"
+                          title={intl.formatMessage({ id: 'agents.mcpUnsupported.hint' })}
+                        >
+                          {intl.formatMessage({ id: 'agents.mcpUnsupported' })}
+                        </span>
+                      )}
                     </div>
                     <p className="mt-0.5 truncate text-xs text-ink-muted">{agent.description}</p>
                   </div>
@@ -209,7 +217,9 @@ function ProgressLine({ progress }: { progress: AgentProgress }) {
             { received: formatMB(received), total: formatMB(total), percent: String(percent) },
           )
         : intl.formatMessage({ id: 'agents.progress.downloading.indeterminate' }, { received: formatMB(received) })
-      : intl.formatMessage({ id: 'agents.progress.extracting' })
+      : progress.phase === 'probing'
+        ? intl.formatMessage({ id: 'agents.progress.probing' })
+        : intl.formatMessage({ id: 'agents.progress.extracting' })
 
   return (
     <div className="mt-3">

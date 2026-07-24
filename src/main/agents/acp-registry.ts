@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AcpAgentRow, AgentProgress } from '../../shared/messages'
+import { probeAcpMcpHttp } from './acp-probe'
 import { downloadWithProgress } from './download'
 
 const REGISTRY_URL = 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'
@@ -35,6 +36,8 @@ export interface InstalledManifest {
   cmd: string
   args: string[]
   env: Record<string, string>
+  /** 安装后探测的 http MCP 支持（susie 注入 send_message 的唯一方式）；null = 探测失败（未知） */
+  mcpHttp?: boolean | null
 }
 
 export function platformKey(): string {
@@ -102,14 +105,20 @@ export class AcpRegistryManager {
   async overview(): Promise<AcpAgentRow[]> {
     const agents = await this.fetchRegistry()
     const key = platformKey()
-    return agents.map((agent) => ({
-      id: agent.id,
-      name: agent.name,
-      version: agent.version,
-      description: agent.description ?? '',
-      installable: agent.distribution.binary?.[key] !== undefined || agent.distribution.npx !== undefined,
-      installedVersion: this.installedManifest(agent.id)?.version ?? null,
-    }))
+    return agents
+      .map((agent) => {
+        const manifest = this.installedManifest(agent.id)
+        return {
+          id: agent.id,
+          name: agent.name,
+          version: agent.version,
+          description: agent.description ?? '',
+          installable: agent.distribution.binary?.[key] !== undefined || agent.distribution.npx !== undefined,
+          installedVersion: manifest?.version ?? null,
+          mcpHttp: manifest?.mcpHttp ?? null,
+        }
+      })
+      .sort(compareAcpRows)
   }
 
   async install(id: string): Promise<InstalledManifest> {
@@ -136,6 +145,13 @@ export class AcpRegistryManager {
       } else {
         throw new Error(`agent ${id} 在 ${platformKey()} 平台无可用分发（binary/npx）`)
       }
+
+      // 安装收尾探测 MCP 能力：不支持 http MCP 的 agent 拿不到 susie 工具（send_message 等），
+      // Agent 页据此提示「不支持」。探测失败不算安装失败——记 null（未知）。
+      this.onProgress({ id, phase: 'probing', detail: manifest.version })
+      manifest.mcpHttp = await probeAcpMcpHttp(manifest).catch(() => null)
+      this.writeManifest(manifest)
+
       this.onProgress({ id, phase: 'done', detail: manifest.version })
       return manifest
     } catch (error) {
@@ -186,6 +202,12 @@ export class AcpRegistryManager {
     fs.mkdirSync(dir, { recursive: true })
     fs.writeFileSync(path.join(dir, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8')
   }
+}
+
+/** Agent 页 ACP 列表排序：状态优先（已安装 > 可安装 > 不可安装），同状态按名称 */
+export function compareAcpRows(a: AcpAgentRow, b: AcpAgentRow): number {
+  const rank = (row: AcpAgentRow): number => (row.installedVersion !== null ? 0 : row.installable ? 1 : 2)
+  return rank(a) - rank(b) || a.name.localeCompare(b.name)
 }
 
 /** macOS 自带 unzip/tar，免第三方解压依赖 */

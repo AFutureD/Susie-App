@@ -188,6 +188,7 @@ describe('ApprovalManager.handleCallback', () => {
 
     expect(history.getPendingApproval(pending.id)?.status).toBe('approved')
     expect(edited[0]?.buttons).toBeNull()
+    expect(firstText(edited[0]?.parts)).toContain('【已允许】')
     expect(firstText(edited[0]?.parts)).toContain('✅ 已允许')
     expect(answered[0]?.text).toBe('已允许')
     expect(dispatched).toHaveLength(1)
@@ -200,6 +201,7 @@ describe('ApprovalManager.handleCallback', () => {
     await manager.handleCallback(callback(pending.id, 'deny'))
 
     expect(history.getPendingApproval(pending.id)?.status).toBe('denied')
+    expect(firstText(edited[0]?.parts)).toContain('【已拒绝】')
     expect(firstText(edited[0]?.parts)).toContain('🚫 已拒绝')
     expect(answered[0]?.text).toBe('已拒绝')
     expect(dispatched).toHaveLength(0)
@@ -257,6 +259,7 @@ describe('ApprovalManager.handleCallback', () => {
     await manager.handleCallback(callback(pending.id, 'allow'))
 
     expect(history.getPendingApproval(pending.id)?.status).toBe('failed')
+    expect(firstText(edited[0]?.parts)).toContain('【未执行】')
     expect(firstText(edited[0]?.parts)).toContain('绑定已失效')
     expect(answered[0]?.text).toBe('绑定已失效，未执行')
     expect(dispatched).toHaveLength(0)
@@ -285,6 +288,7 @@ describe('ApprovalManager auto review flow', () => {
     // 卡片发到 owner，进度文案，无按钮；member 此时不收提示（结论未定）
     expect(sent).toHaveLength(1)
     expect(sent[0]?.message.chatId).toBe(`P:${OWNER_ID}`)
+    expect(firstText(sent[0]?.message.parts)).toContain('【自动审核中】')
     expect(firstText(sent[0]?.message.parts)).toContain('🤖 自动审核中…')
     expect(sent[0]?.buttons).toBeUndefined()
     expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_reviewing')
@@ -317,6 +321,8 @@ describe('ApprovalManager auto review flow', () => {
     await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
 
     expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_passed')
+    // 曾经的回归：状态行更新了但标题 tag 仍是「待审核」
+    expect(firstText(edited[0]?.parts)).toContain('【已放行】')
     expect(firstText(edited[0]?.parts)).toContain('✅ 自动审核通过')
     expect(edited[0]?.buttons?.[0]?.map((b) => b.label)).toEqual(['终止'])
     // 通过不打扰 member
@@ -333,6 +339,7 @@ describe('ApprovalManager auto review flow', () => {
     const reopened = history.getPendingApproval(pending?.id ?? 0)
     expect(reopened?.status).toBe('pending')
     expect(reopened?.autoReviewReason).toBe('涉及文件外发')
+    expect(firstText(edited[0]?.parts)).toContain('【待审核】')
     expect(firstText(edited[0]?.parts)).toContain('🤖 自动审核未通过：涉及文件外发')
     expect(edited[0]?.buttons?.[0]?.map((b) => b.label)).toEqual(['允许', '拒绝'])
     // member 收到 ⏳ 已提交审核
@@ -350,6 +357,7 @@ describe('ApprovalManager auto review flow', () => {
 
     expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('terminated')
     expect(terminated).toHaveLength(1)
+    expect(firstText(edited[0]?.parts)).toContain('【已终止】')
     expect(firstText(edited[0]?.parts)).toContain('⛔ 已终止')
     expect(firstText(edited[0]?.parts)).toContain('已中断')
     expect(edited[0]?.buttons).toBeNull()

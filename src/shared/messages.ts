@@ -93,7 +93,7 @@ export interface AgentModelOption {
 /** agent 安装进度事件（codex 下载器与 ACP registry 共用） */
 export interface AgentProgress {
   id: string
-  phase: 'downloading' | 'extracting' | 'done' | 'error'
+  phase: 'downloading' | 'extracting' | 'probing' | 'done' | 'error'
   detail: string | null
   /** downloading 阶段已接收字节数 */
   received?: number
@@ -121,6 +121,11 @@ export interface AcpAgentRow {
   /** 本平台是否有可用分发（binary/npx） */
   installable: boolean
   installedVersion: string | null
+  /**
+   * 是否支持 http 分发的 MCP server（susie 注入 send_message 的唯一方式）。
+   * 安装时探测 initialize 的 mcpCapabilities.http；null = 未安装或探测失败（未知）。
+   */
+  mcpHttp: boolean | null
 }
 
 export function partsToPromptText(parts: MessagePart[]): string {

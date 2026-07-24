@@ -119,7 +119,11 @@ function AssistantForm({
     let cancelled = false
     void susie.invoke('agents:overview').then((overview) => {
       if (cancelled) return
-      const installed = overview.acp.filter((agent) => agent.installedVersion !== null).map((agent) => agent.id)
+      // 不支持 http MCP 的 agent（mcpHttp === false）拿不到 susie 工具（send_message 等），
+      // 不进候选；null（探测失败/旧 manifest）视为未知，保守放行
+      const installed = overview.acp
+        .filter((agent) => agent.installedVersion !== null && agent.mcpHttp !== false)
+        .map((agent) => agent.id)
       setAgentIds([CODEX_AGENT_ID, ...installed])
     })
     return () => {

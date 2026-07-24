@@ -17,6 +17,8 @@ export interface AcpRuntimeOptions {
   cwd: string
   mcpUrl: string | null
   mcpName: string
+  /** 助手配置的默认模型；null 用 agent 默认 */
+  model: string | null
   log: Logger
 }
 
@@ -222,6 +224,7 @@ export class AcpRuntime implements AgentRuntime {
 
     this.sessionId = response.sessionId
     this.parseConfigOptions(response.configOptions)
+    await this.applyConfiguredModel()
 
     if (instruction !== undefined && instruction !== null && instruction !== '') {
       // 系统指令作为首个 turn 注入，输出丢弃（对位 Python 行为）
@@ -255,6 +258,19 @@ export class AcpRuntime implements AgentRuntime {
     }
   }
 
+  /**
+   * 应用助手配置的默认模型。放在 newSession 内部：首建、/new、进程退出后
+   * prompt 重建三条路径都会经过这里。失败降级到 agent 默认，不阻断会话建立。
+   */
+  private async applyConfiguredModel(): Promise<void> {
+    const configured = this.options.model
+    if (configured === null || configured === '' || configured === this.model) return
+    const ok = await this.setModel(configured)
+    if (!ok) {
+      this.options.log.error(`acp 应用配置模型 "${configured}" 失败，使用 agent 默认（${this.model ?? '未知'}）`)
+    }
+  }
+
   listModels(): Promise<AgentModelOption[]> {
     return Promise.resolve(this.modelOptions)
   }
@@ -267,11 +283,13 @@ export class AcpRuntime implements AgentRuntime {
     const connection = this.connection
     if (connection === null || this.sessionId === null) return false
     try {
-      await connection.setSessionConfigOption({
-        sessionId: this.sessionId,
-        configId: 'model',
-        value,
-      } as Parameters<ClientSideConnection['setSessionConfigOption']>[0])
+      await this.raceExit(
+        connection.setSessionConfigOption({
+          sessionId: this.sessionId,
+          configId: 'model',
+          value,
+        } as Parameters<ClientSideConnection['setSessionConfigOption']>[0]),
+      )
       this.model = value
       return true
     } catch (error) {

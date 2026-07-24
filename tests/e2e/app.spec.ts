@@ -45,8 +45,8 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await win.getByRole('button', { name: /跳过引导/ }).click()
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
 
-  // 主界面：侧边栏挂载，频道页为空态
-  await expect(win.locator('nav a')).toHaveCount(7)
+  // 主界面：侧边栏挂载，频道页为空态（与 app.tsx NAV_ITEMS 数量同步）
+  await expect(win.locator('nav a')).toHaveCount(8)
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })
 
