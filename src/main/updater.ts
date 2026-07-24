@@ -101,7 +101,8 @@ export function initUpdater(onState: (next: UpdateState) => void): void {
 
 /** 手动触发检查（供 IPC 调用） */
 export async function checkForUpdates(): Promise<ActionResult> {
-  if (!isSupported()) return { ok: false, message: '此构建不支持自动更新（开发模式，或 pack/--dir 构建缺 app-update.yml）' }
+  if (!isSupported())
+    return { ok: false, message: '此构建不支持自动更新（开发模式，或 pack/--dir 构建缺 app-update.yml）' }
   try {
     await autoUpdater.checkForUpdates()
     return { ok: true }

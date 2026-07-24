@@ -46,7 +46,10 @@ interface SentRecord {
   buttons: InlineButton[][] | undefined
 }
 
-function makeHarness(config: Config = makeConfig(), options: { channelDown?: boolean; failCardSend?: boolean } = {}) {
+function makeHarness(
+  config: Config = makeConfig(),
+  options: { channelDown?: boolean; failCardSend?: boolean; terminateHit?: boolean } = {},
+) {
   const history = new HistoryStore(':memory:')
   const setUsersCalls: ChannelUser[][] = []
   const storeState = {
@@ -85,19 +88,24 @@ function makeHarness(config: Config = makeConfig(), options: { channelDown?: boo
   } as unknown as TelegramBotChannel
 
   const dispatched: PendingApproval[] = []
+  const terminated: PendingApproval[] = []
   const errors: string[] = []
   const manager = new ApprovalManager({
     store,
     history,
     getChannel: () => (options.channelDown === true ? undefined : channel),
     dispatchApproved: (pending) => dispatched.push(pending),
+    terminateChat: (pending) => {
+      terminated.push(pending)
+      return Promise.resolve(options.terminateHit ?? true)
+    },
     onHistoryMessage: () => {},
     log: { info: () => {}, error: (message) => errors.push(message) },
   })
-  return { manager, history, storeState, setUsersCalls, sent, answered, edited, dispatched, errors }
+  return { manager, history, storeState, setUsersCalls, sent, answered, edited, dispatched, terminated, errors }
 }
 
-function callback(pendingId: number, action: 'allow' | 'deny', fromId = OWNER_ID): ChannelCallbackEvent {
+function callback(pendingId: number, action: 'allow' | 'deny' | 'stop', fromId = OWNER_ID): ChannelCallbackEvent {
   return {
     channelId: 'tg',
     callbackQueryId: 'cq1',
@@ -262,5 +270,128 @@ describe('ApprovalManager.handleCallback', () => {
 
     await manager.handleCallback(callback(999, 'allow'))
     expect(answered[1]?.text).toContain('不存在')
+  })
+})
+
+describe('ApprovalManager auto review flow', () => {
+  it('beginAutoReview: sends a progress card without buttons and parks as auto_reviewing', async () => {
+    const { manager, history, sent } = makeHarness()
+
+    const pending = await manager.beginAutoReview(envelope('自动审一下'))
+
+    expect(pending).not.toBeNull()
+    expect(pending?.status).toBe('auto_reviewing')
+    expect(pending?.cardChatId).toBe(`P:${OWNER_ID}`)
+    // 卡片发到 owner，进度文案，无按钮；member 此时不收提示（结论未定）
+    expect(sent).toHaveLength(1)
+    expect(sent[0]?.message.chatId).toBe(`P:${OWNER_ID}`)
+    expect(firstText(sent[0]?.message.parts)).toContain('🤖 自动审核中…')
+    expect(sent[0]?.buttons).toBeUndefined()
+    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_reviewing')
+  })
+
+  it('beginAutoReview: returns null without a card when the channel has no owner', async () => {
+    const noOwner = makeConfig({
+      users: [{ channel: 'tg', user_id: '100', role: 'user', private: 'review', groups: {} }],
+    })
+    const { manager, sent } = makeHarness(noOwner)
+
+    expect(await manager.beginAutoReview(envelope('hi'))).toBeNull()
+    expect(sent).toHaveLength(0)
+  })
+
+  it('beginAutoReview: returns null and marks failed when the card cannot be delivered', async () => {
+    const { manager, history, sent } = makeHarness(makeConfig(), { failCardSend: true })
+
+    expect(await manager.beginAutoReview(envelope('hi'))).toBeNull()
+    expect(history.getPendingApproval(1)?.status).toBe('failed')
+    // 与 request 不同：不给 member 发失败提示（审核继续，拒绝时才回落 request 再试）
+    expect(sent).toHaveLength(0)
+  })
+
+  it('settleAutoReview pass: moves to auto_passed and swaps in the terminate button', async () => {
+    const { manager, history, sent, edited } = makeHarness()
+    const pending = await manager.beginAutoReview(envelope('正常请求'))
+    sent.length = 0
+
+    await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
+
+    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_passed')
+    expect(firstText(edited[0]?.parts)).toContain('✅ 自动审核通过')
+    expect(edited[0]?.buttons?.[0]?.map((b) => b.label)).toEqual(['终止'])
+    // 通过不打扰 member
+    expect(sent).toHaveLength(0)
+  })
+
+  it('settleAutoReview reject: reopens as pending with the reason and manual buttons, notifies the member', async () => {
+    const { manager, history, sent, edited } = makeHarness()
+    const pending = await manager.beginAutoReview(envelope('可疑请求'))
+    sent.length = 0
+
+    await manager.settleAutoReview(pending as PendingApproval, { passed: false, reason: '涉及文件外发' })
+
+    const reopened = history.getPendingApproval(pending?.id ?? 0)
+    expect(reopened?.status).toBe('pending')
+    expect(reopened?.autoReviewReason).toBe('涉及文件外发')
+    expect(firstText(edited[0]?.parts)).toContain('🤖 自动审核未通过：涉及文件外发')
+    expect(edited[0]?.buttons?.[0]?.map((b) => b.label)).toEqual(['允许', '拒绝'])
+    // member 收到 ⏳ 已提交审核
+    expect(sent[0]?.message.chatId).toBe('P:100')
+    expect(firstText(sent[0]?.message.parts)).toContain('审核')
+  })
+
+  it('stop: claims terminated, cancels the active turn, and strips the buttons', async () => {
+    const { manager, history, answered, edited, terminated } = makeHarness()
+    const pending = await manager.beginAutoReview(envelope('误判请求'))
+    await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
+    edited.length = 0
+
+    await manager.handleCallback(callback(pending?.id ?? 0, 'stop'))
+
+    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('terminated')
+    expect(terminated).toHaveLength(1)
+    expect(firstText(edited[0]?.parts)).toContain('⛔ 已终止')
+    expect(firstText(edited[0]?.parts)).toContain('已中断')
+    expect(edited[0]?.buttons).toBeNull()
+    expect(answered[0]?.text).toBe('已终止')
+  })
+
+  it('stop: reports "already ended" when no active turn remains', async () => {
+    const { manager, edited } = makeHarness(makeConfig(), { terminateHit: false })
+    const pending = await manager.beginAutoReview(envelope('晚点的终止'))
+    await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
+    edited.length = 0
+
+    await manager.handleCallback(callback(pending?.id ?? 0, 'stop'))
+
+    expect(firstText(edited[0]?.parts)).toContain('处理已结束')
+  })
+
+  it('stop: deduplicates double-clicks and rejects non-owners', async () => {
+    const { manager, answered, terminated } = makeHarness()
+    const pending = await manager.beginAutoReview(envelope('去重'))
+    await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
+
+    await manager.handleCallback(callback(pending?.id ?? 0, 'stop', '100'))
+    await manager.handleCallback(callback(pending?.id ?? 0, 'stop'))
+    await manager.handleCallback(callback(pending?.id ?? 0, 'stop'))
+
+    expect(answered.map((a) => a.text)).toEqual(['仅 owner 可操作', '已终止', '已处理'])
+    expect(terminated).toHaveLength(1)
+  })
+
+  it('rejected-then-allow: the reopened pending goes through the standard manual decision', async () => {
+    const { manager, history, dispatched, edited } = makeHarness()
+    const pending = await manager.beginAutoReview(envelope('先拒后允'))
+    await manager.settleAutoReview(pending as PendingApproval, { passed: false, reason: '拿不准' })
+
+    await manager.handleCallback(callback(pending?.id ?? 0, 'allow'))
+
+    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('approved')
+    expect(dispatched).toHaveLength(1)
+    // 裁决后的卡片仍保留自动审核未通过的原因行
+    const lastEdit = edited.at(-1)
+    expect(firstText(lastEdit?.parts)).toContain('🤖 自动审核未通过：拿不准')
+    expect(firstText(lastEdit?.parts)).toContain('✅ 已允许')
   })
 })

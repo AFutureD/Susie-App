@@ -88,6 +88,7 @@ export class SusieService {
       history: this.history,
       getChannel: (id) => this.hub.get(id),
       dispatchApproved: (pending) => this.chatManager.handleApproved(pending),
+      terminateChat: (pending) => this.chatManager.cancelActiveTurn(pending.channelId, pending.chatId),
       onHistoryMessage: emit.historyMessage,
       log,
     })
@@ -107,8 +108,11 @@ export class SusieService {
       getChannel: (id) => this.hub.get(id),
       createRuntime: (assistant) => this.createRuntime(assistant),
       onHistoryMessage: emit.historyMessage,
-      requestApproval: (envelope) => this.approvals.request(envelope),
+      // 注意透传 options：autoReviewReason 要随卡片显示（漏传曾导致拒绝原因永远上不了卡片）
+      requestApproval: (envelope, options) => this.approvals.request(envelope, options),
       autoReview: (envelope) => this.autoReviewer.review(envelope),
+      beginAutoReview: (envelope) => this.approvals.beginAutoReview(envelope),
+      settleAutoReview: (pending, verdict) => this.approvals.settleAutoReview(pending, verdict),
       log,
     })
 

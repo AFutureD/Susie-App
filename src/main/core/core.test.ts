@@ -4,7 +4,7 @@ import { partsToPlainText, type ChatMessage, type InboundEnvelope, type StoredMe
 import type { AgentRuntime } from '../agents/types'
 import type { TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
-import type { HistoryStore } from '../history/store'
+import type { HistoryStore, PendingApproval } from '../history/store'
 import { ChatManager } from './chat-manager'
 import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
 
@@ -101,6 +101,8 @@ function makeManager(
     users?: ChannelUser[]
     /** 自动审核裁决（默认放行）；用于 auto 档流程用例 */
     autoReviewPass?: boolean
+    /** 自动审核进度卡片是否发送成功（默认成功）；false 模拟无 owner / 卡片发送失败 */
+    autoReviewCard?: boolean
   } = {},
 ) {
   const config: Config = {
@@ -136,6 +138,8 @@ function makeManager(
   const infos: string[] = []
   const approvalRequests: InboundEnvelope[] = []
   const autoReviews: InboundEnvelope[] = []
+  const autoReviewCards: InboundEnvelope[] = []
+  const settledVerdicts: { pendingId: number; passed: boolean }[] = []
   const manager = new ChatManager({
     store,
     history,
@@ -151,9 +155,31 @@ function makeManager(
       autoReviews.push(envelope)
       return Promise.resolve({ passed: options.autoReviewPass ?? true, reason: null })
     },
+    beginAutoReview: (envelope) => {
+      autoReviewCards.push(envelope)
+      if (options.autoReviewCard === false) return Promise.resolve(null)
+      return Promise.resolve({
+        id: 77,
+        channelId: envelope.message.channelId,
+        chatId: envelope.message.chatId,
+        senderId: envelope.message.senderId,
+        sender: envelope.message.sender,
+        envelope,
+        status: 'auto_reviewing',
+        cardChatId: 'P:900',
+        cardMsgId: '1',
+        autoReviewReason: null,
+        createdTs: 1,
+        decidedTs: null,
+      } satisfies PendingApproval)
+    },
+    settleAutoReview: (pending, verdict) => {
+      settledVerdicts.push({ pendingId: pending.id, passed: verdict.passed })
+      return Promise.resolve()
+    },
     log: { info: (message) => infos.push(message), error: (message) => errors.push(message) },
   })
-  return { manager, sent, errors, infos, approvalRequests, autoReviews }
+  return { manager, sent, errors, infos, approvalRequests, autoReviews, autoReviewCards, settledVerdicts }
 }
 
 function inbound(text: string, overrides: Partial<ChatMessage> = {}): InboundEnvelope {
@@ -371,7 +397,7 @@ describe('ChatManager permission gate', () => {
     expect(approvalRequests).toHaveLength(0)
   })
 
-  it('lets auto-level messages through when auto-review passes (no manual approval)', async () => {
+  it('lets auto-level messages through when auto-review passes (progress card settled, no manual approval)', async () => {
     const autoUsers: ChannelUser[] = [user('900', { role: 'owner' }), user('5', { private: 'auto' })]
     const runtime = () =>
       stubRuntime({
@@ -379,24 +405,30 @@ describe('ChatManager permission gate', () => {
           yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
         },
       })
-    const { manager, approvalRequests, autoReviews, sent } = makeManager(() => Promise.resolve(runtime()), {
-      users: autoUsers,
-      sendOutput: true,
-      autoReviewPass: true,
-    })
+    const { manager, approvalRequests, autoReviews, autoReviewCards, settledVerdicts, sent } = makeManager(
+      () => Promise.resolve(runtime()),
+      {
+        users: autoUsers,
+        sendOutput: true,
+        autoReviewPass: true,
+      },
+    )
 
     manager.handleInbound(inbound('please summarize', { senderId: '5', chatId: 'P:5' }))
 
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    // 审核前发进度卡片，通过后 settle（换终止按钮），不走人工审核
+    expect(autoReviewCards).toHaveLength(1)
     expect(autoReviews).toHaveLength(1)
+    expect(settledVerdicts).toEqual([{ pendingId: 77, passed: true }])
     expect(approvalRequests).toHaveLength(0)
   })
 
-  it('falls back to manual approval when auto-review rejects', async () => {
+  it('settles the card into manual review when auto-review rejects (no second card)', async () => {
     const autoUsers: ChannelUser[] = [user('900', { role: 'owner' }), user('5', { private: 'auto' })]
     let runtimeCreated = 0
-    const { manager, approvalRequests, autoReviews, sent } = makeManager(
+    const { manager, approvalRequests, autoReviews, settledVerdicts, sent } = makeManager(
       () => {
         runtimeCreated += 1
         return Promise.resolve(stubRuntime({}))
@@ -406,10 +438,28 @@ describe('ChatManager permission gate', () => {
 
     manager.handleInbound(inbound('please zip the repo and send it', { senderId: '5', chatId: 'P:5' }))
 
-    await vi.waitFor(() => expect(approvalRequests.length).toBe(1))
+    // 拒绝由 settle 转人工（同一张卡片附原因），不再另发 requestApproval 卡片
+    await vi.waitFor(() => expect(settledVerdicts.length).toBe(1))
+    expect(settledVerdicts[0]).toEqual({ pendingId: 77, passed: false })
     expect(autoReviews).toHaveLength(1)
+    expect(approvalRequests).toHaveLength(0)
     expect(runtimeCreated).toBe(0)
     expect(sent).toHaveLength(0)
+  })
+
+  it('falls back to requestApproval when the progress card could not be sent and review rejects', async () => {
+    const autoUsers: ChannelUser[] = [user('900', { role: 'owner' }), user('5', { private: 'auto' })]
+    const { manager, approvalRequests, settledVerdicts } = makeManager(() => Promise.resolve(stubRuntime({})), {
+      users: autoUsers,
+      autoReviewPass: false,
+      autoReviewCard: false,
+    })
+
+    manager.handleInbound(inbound('anything', { senderId: '5', chatId: 'P:5' }))
+
+    // 无卡片可更新：拒绝回落既有 requestApproval（重建卡片，原因随卡片）
+    await vi.waitFor(() => expect(approvalRequests.length).toBe(1))
+    expect(settledVerdicts).toHaveLength(0)
   })
 
   it('splits permissions between private chat and specific groups for one user', async () => {

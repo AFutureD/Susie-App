@@ -52,6 +52,10 @@ export interface ChatManagerDeps {
   requestApproval: (envelope: InboundEnvelope, options?: { autoReviewReason?: string | null }) => Promise<void>
   /** 自动审核档（auto）：评估消息是否放行；未通过则回落人工审核 */
   autoReview: (envelope: InboundEnvelope) => Promise<AutoReviewVerdict>
+  /** auto 档：审核前发「自动审核中」进度卡片；无 owner/发送失败返回 null（审核照常） */
+  beginAutoReview: (envelope: InboundEnvelope) => Promise<PendingApproval | null>
+  /** auto 档：结论落卡片（通过→终止按钮；拒绝→转人工 + 允许/拒绝按钮 + member 通知） */
+  settleAutoReview: (pending: PendingApproval, verdict: AutoReviewVerdict) => Promise<void>
   log: Logger
 }
 
@@ -124,6 +128,18 @@ export class ChatManager {
   handleApproved(pending: PendingApproval): void {
     const key = chatKey(pending.channelId, pending.chatId)
     this.enqueue(key, () => this.process(pending.envelope, { preapproved: true }))
+  }
+
+  /**
+   * owner 急停（审核卡片「终止」按钮）：取消该会话当前活跃的 agent turn。
+   * 返回是否命中活跃会话（会话不存在/已结束返回 false，卡片据此提示）。
+   */
+  async cancelActiveTurn(channelId: string, chatId: string): Promise<boolean> {
+    const entry = this.chats.get(chatKey(channelId, chatId))
+    if (entry === undefined) return false
+    this.deps.log.info(`chat ${entry.key} owner 急停：取消进行中的 turn`)
+    await entry.runtime.cancel()
+    return true
   }
 
   /** UI composer / MCP send_message 出站入口 */
@@ -215,19 +231,27 @@ export class ChatManager {
           this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：${permission} 档发送者直接执行`)
           gatedAllowed = false
         } else {
-          // 自动档：先跑自动审核，通过即放行（等价直通）；未通过回落人工审核（原因附到卡片）
+          // 自动档：先发「审核中」进度卡片（尽力而为），再跑自动审核。
+          // 通过 → 卡片更新为可终止（急停），放行处理；未通过 → 卡片转人工（附拒绝原因）。
           let autoPassed = false
           let autoReviewReason: string | null = null
           if (permission === 'auto') {
+            const card = await this.deps.beginAutoReview(envelope)
             const verdict = await this.deps.autoReview(envelope)
             if (verdict.passed) {
               autoPassed = true
               this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核通过，放行`)
+              if (card !== null) await this.deps.settleAutoReview(card, verdict)
             } else {
               autoReviewReason = verdict.reason
               this.deps.log.info(
                 `chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核未通过（${verdict.reason ?? '无理由'}），回落人工审核`,
               )
+              if (card !== null) {
+                // 卡片就位：settle 负责转人工（原因 + 允许/拒绝按钮 + member 通知），不再另发卡片
+                await this.deps.settleAutoReview(card, verdict)
+                return
+              }
             }
           }
           if (!autoPassed) {

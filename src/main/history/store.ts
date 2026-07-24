@@ -77,7 +77,14 @@ interface MessageRow {
   parts: string
 }
 
-export type ApprovalStatus = 'pending' | 'approved' | 'denied' | 'failed'
+/**
+ * 审批状态机：
+ * - review 档：pending →（owner 裁决）approved / denied；发送失败 failed
+ * - auto 档：auto_reviewing →（自动通过）auto_passed →（owner 急停）terminated
+ *            auto_reviewing →（自动拒绝）pending → 走人工裁决
+ */
+export type ApprovalStatus =
+  'pending' | 'approved' | 'denied' | 'failed' | 'auto_reviewing' | 'auto_passed' | 'terminated'
 
 /** member 消息的审核暂存（重启后 Telegram 卡片按钮仍要可用，故持久化） */
 export interface PendingApproval {
@@ -324,12 +331,15 @@ export class HistoryStore {
     createdTs: number
     /** 由自动审核未通过回落而来时的原因（附到审核卡片）；纯人工审核省略 */
     autoReviewReason?: string | null
+    /** 初始状态：人工审核 pending（默认）；auto 档发「审核中」卡片时 auto_reviewing */
+    status?: 'pending' | 'auto_reviewing'
   }): PendingApproval {
     const autoReviewReason = input.autoReviewReason ?? null
+    const status = input.status ?? 'pending'
     const result = this.db
       .prepare(
         `INSERT INTO pending_approvals(channel_id, chat_id, sender_id, sender, envelope, status, auto_review_reason, created_ts)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.channelId,
@@ -337,6 +347,7 @@ export class HistoryStore {
         input.senderId,
         input.sender,
         JSON.stringify(input.envelope),
+        status,
         autoReviewReason,
         input.createdTs,
       )
@@ -347,7 +358,7 @@ export class HistoryStore {
       senderId: input.senderId,
       sender: input.sender,
       envelope: input.envelope,
-      status: 'pending',
+      status,
       cardChatId: null,
       cardMsgId: null,
       autoReviewReason,
@@ -429,13 +440,32 @@ export class HistoryStore {
   }
 
   /**
-   * 原子认领：仅 pending 态可迁移到目标态。返回 false = 已被处理
+   * 原子认领：仅 from 态（默认 pending）可迁移到目标态。返回 false = 已被处理
    * （owner 双击按钮 / 重启后 Telegram 重放回调的去重依据）。
    */
-  claimPendingApproval(id: number, status: Exclude<ApprovalStatus, 'pending'>, decidedTs: number): boolean {
+  claimPendingApproval(
+    id: number,
+    status: Exclude<ApprovalStatus, 'pending' | 'auto_reviewing'>,
+    decidedTs: number,
+    from: ApprovalStatus = 'pending',
+  ): boolean {
     const result = this.db
-      .prepare(`UPDATE pending_approvals SET status = ?, decided_ts = ? WHERE id = ? AND status = 'pending'`)
-      .run(status, decidedTs, id)
+      .prepare(`UPDATE pending_approvals SET status = ?, decided_ts = ? WHERE id = ? AND status = ?`)
+      .run(status, decidedTs, id, from)
+    return Number(result.changes) === 1
+  }
+
+  /**
+   * 自动审核拒绝：auto_reviewing → pending 转人工裁决，并落拒绝原因（原子，双写只有第一次生效）。
+   * 不设 decided_ts——转人工不是终局裁决。
+   */
+  reopenPendingApproval(id: number, autoReviewReason: string | null): boolean {
+    const result = this.db
+      .prepare(
+        `UPDATE pending_approvals SET status = 'pending', auto_review_reason = ?
+         WHERE id = ? AND status = 'auto_reviewing'`,
+      )
+      .run(autoReviewReason, id)
     return Number(result.changes) === 1
   }
 

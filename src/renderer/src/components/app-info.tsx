@@ -66,7 +66,10 @@ function UpdateSection() {
             <FormattedMessage id="update.install" />
           </Button>
         ) : (
-          <Button disabled={busy || update.status === 'checking' || update.status === 'downloading'} onClick={() => void check()}>
+          <Button
+            disabled={busy || update.status === 'checking' || update.status === 'downloading'}
+            onClick={() => void check()}
+          >
             <FormattedMessage id="update.check" />
           </Button>
         )}
