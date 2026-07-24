@@ -32,10 +32,14 @@ vi.mock('electron-updater', () => ({ default: { autoUpdater: autoUpdaterMock } }
 vi.mock('./env', () => envMock)
 vi.mock('node:fs', () => ({ default: fsMock }))
 
-/** 模块内有状态（state/targetVersion/timer），每个用例重新加载取干净实例 */
+/**
+ * 模块内有状态（state/targetVersion），每个用例重新加载取干净实例；
+ * lifecycle 必须与 updater 同一模块图（resetModules 后重新 import），否则断言不到同一实例
+ */
 async function loadUpdater() {
   vi.resetModules()
-  return await import('./updater')
+  const [updater, { lifecycle }] = await Promise.all([import('./updater'), import('./lifecycle')])
+  return { ...updater, lifecycle }
 }
 
 beforeEach(() => {
@@ -100,16 +104,31 @@ describe('updater 状态机', () => {
     expect(updater.getUpdateState()).toEqual({ status: 'error', message: '网络不可达' })
   })
 
-  it('quitAndInstall 仅在 ready 状态可用', async () => {
+  it('quitAndInstall 仅在 ready 状态可用，且放行窗口关闭（lifecycle.quitting）', async () => {
     const updater = await loadUpdater()
     updater.initUpdater(() => {})
 
     expect(updater.quitAndInstall()).toEqual({ ok: false, message: '暂无已下载的更新' })
     expect(autoUpdaterMock.quitAndInstall).not.toHaveBeenCalled()
+    expect(updater.lifecycle.quitting).toBe(false)
 
     autoUpdaterMock.emit('update-downloaded', { version: '0.2.0' })
     expect(updater.quitAndInstall()).toEqual({ ok: true })
     expect(autoUpdaterMock.quitAndInstall).toHaveBeenCalledWith(false, true)
+    // macOS 原生 quitAndInstall 先关窗后 quit；close→hide 拦截必须被放行，否则 app 不退出、ShipIt 干等
+    expect(updater.lifecycle.quitting).toBe(true)
+  })
+
+  it('quitAndInstall 失败时回滚 quitting 标记', async () => {
+    const updater = await loadUpdater()
+    updater.initUpdater(() => {})
+    autoUpdaterMock.emit('update-downloaded', { version: '0.2.0' })
+
+    autoUpdaterMock.quitAndInstall.mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+    expect(updater.quitAndInstall()).toEqual({ ok: false, message: 'boom' })
+    expect(updater.lifecycle.quitting).toBe(false)
   })
 
   it('启动 10 秒后首检，随后每 15 分钟轮询', async () => {

@@ -11,6 +11,7 @@ import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-up
 import type { ActionResult } from '../shared/ipc'
 import type { UpdateState } from '../shared/messages'
 import { isDev } from './env'
+import { lifecycle } from './lifecycle'
 
 // electron-updater 是 CJS，autoUpdater 为其命名（lazy getter）导出；ESM 下经 default 解构取用。
 const { autoUpdater } = electronUpdater
@@ -113,10 +114,16 @@ export async function checkForUpdates(): Promise<ActionResult> {
 export function quitAndInstall(): ActionResult {
   if (state.status !== 'ready') return { ok: false, message: '暂无已下载的更新' }
   try {
+    // macOS 原生 quitAndInstall 会先关闭所有窗口、全部关闭后才 app.quit()。
+    // 主窗口的 close→hide 拦截（菜单栏常驻）会卡死这一步：窗口永远"关不掉"，
+    // app 不退出，ShipIt 干等 —— 必须先标记真退出，放行窗口关闭。
+    lifecycle.quitting = true
     // isSilent=false 显示安装进度；isForceRunAfter=true 安装后自动重启
     autoUpdater.quitAndInstall(false, true)
     return { ok: true }
   } catch (error) {
+    // 没走成退出流程就回滚标记，避免之后正常关窗变成退出
+    lifecycle.quitting = false
     return { ok: false, message: error instanceof Error ? error.message : String(error) }
   }
 }
