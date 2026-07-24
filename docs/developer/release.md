@@ -38,6 +38,20 @@ npm run release
 > 但 asset 缺失），且它创建的 release 是 draft（对 electron-updater 不可见）。
 > 脚本幂等，上传中断直接重跑 `node scripts/publish-release.mjs` 即可。
 
+## CI 自动发布（推荐）
+
+推 `v*` tag 触发 `.github/workflows/release.yml`（也可在 Actions 页手动 run）：
+
+```bash
+npm version <x.y.z> --no-git-tag-version --workspaces-update=false
+git commit -am "chore: v<x.y.z>"
+git tag v<x.y.z> && git push --follow-tags
+```
+
+前置：仓库 Settings → Secrets 配好 `CSC_LINK` / `CSC_KEY_PASSWORD` /
+`APPLE_API_KEY_P8` / `APPLE_API_KEY_ID` / `APPLE_API_ISSUER`（见 workflow 顶部注释）。
+上传用 Actions 自带的 `GITHUB_TOKEN`，无需额外 PAT。
+
 ## 无 Developer ID 证书时的测试构建
 
 用开发证书签名 + 跳过公证（新旧版本同一证书即可通过 Squirrel.Mac 验签）：
