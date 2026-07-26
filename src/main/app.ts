@@ -5,18 +5,17 @@ import { getConfigPath } from './config/paths'
 import { ConfigStore } from './config/store'
 import { watchConfigFile } from './config/watcher'
 import { appFlags, isDev } from './env'
-import { broadcast } from './ipc'
 import { buildIpcHandlers } from './ipc/handlers'
 import { registerIpcRouter } from './ipc/router'
 import { lifecycle } from './lifecycle'
 import { serviceLogger, setupLogging } from './logging'
 import { SusieService } from './service'
 import { runSmokeCheck } from './smoke'
-import { createTray } from './tray'
+import { TrayManager } from './tray-manager'
 import { initUpdater } from './updater'
 import { withTimeout } from './util/async'
 import { mergeLoginShellPath } from './util/shell-path'
-import { showMainWindow, updateDockVisibility } from './window'
+import { WindowManager } from './windows/window-manager'
 
 /**
  * 组合根：装配 ConfigStore / SusieService / 窗口 / 托盘 / 更新器，编排启动与停机。
@@ -24,6 +23,8 @@ import { showMainWindow, updateDockVisibility } from './window'
  */
 export class App {
   readonly configStore: ConfigStore
+  readonly windows: WindowManager
+  readonly tray: TrayManager
   readonly service: SusieService
 
   private serviceStopped = false
@@ -37,12 +38,23 @@ export class App {
     // 尽早并行解析 login shell PATH，whenReady 后合并完成再注册 IPC/启动 service
     this.shellPathMerged = mergeLoginShellPath(serviceLogger)
 
+    this.windows = new WindowManager({ isQuitting: () => lifecycle.quitting })
+    this.tray = new TrayManager({
+      showMainWindow: () => {
+        this.windows.showMainWindow()
+      },
+      quit: () => {
+        lifecycle.quitting = true
+        app.quit()
+      },
+    })
+
     this.configStore = ConfigStore.init(getConfigPath())
     // 配置热加载失败只体现在 state.lastError（last-good 降级），必须留日志痕迹
     // 初值取启动时的 lastError——启动错误由 whenReady 里的 config error 日志负责，避免重复
     let lastLoggedConfigError: string | null = this.configStore.state().lastError
     this.configStore.onState((state) => {
-      broadcast('config:state', state)
+      this.windows.broadcast('config:state', state)
       if (state.lastError !== null && state.lastError !== lastLoggedConfigError) {
         log.error(`config 加载失败（沿用 last-good 配置）：${state.lastError}`)
       }
@@ -59,10 +71,10 @@ export class App {
         codexDataDir: path.join(userData, 'codex'),
       },
       {
-        channelStatuses: (statuses) => broadcast('channel:status', statuses),
-        historyMessage: (message) => broadcast('history:message', message),
-        agentsProgress: (progress) => broadcast('agents:progress', progress),
-        autoReview: (record) => broadcast('autoreview:record', record),
+        channelStatuses: (statuses) => this.windows.broadcast('channel:status', statuses),
+        historyMessage: (message) => this.windows.broadcast('history:message', message),
+        agentsProgress: (progress) => this.windows.broadcast('agents:progress', progress),
+        autoReview: (record) => this.windows.broadcast('autoreview:record', record),
       },
       serviceLogger,
     )
@@ -71,11 +83,11 @@ export class App {
   /** 挂接 app 生命周期事件并启动（构造后调用一次） */
   bootstrap(): void {
     app.on('second-instance', () => {
-      showMainWindow()
+      this.windows.showMainWindow()
     })
 
     app.on('activate', () => {
-      showMainWindow()
+      this.windows.showMainWindow()
     })
 
     app.on('window-all-closed', () => {
@@ -113,14 +125,14 @@ export class App {
         buildIpcHandlers({ getMcpUrl: () => this.service.mcp.url, config: this.configStore, service: this.service }),
         serviceLogger,
       )
-      initUpdater((state) => broadcast('update:state', state))
-      createTray()
+      initUpdater((state) => this.windows.broadcast('update:state', state))
+      this.tray.create()
       watchConfigFile(this.configStore, serviceLogger)
 
       if (appFlags.headless) {
-        updateDockVisibility()
+        this.windows.updateDockVisibility()
       } else {
-        showMainWindow()
+        this.windows.showMainWindow()
       }
 
       const state = this.configStore.state()
@@ -132,7 +144,7 @@ export class App {
 
       if (appFlags.smoke) {
         void runSmokeCheck(this.configStore, {
-          showMainWindow,
+          showMainWindow: (options) => this.windows.showMainWindow(options),
           markQuitting: () => {
             lifecycle.quitting = true
           },
