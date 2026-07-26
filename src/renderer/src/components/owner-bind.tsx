@@ -5,7 +5,7 @@ import type { ConfigState } from '../../../shared/config'
 import type { SenderInfo } from '../../../shared/messages'
 import { transferOwner } from '../../../shared/users'
 import { channelStatusesAtom } from '../lib/service-atoms'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 import { Button, ErrorText } from './form'
 import { useSenders } from './member-picker'
 
@@ -53,7 +53,7 @@ export function OwnerBindPanel({
           <Button
             variant="primary"
             disabled={botUsername === null}
-            onClick={() => void susie.invoke('app:open-external', { url: `https://t.me/${botUsername ?? ''}` })}
+            onClick={() => void ipc.app.openExternal({ url: `https://t.me/${botUsername ?? ''}` })}
           >
             {intl.formatMessage({ id: 'onboarding.listen.open' })}
           </Button>

@@ -8,7 +8,7 @@ import { BindingsPanel } from '../components/bindings-panel/bindings-panel'
 import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -144,7 +144,7 @@ function AssistantForm({
   }, [agentId])
 
   const pickWorkDir = async () => {
-    const dir = await susie.invoke('dialog:pick-directory')
+    const dir = await ipc.app.pickDirectory()
     if (dir !== null) setWorkDir(dir)
   }
 

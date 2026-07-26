@@ -1,6 +1,5 @@
 import fs from 'node:fs'
-import process from 'node:process'
-import { BrowserWindow, app, dialog, ipcMain, shell } from 'electron'
+import { BrowserWindow, ipcMain, shell } from 'electron'
 import log from 'electron-log/main'
 import { z } from 'zod'
 import {
@@ -15,7 +14,6 @@ import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
 import { getWorkspaceDir } from './config/paths'
 import { fetchBotUsername } from './channels/telegram-bot'
 import type { ConfigStore } from './config/store'
-import { appFlags } from './env'
 import { errorLog } from './logging'
 import type { SusieService } from './service'
 import { checkForUpdates, getUpdateState, quitAndInstall } from './updater'
@@ -36,47 +34,7 @@ export function broadcast<K extends keyof IpcEventSchema>(channel: K, payload: I
 }
 
 export function registerIpcHandlers(config: ConfigStore, service: SusieService): void {
-  handle('app:get-info', () => ({
-    name: app.getName(),
-    version: app.getVersion(),
-    electron: process.versions.electron ?? 'unknown',
-    chrome: process.versions.chrome ?? 'unknown',
-    node: process.versions.node,
-    platform: process.platform,
-    headless: appFlags.headless,
-    loginItemEnabled: app.getLoginItemSettings().openAtLogin,
-    mcpUrl: service.mcp.url,
-  }))
-
-  handle('app:set-login-item', (payload) => {
-    try {
-      app.setLoginItemSettings({ openAtLogin: payload.enabled, args: ['--headless'] })
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
-
-  handle('app:open-external', async (payload) => {
-    let url: URL
-    try {
-      url = new URL(payload.url)
-    } catch {
-      return { ok: false, message: `非法 URL：${payload.url}` }
-    }
-    if (url.protocol !== 'https:') return { ok: false, message: `不允许的协议：${url.protocol}` }
-    try {
-      await shell.openExternal(url.toString())
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
-
-  handle('dialog:pick-directory', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
-    return result.canceled ? null : (result.filePaths[0] ?? null)
-  })
+  // app / dialog 域已迁移到契约路由（main/ipc/handlers/app.ts）
 
   // ---------- 配置 ----------
 

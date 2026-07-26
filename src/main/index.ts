@@ -9,6 +9,8 @@ import { ConfigStore } from './config/store'
 import { watchConfigFile } from './config/watcher'
 import { appFlags, isDev } from './env'
 import { broadcast, registerIpcHandlers } from './ipc'
+import { buildIpcHandlers } from './ipc/handlers'
+import { registerIpcRouter } from './ipc/router'
 import { lifecycle } from './lifecycle'
 import { serviceLogger, setupLogging } from './logging'
 import { SusieService } from './service'
@@ -107,6 +109,7 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     await shellPathMerged
     registerIpcHandlers(configStore, service)
+    registerIpcRouter(buildIpcHandlers({ getMcpUrl: () => service.mcp.url }), serviceLogger)
     initUpdater((state) => broadcast('update:state', state))
     createTray()
     watchConfigFile(configStore, serviceLogger)
@@ -146,7 +149,7 @@ async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
       })
     })
 
-    const info = (await win.webContents.executeJavaScript(`window.susie.invoke('app:get-info')`)) as AppInfo
+    const info = (await win.webContents.executeJavaScript(`window.susie.invoke('susie:app.getInfo')`)) as AppInfo
     if (typeof info?.electron !== 'string') {
       throw new Error(`unexpected app info: ${JSON.stringify(info)}`)
     }

@@ -22,28 +22,12 @@ import type {
   UpdateState,
 } from './messages'
 
-export interface AppInfo {
-  name: string
-  version: string
-  electron: string
-  chrome: string
-  node: string
-  platform: string
-  headless: boolean
-  loginItemEnabled: boolean
-  mcpUrl: string | null
-}
+// AppInfo / ActionResult 已迁入契约（shared/ipc/contract.ts）；此处 re-export 供旧引用过渡。
+export type { ActionResult, AppInfo } from './ipc/contract'
+import type { ActionResult } from './ipc/contract'
 
-export type ActionResult = { ok: true } | { ok: false; message: string }
-
-/** invoke（请求/响应）通道 */
+/** invoke（请求/响应）通道（逐域迁往 shared/ipc/contract.ts，迁完删除） */
 export interface IpcInvokeSchema {
-  'app:get-info': { req: undefined; res: AppInfo }
-  'app:set-login-item': { req: { enabled: boolean }; res: ActionResult }
-  /** 在系统默认浏览器/对应 App 打开外部链接（仅 https） */
-  'app:open-external': { req: { url: string }; res: ActionResult }
-  'dialog:pick-directory': { req: undefined; res: string | null }
-
   'config:get': { req: undefined; res: ConfigState }
   'config:get-raw': { req: undefined; res: { text: string; version: number } }
   'config:save-raw': { req: { text: string; expectedVersion: number }; res: ConfigMutationResult }
@@ -104,10 +88,6 @@ export interface IpcInvokeSchema {
 }
 
 export const IPC_INVOKE_CHANNELS = [
-  'app:get-info',
-  'app:set-login-item',
-  'app:open-external',
-  'dialog:pick-directory',
   'config:get',
   'config:get-raw',
   'config:save-raw',

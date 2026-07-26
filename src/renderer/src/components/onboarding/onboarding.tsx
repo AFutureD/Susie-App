@@ -6,7 +6,7 @@ import { decodeChatId } from '../../../../shared/chat-id'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { configStateAtom } from '../../lib/config-atoms'
-import { susie } from '../../lib/ipc'
+import { ipc, susie } from '../../lib/ipc'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import { Button, ErrorText, Field, TextInput } from '../form'
 import { OwnerBindPanel } from '../owner-bind'
@@ -171,7 +171,7 @@ function ChannelStep({
         <li>{intl.formatMessage({ id: 'onboarding.channel.guide.step2' })}</li>
       </ol>
       <div className="mt-3">
-        <Button onClick={() => void susie.invoke('app:open-external', { url: 'https://t.me/BotFather' })}>
+        <Button onClick={() => void ipc.app.openExternal({ url: 'https://t.me/BotFather' })}>
           {intl.formatMessage({ id: 'onboarding.channel.guide.open' })}
         </Button>
       </div>
@@ -418,7 +418,7 @@ function ListenPanel({
           <Button
             variant="primary"
             disabled={botUsername === null}
-            onClick={() => void susie.invoke('app:open-external', { url: `https://t.me/${botUsername ?? ''}` })}
+            onClick={() => void ipc.app.openExternal({ url: `https://t.me/${botUsername ?? ''}` })}
           >
             {intl.formatMessage({ id: 'onboarding.listen.open' })}
           </Button>

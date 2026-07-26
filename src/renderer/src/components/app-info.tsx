@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { AppInfo } from '../../../shared/ipc'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 import { updateStateAtom } from '../lib/update-atoms'
 import { Button } from './form'
 
@@ -88,8 +88,8 @@ export function AppInfoCard() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    susie
-      .invoke('app:get-info')
+    ipc.app
+      .getInfo()
       .then(setInfo)
       .catch((e: unknown) => setError(String(e)))
   }, [])

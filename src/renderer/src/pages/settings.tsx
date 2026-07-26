@@ -5,19 +5,19 @@ import { AppInfoCard } from '../components/app-info'
 import { Button, CheckboxField, ErrorText, TextArea } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 
 function LoginItemToggle() {
   const intl = useIntl()
   const [enabled, setEnabled] = useState<boolean | null>(null)
 
   useEffect(() => {
-    void susie.invoke('app:get-info').then((info) => setEnabled(info.loginItemEnabled))
+    void ipc.app.getInfo().then((info) => setEnabled(info.loginItemEnabled))
   }, [])
 
   const toggle = async (value: boolean) => {
     setEnabled(value)
-    const result = await susie.invoke('app:set-login-item', { enabled: value })
+    const result = await ipc.app.setLoginItem({ enabled: value })
     if (!result.ok) {
       setEnabled(!value)
       window.alert(result.message)
