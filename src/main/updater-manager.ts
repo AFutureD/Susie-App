@@ -9,7 +9,7 @@ import { app } from 'electron'
 import log from 'electron-log/main'
 import electronUpdater, { type ProgressInfo, type UpdateInfo } from 'electron-updater'
 import { errorMessage } from '../shared/errors'
-import type { ActionResult } from '../shared/ipc'
+import type { ActionResult } from '../shared/ipc/contract'
 import type { UpdateState } from '../shared/messages'
 import { isDev } from './env'
 

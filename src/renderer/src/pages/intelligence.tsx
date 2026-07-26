@@ -7,7 +7,7 @@ import type { AgentModelOption, AutoReviewRecord, AutoReviewStatus } from '../..
 import { Button, ErrorText, Field, Select, TextArea } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc, onIpcEvent } from '../lib/ipc'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -228,7 +228,7 @@ function AutoReviewHistory() {
       if (alive) setRecords(list)
     })
     // 新记录/状态更新按 id 合并（进行中 → 结论）
-    const off = susie.on('autoreview:record', (record) => {
+    const off = onIpcEvent('autoReview.record', (record) => {
       setRecords((prev) => {
         const base = prev ?? []
         const rest = base.filter((item) => item.id !== record.id)

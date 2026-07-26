@@ -52,7 +52,7 @@ export class App {
       },
     })
     this.updater = new UpdaterManager({
-      onState: (state) => this.windows.broadcast('update:state', state),
+      onState: (state) => this.windows.broadcast('update.state', state),
       setQuitting: (quitting) => {
         this.isQuitting = quitting
       },
@@ -63,7 +63,7 @@ export class App {
     // 初值取启动时的 lastError——启动错误由 whenReady 里的 config error 日志负责，避免重复
     let lastLoggedConfigError: string | null = this.configStore.state().lastError
     this.configStore.onState((state) => {
-      this.windows.broadcast('config:state', state)
+      this.windows.broadcast('config.state', state)
       if (state.lastError !== null && state.lastError !== lastLoggedConfigError) {
         log.error(`config 加载失败（沿用 last-good 配置）：${state.lastError}`)
       }
@@ -79,12 +79,7 @@ export class App {
         acpDataDir: path.join(userData, 'acp'),
         codexDataDir: path.join(userData, 'codex'),
       },
-      {
-        channelStatuses: (statuses) => this.windows.broadcast('channel:status', statuses),
-        historyMessage: (message) => this.windows.broadcast('history:message', message),
-        agentsProgress: (progress) => this.windows.broadcast('agents:progress', progress),
-        autoReview: (record) => this.windows.broadcast('autoreview:record', record),
-      },
+      (event, payload) => this.windows.broadcast(event, payload),
       serviceLogger,
     )
   }

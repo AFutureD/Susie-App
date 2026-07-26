@@ -4,7 +4,7 @@ import { useAtomValue, useSetAtom } from 'jotai'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
 import { OnboardingOverlay } from './components/onboarding/onboarding'
 import { configStateAtom } from './lib/config-atoms'
-import { ipc, susie } from './lib/ipc'
+import { ipc, onIpcEvent } from './lib/ipc'
 import { channelStatusesAtom } from './lib/service-atoms'
 import { updateStateAtom } from './lib/update-atoms'
 import { AgentsPage } from './pages/agents'
@@ -44,9 +44,9 @@ function ConfigBootstrap() {
     void ipc.update.getState().then((state) => {
       if (alive) setUpdateState(state)
     })
-    const offConfig = susie.on('config:state', setState)
-    const offStatus = susie.on('channel:status', setStatuses)
-    const offUpdate = susie.on('update:state', setUpdateState)
+    const offConfig = onIpcEvent('config.state', setState)
+    const offStatus = onIpcEvent('channels.status', setStatuses)
+    const offUpdate = onIpcEvent('update.state', setUpdateState)
     return () => {
       alive = false
       offConfig()

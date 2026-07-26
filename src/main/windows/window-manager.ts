@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { BrowserWindow, app } from 'electron'
-import type { IpcEventSchema } from '../../shared/ipc'
+import { eventChannel } from '../../shared/ipc/channel'
+import type { IpcBroadcaster } from '../../shared/ipc/events'
 import { devServerUrl } from '../env'
 
 export interface WindowManagerDeps {
@@ -78,10 +79,10 @@ export class WindowManager {
     return win
   }
 
-  /** 向所有窗口推送事件 */
-  broadcast<K extends keyof IpcEventSchema>(channel: K, payload: IpcEventSchema[K]): void {
+  /** 向所有窗口推送事件（susie-evt:* 通道；事件表见 shared/ipc/events.ts） */
+  broadcast: IpcBroadcaster = (event, payload) => {
     for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send(channel, payload)
+      win.webContents.send(eventChannel(event), payload)
     }
   }
 }

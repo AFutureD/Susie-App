@@ -4,7 +4,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatInfo, MessagePart, StoredMessage } from '../../../shared/messages'
 import { Button, TextInput } from '../components/form'
-import { ipc, susie } from '../lib/ipc'
+import { ipc, onIpcEvent } from '../lib/ipc'
 
 function chatKey(channelId: string, chatId: string): string {
   return `${channelId}/${chatId}`
@@ -79,7 +79,7 @@ export function HistoryPage() {
 
   useEffect(() => {
     refreshChats()
-    const off = susie.on('history:message', (message) => {
+    const off = onIpcEvent('history.message', (message) => {
       refreshChats()
       const current = selectedRef.current
       if (current !== null && current.channelId === message.channelId && current.chatId === message.chatId) {

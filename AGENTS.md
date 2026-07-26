@@ -39,8 +39,8 @@ npm run test:codex   # 真实 codex 集成测试（含 MCP 回环；耗 token，
 
 ## 结构与约定
 
-- `src/main/` 主进程 = 服务核心宿主（config/channels/agents/mcp/history 按目录分层）；`src/preload/` 必须保持 CJS（sandbox）；`src/renderer/` React UI；`src/shared/` 三端共享的类型与 zod schema。
-- IPC：契约集中在 `src/shared/ipc.ts`。新通道 = Schema 加类型 + 通道清单登记（preload 白名单）+ `src/main/ipc.ts` 实现。渲染进程只经 `window.susie` 访问。
+- `src/main/` 主进程 = 服务核心宿主（`app.ts` 组合根只做装配编排；config/channels/agents/mcp/history 按目录分层）；`src/preload/` 必须保持 CJS（sandbox）且只依赖零 import 的 `shared/ipc/{channel,envelope}.ts`；`src/renderer/` React UI；`src/shared/` 三端共享的类型与 zod schema。
+- IPC（契约优先）：唯一事实源是 `src/shared/ipc/contract.ts`（invoke，req 用 zod / res 用 `res<T>()` 占位）与 `src/shared/ipc/events.ts`（主→渲染事件，type-only）。新通道 = contract 加一条 + `src/main/ipc/handlers/<域>.ts` 实现一处——完整性由 `IpcHandlers` 映射类型编译期强制，preload 只做 `susie:`/`susie-evt:` 前缀门卫，无手工清单。渲染进程经 `lib/ipc.ts` 的类型化客户端调用（`ipc.<group>.<method>(payload)`）、`onIpcEvent`/`useIpcEvent` 订阅事件；主进程广播走 `WindowManager.broadcast`。handler 抛错由路由统一转错误信封（preload 还原真 Error，保留 cause/code）；用户可编辑载荷（settings/users 等）在 handler 内 safeParse 并以 `{ ok:false, message }` 返回供表单内联展示。
 - 配置：`ConfigStore`（`src/main/config/store.ts`）是唯一入口——消费方持 `ConfigRef`（`store.ref('channels.<id>')`），不要缓存配置拷贝；所有写操作带 `expectedVersion`。配置文件 `~/.config/susie/config.toml`（`SUSIE_CONFIG_DIR` 可覆盖，测试/冒烟必须覆盖，避免碰真实配置）。
 - 字段名与 TOML 保持 snake_case（兼容 Python 版配置）。
 - UI 文案走 React Intl（`src/renderer/src/i18n/zh-Hans.ts`），语义色用 Tailwind token（`bg-surface` / `text-ink` / `border-line` 等，定义在 `styles.css`）。

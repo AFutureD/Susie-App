@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { SenderInfo } from '../../../shared/messages'
-import { ipc, susie } from '../lib/ipc'
+import { ipc, onIpcEvent } from '../lib/ipc'
 import { Button, Field, TextInput } from './form'
 
 // 选人通用件：「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
@@ -32,7 +32,7 @@ export function useSenders(channelId: string, chatId?: string, options: { privat
         })
     }
     refresh()
-    const unsubscribe = susie.on('history:message', (message) => {
+    const unsubscribe = onIpcEvent('history.message', (message) => {
       if (message.channelId === channelId && !message.out) refresh()
     })
     return () => {

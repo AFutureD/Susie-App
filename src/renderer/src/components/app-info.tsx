@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
-import type { AppInfo } from '../../../shared/ipc'
+import type { AppInfo } from '../../../shared/ipc/contract'
 import { ipc } from '../lib/ipc'
 import { updateStateAtom } from '../lib/update-atoms'
 import { Button } from './form'

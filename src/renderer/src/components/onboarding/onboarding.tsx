@@ -6,7 +6,7 @@ import { decodeChatId } from '../../../../shared/chat-id'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { configStateAtom } from '../../lib/config-atoms'
-import { ipc, susie } from '../../lib/ipc'
+import { ipc, onIpcEvent } from '../../lib/ipc'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import { Button, ErrorText, Field, TextInput } from '../form'
 import { OwnerBindPanel } from '../owner-bind'
@@ -370,7 +370,7 @@ function useChannelChats(channelId: string): ChatInfo[] {
       })
     }
     refresh()
-    const unsubscribe = susie.on('history:message', refresh)
+    const unsubscribe = onIpcEvent('history.message', refresh)
     return () => {
       alive = false
       unsubscribe()

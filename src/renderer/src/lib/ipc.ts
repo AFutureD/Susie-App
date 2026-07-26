@@ -1,9 +1,7 @@
-import { invokeChannel } from '../../../shared/ipc/channel'
+import { useEffect, useRef } from 'react'
+import { eventChannel, invokeChannel } from '../../../shared/ipc/channel'
 import type { IpcClient } from '../../../shared/ipc/contract'
-import type { SusieBridge } from '../../../shared/ipc'
-
-/** 事件订阅桥（P3 类型化事件收官后由 onIpcEvent 取代） */
-export const susie: SusieBridge = window.susie
+import type { IpcEvents } from '../../../shared/ipc/events'
 
 const groupCache = new Map<string, unknown>()
 
@@ -31,3 +29,15 @@ export const ipc = new Proxy({} as IpcClient, {
     return cached
   },
 })
+
+/** 订阅主进程事件（susie-evt:*）；返回退订函数 */
+export function onIpcEvent<K extends keyof IpcEvents>(event: K, listener: (payload: IpcEvents[K]) => void): () => void {
+  return window.susie.on(eventChannel(event), listener as (payload: unknown) => void)
+}
+
+/** React hook：handler 经 ref 转发（调用方无需 useCallback），组件卸载自动退订 */
+export function useIpcEvent<K extends keyof IpcEvents>(event: K, handler: (payload: IpcEvents[K]) => void): void {
+  const handlerRef = useRef(handler)
+  handlerRef.current = handler
+  useEffect(() => onIpcEvent(event, (payload) => handlerRef.current(payload)), [event])
+}

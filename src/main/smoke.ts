@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import { app, type BrowserWindow } from 'electron'
 import type { ConfigState } from '../shared/config'
-import type { AppInfo } from '../shared/ipc'
+import type { AppInfo } from '../shared/ipc/contract'
 import type { ConfigStore } from './config/store'
 
 export interface SmokeCheckDeps {

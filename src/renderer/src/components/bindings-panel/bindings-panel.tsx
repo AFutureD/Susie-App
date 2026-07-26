@@ -8,7 +8,7 @@ import {
 } from '../../../../shared/bindings'
 import { CHAT_ALL, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
-import { ipc, susie } from '../../lib/ipc'
+import { ipc, onIpcEvent } from '../../lib/ipc'
 import { Button, CheckboxField, ErrorText, Field, Select, TextInput } from '../form'
 import { buildTree, type ChannelTree, type ChatRow, type DraftChat } from './model'
 
@@ -58,7 +58,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
       })
     }
     refresh()
-    const unsubscribe = susie.on('history:message', refresh)
+    const unsubscribe = onIpcEvent('history.message', refresh)
     return () => {
       alive = false
       unsubscribe()

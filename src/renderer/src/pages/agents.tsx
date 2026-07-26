@@ -3,7 +3,7 @@ import { useIntl } from 'react-intl'
 import type { AgentProgress, AgentsOverview } from '../../../shared/messages'
 import { Button } from '../components/form'
 import { Page } from '../components/page'
-import { ipc, susie } from '../lib/ipc'
+import { ipc, onIpcEvent } from '../lib/ipc'
 
 export function AgentsPage() {
   const intl = useIntl()
@@ -17,7 +17,7 @@ export function AgentsPage() {
 
   useEffect(() => {
     refresh()
-    const off = susie.on('agents:progress', (event) => {
+    const off = onIpcEvent('agents.progress', (event) => {
       setProgress((prev) => {
         // 完成即撤掉进度条，刷新后卡片自然切到已安装态
         if (event.phase === 'done') {

@@ -1,15 +1,8 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import type { AssistantConfig, AutoReviewConfig } from '../shared/config'
-import type {
-  AgentModelOption,
-  AgentProgress,
-  AgentsOverview,
-  AutoReviewRecord,
-  ChannelStatus,
-  MessagePart,
-  StoredMessage,
-} from '../shared/messages'
+import type { AgentModelOption, AgentProgress, AgentsOverview, MessagePart } from '../shared/messages'
+import type { IpcBroadcaster } from '../shared/ipc/events'
 import { AcpRuntime } from './agents/acp'
 import { AcpRegistryManager } from './agents/acp-registry'
 import { CodexRuntime } from './agents/codex'
@@ -30,13 +23,6 @@ import type { Logger } from './util/logger'
 
 /** 模型枚举结果缓存时长（探针要起子进程，避免每次打开表单都付启动成本） */
 const MODEL_OPTIONS_TTL_MS = 5 * 60 * 1000
-
-export interface ServiceEmit {
-  channelStatuses: (statuses: ChannelStatus[]) => void
-  historyMessage: (message: StoredMessage) => void
-  agentsProgress: (progress: AgentProgress) => void
-  autoReview: (record: AutoReviewRecord) => void
-}
 
 export interface ServicePaths {
   /** SQLite 历史库 */
@@ -67,7 +53,7 @@ export class SusieService {
   private readonly log: Logger
   private readonly unsubUsers: () => void
 
-  constructor(store: ConfigStore, paths: ServicePaths, emit: ServiceEmit, log: Logger) {
+  constructor(store: ConfigStore, paths: ServicePaths, broadcast: IpcBroadcaster, log: Logger) {
     this.log = log
     this.history = new HistoryStore(paths.historyDb)
     this.mcp = new SusieMcpServer(log)
@@ -77,7 +63,7 @@ export class SusieService {
       if (progress.phase === 'error') {
         this.log.error(`agent ${progress.id} 安装失败：${progress.detail ?? '未知原因'}`)
       }
-      emit.agentsProgress(progress)
+      broadcast('agents.progress', progress)
     }
     this.acpRegistry = new AcpRegistryManager(paths.acpDataDir, agentsProgress)
     this.codexInstaller = new CodexInstaller(paths.codexDataDir, agentsProgress)
@@ -89,7 +75,7 @@ export class SusieService {
       getChannel: (id) => this.hub.get(id),
       dispatchApproved: (pending) => this.chatManager.handleApproved(pending),
       terminateChat: (pending) => this.chatManager.cancelActiveTurn(pending.channelId, pending.chatId),
-      onHistoryMessage: emit.historyMessage,
+      onHistoryMessage: (message) => broadcast('history.message', message),
       log,
     })
 
@@ -97,7 +83,7 @@ export class SusieService {
       store,
       history: this.history,
       createRuntime: (config) => this.createReviewRuntime(config),
-      emit: emit.autoReview,
+      emit: (record) => broadcast('autoReview.record', record),
       log,
     })
 
@@ -107,7 +93,7 @@ export class SusieService {
       mcpName: SUSIE_MCP_NAME,
       getChannel: (id) => this.hub.get(id),
       createRuntime: (assistant) => this.createRuntime(assistant),
-      onHistoryMessage: emit.historyMessage,
+      onHistoryMessage: (message) => broadcast('history.message', message),
       // 注意透传 options：autoReviewReason 要随卡片显示（漏传曾导致拒绝原因永远上不了卡片）
       requestApproval: (envelope, options) => this.approvals.request(envelope, options),
       autoReview: (envelope) => this.autoReviewer.review(envelope),
@@ -127,7 +113,7 @@ export class SusieService {
           .map((user) => user.user_id),
       onMessage: (envelope) => this.chatManager.handleInbound(envelope),
       onCallback: (event) => void this.approvals.handleCallback(event),
-      onStatuses: emit.channelStatuses,
+      onStatuses: (statuses) => broadcast('channels.status', statuses),
       onChannelRemoved: (channelId) => this.chatManager.onChannelRemoved(channelId),
       log,
     })

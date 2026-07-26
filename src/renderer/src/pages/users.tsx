@@ -19,7 +19,7 @@ import { MemberPickerModal, useSenders } from '../components/member-picker'
 import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc, onIpcEvent } from '../lib/ipc'
 
 // 用户管理 = 身份轴：owner 全局直通并负责审核；其余用户按范围（私聊 / 具体群）三档
 // （直通 / 审核 / 忽略）。未登记发送者与未设置的范围默认审核，批准后自动登记。
@@ -54,7 +54,7 @@ function useChannelGroups(channelId: string): KnownGroup[] {
       })
     }
     refresh()
-    const unsubscribe = susie.on('history:message', (message) => {
+    const unsubscribe = onIpcEvent('history.message', (message) => {
       if (message.channelId === channelId) refresh()
     })
     return () => {
