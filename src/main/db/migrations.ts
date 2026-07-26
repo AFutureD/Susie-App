@@ -94,6 +94,14 @@ export const MIGRATIONS: readonly Migration[] = [
       }
     },
   },
+  {
+    id: 4,
+    comment:
+      'pending_approvals.envelope_v：envelope JSON 的 schema 版本（列而非 JSON 内嵌字段——读路径零改动，未来按列值分派解析器）',
+    up(db) {
+      db.exec('ALTER TABLE pending_approvals ADD COLUMN envelope_v INTEGER NOT NULL DEFAULT 1')
+    },
+  },
 ]
 
 export function runMigrations(db: DatabaseSync, migrations: readonly Migration[] = MIGRATIONS): void {

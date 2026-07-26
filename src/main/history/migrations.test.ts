@@ -202,6 +202,20 @@ describe('HistoryStore 遗留库迁移', () => {
     new AppDatabase(dbPath).close()
     expect(userVersion(dbPath)).toBe(MIGRATIONS.at(-1)?.id)
   })
+
+  it('envelope_v：迁移后既有行默认版本 1（迁移 4）', () => {
+    const dbPath = tempDbPath()
+    createLegacyDb(dbPath)
+    const db = new AppDatabase(dbPath)
+    try {
+      const row = db.db.prepare('SELECT envelope_v FROM pending_approvals WHERE id = 1').get() as unknown as {
+        envelope_v: number
+      }
+      expect(row.envelope_v).toBe(1)
+    } finally {
+      db.close()
+    }
+  })
 })
 
 describe('runMigrations 框架', () => {
