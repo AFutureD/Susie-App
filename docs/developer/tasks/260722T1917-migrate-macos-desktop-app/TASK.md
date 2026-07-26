@@ -71,18 +71,9 @@ Electron 43 + TypeScript strict。renderer：React 19.2 / React Router 7 / Jotai
 
 遗留（有意后置）：xterm.js workspace 终端（可选增强）、KaTeX/Mermaid 历史渲染增强、CodeMirror Raw 编辑器升级。（electron-updater 已完成：`UpdaterManager` + 分渠道 GitHub Releases。）
 
-## 后续：260726 架构重构（借鉴 LobeHub Desktop）
+## 后续
 
-2026-07-26 完成一轮全面架构重构（详见当次会话的分阶段 patch 与 AGENTS.md 更新）：
-
-- IPC 契约优先：`shared/ipc/contract.ts`（zod req + phantom res）+ `main/ipc/router.ts`（完整性编译期强制）+ preload 前缀门卫 + renderer Proxy 客户端；错误信封保留 cause 链。
-- 主进程分层：`app.ts` 组合根；WindowManager / TrayManager / UpdaterManager 类化（删 lifecycle.ts 全局单例）；SusieService 瘦身为纯组装 + 停机编排。
-- 持久化：`db/migrations.ts`（PRAGMA user_version 版本化迁移）+ MessageRepo / ApprovalRepo / AutoReviewRepo 按领域拆分（HistoryStore 解散）。
-- Channel 抽象：`channels/types.ts` 接口 + ChannelFactory 注册表（hub 平台无关；顺带修复 restart 双 spawn 孤儿实例 bug）；bot 文案收敛 `copy/bot-copy.ts`。
-- Agent Provider：`agents/provider.ts` + `AgentManager`（owns() 有序认领）；`AgentsOverview` 同构为 `AgentInfo[]`；停机加固（SerialGate / waitChildExit / 限时 SIGKILL 收尸）。
-- ChatManager 管线化：6 阶段方法 + `core/permission-gate.ts`（GateDecision 取代四布尔）；bindings 变更按会话 diff（不再全量销毁会话）。
-- Renderer 数据层：toast、useIpcQuery（共享缓存 + 事件失效）、useConfigMutation、configAtom(key)；bindings-panel / onboarding 拆分。
-- 导航清单同源 `shared/nav.ts`（app / smoke / e2e 三处不再各写一份）。
+- 260726 完成一轮全面架构重构（IPC 契约路由 / 组合根 / repo 拆分 / Channel & Agent 抽象 / 管线化 / renderer 数据层），见 [260726T1601-refactor-architecture-from-lobehub](../260726T1601-refactor-architecture-from-lobehub)。
 
 ## 参照
 
