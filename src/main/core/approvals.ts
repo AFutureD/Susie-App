@@ -10,11 +10,12 @@ import {
 import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
 import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
-import type { ApprovalStatus, HistoryStore, PendingApproval } from '../history/store'
+import type { MessageRepo } from '../history/message-repo'
 import type { Logger } from '../util/logger'
+import type { ApprovalRepo, ApprovalStatus, PendingApproval } from './approval-repo'
 
 // member 消息审核流：暂存 → owner 私聊卡片 → 回调裁决 → 重放或丢弃。
-// 暂存持久化在 history 库（pending_approvals），重启后卡片按钮仍可用。
+// 暂存持久化在应用库（pending_approvals，ApprovalRepo），重启后卡片按钮仍可用。
 //
 // 两条入口：
 // - review 档：request() 建 pending 卡片（允许/拒绝按钮），owner 裁决。
@@ -44,7 +45,8 @@ const STATUS_TAGS: Record<ApprovalStatus, string> = {
 
 export interface ApprovalManagerDeps {
   store: ConfigStore
-  history: HistoryStore
+  approvals: ApprovalRepo
+  messages: MessageRepo
   getChannel: (id: string) => TelegramBotChannel | undefined
   /** owner 批准后的重放（ChatManager.handleApproved，经每会话串行队列） */
   dispatchApproved: (pending: PendingApproval) => void
@@ -110,7 +112,7 @@ export class ApprovalManager {
       return
     }
 
-    const pending = this.deps.history.createPendingApproval({
+    const pending = this.deps.approvals.create({
       channelId,
       chatId: message.chatId,
       senderId: message.senderId,
@@ -143,7 +145,7 @@ export class ApprovalManager {
       return null
     }
 
-    const pending = this.deps.history.createPendingApproval({
+    const pending = this.deps.approvals.create({
       channelId,
       chatId: message.chatId,
       senderId: message.senderId,
@@ -155,7 +157,7 @@ export class ApprovalManager {
 
     const sent = await this.sendCard(pending, owner.user_id, owner.name ?? null, undefined)
     if (!sent) return null
-    return this.deps.history.getPendingApproval(pending.id)
+    return this.deps.approvals.get(pending.id)
   }
 
   /**
@@ -166,7 +168,7 @@ export class ApprovalManager {
   async settleAutoReview(pending: PendingApproval, verdict: { passed: boolean; reason: string | null }): Promise<void> {
     const channel = this.deps.getChannel(pending.channelId)
     if (verdict.passed) {
-      if (!this.deps.history.claimPendingApproval(pending.id, 'auto_passed', Date.now(), 'auto_reviewing')) {
+      if (!this.deps.approvals.claim(pending.id, 'auto_passed', Date.now(), 'auto_reviewing')) {
         this.deps.log.error(`approval#${pending.id}: 自动审核通过落状态失败（已被处理？）`)
         return
       }
@@ -177,7 +179,7 @@ export class ApprovalManager {
       return
     }
 
-    if (!this.deps.history.reopenPendingApproval(pending.id, verdict.reason)) {
+    if (!this.deps.approvals.reopen(pending.id, verdict.reason)) {
       this.deps.log.error(`approval#${pending.id}: 自动审核拒绝转人工失败（已被处理？）`)
       return
     }
@@ -202,7 +204,7 @@ export class ApprovalManager {
   ): Promise<boolean> {
     const channel = this.deps.getChannel(pending.channelId)
     if (channel === undefined) {
-      this.deps.history.claimPendingApproval(pending.id, 'failed', Date.now(), pending.status)
+      this.deps.approvals.claim(pending.id, 'failed', Date.now(), pending.status)
       this.deps.log.error(`approval#${pending.id}: 通道 ${pending.channelId} 未运行，审核卡片无法发送`)
       return false
     }
@@ -226,13 +228,13 @@ export class ApprovalManager {
         },
         buttons === undefined ? {} : { buttons },
       )
-      const stored = this.deps.history.record(sent, ownerName)
+      const stored = this.deps.messages.record(sent, ownerName)
       this.deps.onHistoryMessage(stored)
-      this.deps.history.setPendingApprovalCard(pending.id, ownerChatId, sent.id)
+      this.deps.approvals.setCard(pending.id, ownerChatId, sent.id)
       this.deps.log.info(`approval#${pending.id}: 审核卡片已发送至 owner（${pending.channelId}/${ownerChatId}）`)
       return true
     } catch (error) {
-      this.deps.history.claimPendingApproval(pending.id, 'failed', Date.now(), pending.status)
+      this.deps.approvals.claim(pending.id, 'failed', Date.now(), pending.status)
       this.deps.log.error(
         `approval#${pending.id}: 审核卡片发送失败（owner 可能从未私聊过 bot）：${error instanceof Error ? error.message : String(error)}`,
       )
@@ -254,7 +256,7 @@ export class ApprovalManager {
     const pendingId = Number(match[1])
     const action = match[2] as 'allow' | 'deny' | 'stop'
 
-    const pending = this.deps.history.getPendingApproval(pendingId)
+    const pending = this.deps.approvals.get(pendingId)
     if (pending === null || pending.channelId !== event.channelId) {
       await channel.answerCallback(event.callbackQueryId, '该审核请求不存在或已失效')
       return
@@ -269,7 +271,7 @@ export class ApprovalManager {
 
     if (action === 'stop') {
       // 急停：仅自动审核放行态可终止（原子认领防双击）
-      if (!this.deps.history.claimPendingApproval(pending.id, 'terminated', Date.now(), 'auto_passed')) {
+      if (!this.deps.approvals.claim(pending.id, 'terminated', Date.now(), 'auto_passed')) {
         await channel.answerCallback(event.callbackQueryId, '已处理')
         return
       }
@@ -283,7 +285,7 @@ export class ApprovalManager {
 
     if (action === 'deny') {
       // 原子认领：双击/重启重放只有第一次生效
-      if (!this.deps.history.claimPendingApproval(pending.id, 'denied', Date.now())) {
+      if (!this.deps.approvals.claim(pending.id, 'denied', Date.now())) {
         await channel.answerCallback(event.callbackQueryId, '已处理')
         return
       }
@@ -299,7 +301,7 @@ export class ApprovalManager {
     const assistantExists =
       binding !== null && this.deps.store.current.assistants.some((a) => a.id === binding.assistant_id)
     if (binding === null || !assistantExists) {
-      if (this.deps.history.claimPendingApproval(pending.id, 'failed', Date.now())) {
+      if (this.deps.approvals.claim(pending.id, 'failed', Date.now())) {
         await this.editCard(channel, { ...pending, status: 'failed' }, '⚠️ 绑定已失效，未执行')
       }
       await channel.answerCallback(event.callbackQueryId, '绑定已失效，未执行')
@@ -307,7 +309,7 @@ export class ApprovalManager {
       return
     }
 
-    if (!this.deps.history.claimPendingApproval(pending.id, 'approved', Date.now())) {
+    if (!this.deps.approvals.claim(pending.id, 'approved', Date.now())) {
       await channel.answerCallback(event.callbackQueryId, '已处理')
       return
     }
@@ -364,7 +366,7 @@ export class ApprovalManager {
     }
     try {
       const sent = await channel.sendMessage(message)
-      const stored = this.deps.history.record(sent)
+      const stored = this.deps.messages.record(sent)
       this.deps.onHistoryMessage(stored)
     } catch (error) {
       this.deps.log.error(

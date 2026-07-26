@@ -1,14 +1,14 @@
 import type { AutoReviewConfig } from '../../shared/config'
 import { partsToPlainText, type AutoReviewRecord, type InboundEnvelope } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
+import type { AutoReviewRepo } from './auto-review-repo'
 import type { ConfigStore } from '../config/store'
-import type { HistoryStore } from '../history/store'
 import { withDeadline } from '../util/async'
 import type { Logger } from '../util/logger'
 
 // 智能 · 自动审核：用配置的 agent 评估待审核消息是否符合审核标准。
 // 通过 → 放行；未通过 / 出错 / 超时 → 回落人工审核（fail-safe 偏保守，绝不误放行）。
-// 全程在 history 库留痕（running → passed/rejected/error）并实时上报进度供 UI 展示。
+// 全程在应用库留痕（auto_reviews，AutoReviewRepo）并实时上报进度供 UI 展示。
 
 /** 单条消息的审核裁决 */
 export interface AutoReviewVerdict {
@@ -23,7 +23,7 @@ const TEXT_EXCERPT_LIMIT = 500
 
 export interface AutoReviewerDeps {
   store: ConfigStore
-  history: HistoryStore
+  reviews: AutoReviewRepo
   /** 按 auto_review 配置建一次性运行时（无 susie MCP，审核 agent 不应对外发消息） */
   createRuntime: (config: AutoReviewConfig) => Promise<AgentRuntime>
   /** 进度/结论上报（推送到 UI） */
@@ -49,7 +49,7 @@ export class AutoReviewer {
     const prompt = fileCount > 0 ? `${promptBody}\n\n（消息含 ${fileCount} 个附件）` : promptBody
 
     // 建 running 记录并上报（UI 立刻看到「审核中」）
-    const record = this.deps.history.createAutoReview({
+    const record = this.deps.reviews.create({
       channelId: message.channelId,
       chatId: message.chatId,
       senderId: message.senderId,
@@ -83,7 +83,7 @@ export class AutoReviewer {
   }
 
   private finish(id: number, status: 'passed' | 'rejected' | 'error', reason: string | null): void {
-    const updated = this.deps.history.finishAutoReview(id, status, reason, Date.now())
+    const updated = this.deps.reviews.finish(id, status, reason, Date.now())
     if (updated !== null) this.deps.emit(updated)
   }
 }

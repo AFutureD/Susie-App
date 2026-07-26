@@ -13,7 +13,8 @@ import {
 import type { AgentRuntime } from '../agents/types'
 import type { TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore, Unsubscribe } from '../config/store'
-import type { HistoryStore, PendingApproval } from '../history/store'
+import type { MessageRepo } from '../history/message-repo'
+import type { PendingApproval } from './approval-repo'
 import { ASSISTANT_COMMAND_SPECS, assistantCommands } from '../replier/commands'
 import { renderPrompt, renderSystemInstruction } from '../replier/templates'
 import type { Logger } from '../util/logger'
@@ -40,7 +41,7 @@ interface ChatEntry {
 
 export interface ChatManagerDeps {
   store: ConfigStore
-  history: HistoryStore
+  messages: MessageRepo
   mcpName: string
   getChannel: (id: string) => TelegramBotChannel | undefined
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>
@@ -103,7 +104,7 @@ export class ChatManager {
   /** 通道入站回调 */
   handleInbound(envelope: InboundEnvelope): void {
     const { message, chatName } = envelope
-    const stored = this.deps.history.record(message, chatName)
+    const stored = this.deps.messages.record(message, chatName)
     this.deps.onHistoryMessage(stored)
 
     const key = chatKey(message.channelId, message.chatId)
@@ -166,7 +167,7 @@ export class ChatManager {
       parts: input.parts,
     }
     const sent = await channel.sendMessage(message)
-    const stored = this.deps.history.record(sent)
+    const stored = this.deps.messages.record(sent)
     this.deps.onHistoryMessage(stored)
     return stored
   }

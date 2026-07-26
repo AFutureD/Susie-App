@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { InboundEnvelope, MessagePart } from '../../shared/messages'
-import type { PendingApproval } from '../history/store'
+import type { PendingApproval } from './approval-repo'
 import { buildCardParts } from './approvals'
 
 // 审核卡片文案的逐字节钉死（全状态矩阵）。

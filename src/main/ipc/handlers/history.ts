@@ -3,23 +3,23 @@ import type { ServiceHandlerDeps } from './channels'
 
 export function autoReviewHandlers({ service }: ServiceHandlerDeps): IpcHandlers['autoReview'] {
   return {
-    list: ({ limit }) => service.history.listAutoReviews(limit),
+    list: ({ limit }) => service.autoReviewRepo.list(limit),
   }
 }
 
 export function historyHandlers({ service }: ServiceHandlerDeps): IpcHandlers['history'] {
   return {
-    chats: () => service.history.listChats(),
+    chats: () => service.messages.listChats(),
 
     senders: ({ channelId, chatId, privateOnly }) =>
-      service.history.listSenders(channelId, chatId, { privateOnly: privateOnly ?? false }),
+      service.messages.listSenders(channelId, chatId, { privateOnly: privateOnly ?? false }),
 
     messages: ({ channelId, chatId, limit, beforeId }) =>
-      service.history.listMessages(channelId, chatId, {
+      service.messages.listMessages(channelId, chatId, {
         limit: limit ?? 80,
         ...(beforeId === undefined ? {} : { beforeId }),
       }),
 
-    search: ({ q, limit }) => service.history.search(q, limit ?? 50),
+    search: ({ q, limit }) => service.messages.search(q, limit ?? 50),
   }
 }

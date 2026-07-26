@@ -3,7 +3,9 @@ import type { ChannelUser, Config } from '../../shared/config'
 import type { ChatMessage, InboundEnvelope, MessagePart } from '../../shared/messages'
 import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
-import { HistoryStore, type PendingApproval } from '../history/store'
+import { AppDatabase } from '../db/database'
+import { MessageRepo } from '../history/message-repo'
+import { ApprovalRepo, type PendingApproval } from './approval-repo'
 import { ApprovalManager } from './approvals'
 
 const OWNER_ID = '900'
@@ -50,7 +52,9 @@ function makeHarness(
   config: Config = makeConfig(),
   options: { channelDown?: boolean; failCardSend?: boolean; terminateHit?: boolean } = {},
 ) {
-  const history = new HistoryStore(':memory:')
+  const db = new AppDatabase(':memory:')
+  const approvalRepo = new ApprovalRepo(db)
+  const messageRepo = new MessageRepo(db)
   const setUsersCalls: ChannelUser[][] = []
   const storeState = {
     current: config,
@@ -92,7 +96,8 @@ function makeHarness(
   const errors: string[] = []
   const manager = new ApprovalManager({
     store,
-    history,
+    approvals: approvalRepo,
+    messages: messageRepo,
     getChannel: () => (options.channelDown === true ? undefined : channel),
     dispatchApproved: (pending) => dispatched.push(pending),
     terminateChat: (pending) => {
@@ -102,7 +107,18 @@ function makeHarness(
     onHistoryMessage: () => {},
     log: { info: () => {}, error: (message) => errors.push(message) },
   })
-  return { manager, history, storeState, setUsersCalls, sent, answered, edited, dispatched, terminated, errors }
+  return {
+    manager,
+    approvals: approvalRepo,
+    storeState,
+    setUsersCalls,
+    sent,
+    answered,
+    edited,
+    dispatched,
+    terminated,
+    errors,
+  }
 }
 
 function callback(pendingId: number, action: 'allow' | 'deny' | 'stop', fromId = OWNER_ID): ChannelCallbackEvent {
@@ -124,7 +140,7 @@ function firstText(parts: MessagePart[] | undefined): string {
 
 describe('ApprovalManager.request', () => {
   it('parks the message, sends the owner card with buttons, and notifies the member', async () => {
-    const { manager, history, sent } = makeHarness()
+    const { manager, approvals, sent } = makeHarness()
 
     await manager.request(envelope('求帮忙'))
 
@@ -142,28 +158,28 @@ describe('ApprovalManager.request', () => {
     expect(sent[1]?.message.replyTo).toBe('10')
     expect(firstText(sent[1]?.message.parts)).toContain('审核')
 
-    const pendings = history.listPendingApprovals('tg')
+    const pendings = approvals.listPending('tg')
     expect(pendings).toHaveLength(1)
     expect(pendings[0]?.cardChatId).toBe(`P:${OWNER_ID}`)
     expect(pendings[0]?.cardMsgId).toBe('1')
   })
 
   it('marks failed when the channel is not running', async () => {
-    const { manager, history, errors } = makeHarness(makeConfig(), { channelDown: true })
+    const { manager, approvals, errors } = makeHarness(makeConfig(), { channelDown: true })
 
     await manager.request(envelope('hi'))
 
-    expect(history.listPendingApprovals('tg')).toHaveLength(0)
-    expect(history.getPendingApproval(1)?.status).toBe('failed')
+    expect(approvals.listPending('tg')).toHaveLength(0)
+    expect(approvals.get(1)?.status).toBe('failed')
     expect(errors.some((line) => line.includes('未运行'))).toBe(true)
   })
 
   it('marks failed and notifies the member when the owner card cannot be delivered', async () => {
-    const { manager, history, sent, errors } = makeHarness(makeConfig(), { failCardSend: true })
+    const { manager, approvals, sent, errors } = makeHarness(makeConfig(), { failCardSend: true })
 
     await manager.request(envelope('hi'))
 
-    expect(history.getPendingApproval(1)?.status).toBe('failed')
+    expect(approvals.get(1)?.status).toBe('failed')
     expect(errors.some((line) => line.includes('发送失败'))).toBe(true)
     // 唯一发出的消息是给 member 的失败提示
     expect(sent).toHaveLength(1)
@@ -174,11 +190,11 @@ describe('ApprovalManager.request', () => {
 
 describe('approval card buttons', () => {
   it('carry the apv:<pendingId>:<action> callback protocol', async () => {
-    const { manager, history, sent, edited } = makeHarness()
+    const { manager, approvals, sent, edited } = makeHarness()
 
     // 人工审核卡片：允许/拒绝
     await manager.request(envelope('求帮忙'))
-    const pending = history.listPendingApprovals('tg')[0]
+    const pending = approvals.listPending('tg')[0]
     expect(pending).toBeDefined()
     expect(sent[0]?.buttons?.flat().map((b) => b.id)).toEqual([`apv:${pending?.id}:allow`, `apv:${pending?.id}:deny`])
 
@@ -207,18 +223,18 @@ describe('approval card buttons', () => {
 describe('ApprovalManager.handleCallback', () => {
   async function parked(harness = makeHarness()) {
     await harness.manager.request(envelope('求帮忙'))
-    const pending = harness.history.listPendingApprovals('tg')[0]
+    const pending = harness.approvals.listPending('tg')[0]
     if (pending === undefined) throw new Error('no pending')
     harness.sent.length = 0
     return { ...harness, pending }
   }
 
   it('allow: claims, edits the card, answers, and dispatches the replay', async () => {
-    const { manager, history, answered, edited, dispatched, pending } = await parked()
+    const { manager, approvals, answered, edited, dispatched, pending } = await parked()
 
     await manager.handleCallback(callback(pending.id, 'allow'))
 
-    expect(history.getPendingApproval(pending.id)?.status).toBe('approved')
+    expect(approvals.get(pending.id)?.status).toBe('approved')
     expect(edited[0]?.buttons).toBeNull()
     expect(firstText(edited[0]?.parts)).toContain('【已允许】')
     expect(firstText(edited[0]?.parts)).toContain('✅ 已允许')
@@ -228,11 +244,11 @@ describe('ApprovalManager.handleCallback', () => {
   })
 
   it('deny: claims, edits the card, answers, and notifies the member', async () => {
-    const { manager, history, answered, edited, dispatched, sent, pending } = await parked()
+    const { manager, approvals, answered, edited, dispatched, sent, pending } = await parked()
 
     await manager.handleCallback(callback(pending.id, 'deny'))
 
-    expect(history.getPendingApproval(pending.id)?.status).toBe('denied')
+    expect(approvals.get(pending.id)?.status).toBe('denied')
     expect(firstText(edited[0]?.parts)).toContain('【已拒绝】')
     expect(firstText(edited[0]?.parts)).toContain('🚫 已拒绝')
     expect(answered[0]?.text).toBe('已拒绝')
@@ -244,12 +260,12 @@ describe('ApprovalManager.handleCallback', () => {
   })
 
   it('rejects taps from anyone but the current owner', async () => {
-    const { manager, history, answered, dispatched, pending } = await parked()
+    const { manager, approvals, answered, dispatched, pending } = await parked()
 
     await manager.handleCallback(callback(pending.id, 'allow', '100'))
 
     expect(answered[0]?.text).toBe('仅 owner 可操作')
-    expect(history.getPendingApproval(pending.id)?.status).toBe('pending')
+    expect(approvals.get(pending.id)?.status).toBe('pending')
     expect(dispatched).toHaveLength(0)
   })
 
@@ -257,13 +273,13 @@ describe('ApprovalManager.handleCallback', () => {
     const harness = makeHarness()
     // 已登记发送者（100）批准后不重复写入
     await harness.manager.request(envelope('求帮忙'))
-    const known = harness.history.listPendingApprovals('tg')[0]
+    const known = harness.approvals.listPending('tg')[0]
     await harness.manager.handleCallback(callback(known?.id ?? 0, 'allow'))
     expect(harness.setUsersCalls).toHaveLength(0)
 
     // 陌生发送者（200）批准后自动登记（缺省档位 + 显示名）
     await harness.manager.request(envelope('hello', '200', '陌生人'))
-    const pending = harness.history.listPendingApprovals('tg')[0]
+    const pending = harness.approvals.listPending('tg')[0]
     await harness.manager.handleCallback({ ...callback(pending?.id ?? 0, 'allow'), callbackQueryId: 'cq2' })
 
     expect(harness.setUsersCalls).toHaveLength(1)
@@ -284,13 +300,13 @@ describe('ApprovalManager.handleCallback', () => {
   })
 
   it('fails the approval when the binding vanished before allow', async () => {
-    const { manager, history, storeState, answered, edited, dispatched, pending } = await parked()
+    const { manager, approvals, storeState, answered, edited, dispatched, pending } = await parked()
     // 批准前绑定被删除
     storeState.current = makeConfig({ bindings: [] })
 
     await manager.handleCallback(callback(pending.id, 'allow'))
 
-    expect(history.getPendingApproval(pending.id)?.status).toBe('failed')
+    expect(approvals.get(pending.id)?.status).toBe('failed')
     expect(firstText(edited[0]?.parts)).toContain('【未执行】')
     expect(firstText(edited[0]?.parts)).toContain('绑定已失效')
     expect(answered[0]?.text).toBe('绑定已失效，未执行')
@@ -310,7 +326,7 @@ describe('ApprovalManager.handleCallback', () => {
 
 describe('ApprovalManager auto review flow', () => {
   it('beginAutoReview: sends a progress card without buttons and parks as auto_reviewing', async () => {
-    const { manager, history, sent } = makeHarness()
+    const { manager, approvals, sent } = makeHarness()
 
     const pending = await manager.beginAutoReview(envelope('自动审一下'))
 
@@ -323,7 +339,7 @@ describe('ApprovalManager auto review flow', () => {
     expect(firstText(sent[0]?.message.parts)).toContain('【自动审核中】')
     expect(firstText(sent[0]?.message.parts)).toContain('🤖 自动审核中…')
     expect(sent[0]?.buttons).toBeUndefined()
-    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_reviewing')
+    expect(approvals.get(pending?.id ?? 0)?.status).toBe('auto_reviewing')
   })
 
   it('beginAutoReview: returns null without a card when the channel has no owner', async () => {
@@ -337,22 +353,22 @@ describe('ApprovalManager auto review flow', () => {
   })
 
   it('beginAutoReview: returns null and marks failed when the card cannot be delivered', async () => {
-    const { manager, history, sent } = makeHarness(makeConfig(), { failCardSend: true })
+    const { manager, approvals, sent } = makeHarness(makeConfig(), { failCardSend: true })
 
     expect(await manager.beginAutoReview(envelope('hi'))).toBeNull()
-    expect(history.getPendingApproval(1)?.status).toBe('failed')
+    expect(approvals.get(1)?.status).toBe('failed')
     // 与 request 不同：不给 member 发失败提示（审核继续，拒绝时才回落 request 再试）
     expect(sent).toHaveLength(0)
   })
 
   it('settleAutoReview pass: moves to auto_passed and swaps in the terminate button', async () => {
-    const { manager, history, sent, edited } = makeHarness()
+    const { manager, approvals, sent, edited } = makeHarness()
     const pending = await manager.beginAutoReview(envelope('正常请求'))
     sent.length = 0
 
     await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
 
-    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('auto_passed')
+    expect(approvals.get(pending?.id ?? 0)?.status).toBe('auto_passed')
     // 曾经的回归：状态行更新了但标题 tag 仍是「待审核」
     expect(firstText(edited[0]?.parts)).toContain('【已放行】')
     expect(firstText(edited[0]?.parts)).toContain('✅ 自动审核通过')
@@ -362,13 +378,13 @@ describe('ApprovalManager auto review flow', () => {
   })
 
   it('settleAutoReview reject: reopens as pending with the reason and manual buttons, notifies the member', async () => {
-    const { manager, history, sent, edited } = makeHarness()
+    const { manager, approvals, sent, edited } = makeHarness()
     const pending = await manager.beginAutoReview(envelope('可疑请求'))
     sent.length = 0
 
     await manager.settleAutoReview(pending as PendingApproval, { passed: false, reason: '涉及文件外发' })
 
-    const reopened = history.getPendingApproval(pending?.id ?? 0)
+    const reopened = approvals.get(pending?.id ?? 0)
     expect(reopened?.status).toBe('pending')
     expect(reopened?.autoReviewReason).toBe('涉及文件外发')
     expect(firstText(edited[0]?.parts)).toContain('【待审核】')
@@ -380,14 +396,14 @@ describe('ApprovalManager auto review flow', () => {
   })
 
   it('stop: claims terminated, cancels the active turn, and strips the buttons', async () => {
-    const { manager, history, answered, edited, terminated } = makeHarness()
+    const { manager, approvals, answered, edited, terminated } = makeHarness()
     const pending = await manager.beginAutoReview(envelope('误判请求'))
     await manager.settleAutoReview(pending as PendingApproval, { passed: true, reason: null })
     edited.length = 0
 
     await manager.handleCallback(callback(pending?.id ?? 0, 'stop'))
 
-    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('terminated')
+    expect(approvals.get(pending?.id ?? 0)?.status).toBe('terminated')
     expect(terminated).toHaveLength(1)
     expect(firstText(edited[0]?.parts)).toContain('【已终止】')
     expect(firstText(edited[0]?.parts)).toContain('⛔ 已终止')
@@ -421,13 +437,13 @@ describe('ApprovalManager auto review flow', () => {
   })
 
   it('rejected-then-allow: the reopened pending goes through the standard manual decision', async () => {
-    const { manager, history, dispatched, edited } = makeHarness()
+    const { manager, approvals, dispatched, edited } = makeHarness()
     const pending = await manager.beginAutoReview(envelope('先拒后允'))
     await manager.settleAutoReview(pending as PendingApproval, { passed: false, reason: '拿不准' })
 
     await manager.handleCallback(callback(pending?.id ?? 0, 'allow'))
 
-    expect(history.getPendingApproval(pending?.id ?? 0)?.status).toBe('approved')
+    expect(approvals.get(pending?.id ?? 0)?.status).toBe('approved')
     expect(dispatched).toHaveLength(1)
     // 裁决后的卡片仍保留自动审核未通过的原因行
     const lastEdit = edited.at(-1)

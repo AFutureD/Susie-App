@@ -16,7 +16,10 @@ import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
 import { ApprovalManager } from './core/approvals'
 import { AutoReviewer } from './core/auto-review'
 import { ChatManager } from './core/chat-manager'
-import { HistoryStore } from './history/store'
+import { AppDatabase } from './db/database'
+import { MessageRepo } from './history/message-repo'
+import { ApprovalRepo } from './core/approval-repo'
+import { AutoReviewRepo } from './core/auto-review-repo'
 import { SusieMcpServer } from './mcp/server'
 import { withDeadline } from './util/async'
 import type { Logger } from './util/logger'
@@ -41,7 +44,10 @@ export interface ServicePaths {
  * 内置 MCP server 反向暴露 send_message / list_messages / list_chats。
  */
 export class SusieService {
-  readonly history: HistoryStore
+  readonly db: AppDatabase
+  readonly messages: MessageRepo
+  readonly approvalRepo: ApprovalRepo
+  readonly autoReviewRepo: AutoReviewRepo
   readonly hub: ChannelHub
   readonly chatManager: ChatManager
   readonly approvals: ApprovalManager
@@ -55,7 +61,10 @@ export class SusieService {
 
   constructor(store: ConfigStore, paths: ServicePaths, broadcast: IpcBroadcaster, log: Logger) {
     this.log = log
-    this.history = new HistoryStore(paths.historyDb)
+    this.db = new AppDatabase(paths.historyDb)
+    this.messages = new MessageRepo(this.db)
+    this.approvalRepo = new ApprovalRepo(this.db)
+    this.autoReviewRepo = new AutoReviewRepo(this.db)
     this.mcp = new SusieMcpServer(log)
 
     // 安装进度平时只推 UI；失败必须同时留日志痕迹
@@ -71,7 +80,8 @@ export class SusieService {
     // approvals ↔ chatManager ↔ hub 相互引用，一律用延迟闭包解环（构造顺序无关）
     this.approvals = new ApprovalManager({
       store,
-      history: this.history,
+      approvals: this.approvalRepo,
+      messages: this.messages,
       getChannel: (id) => this.hub.get(id),
       dispatchApproved: (pending) => this.chatManager.handleApproved(pending),
       terminateChat: (pending) => this.chatManager.cancelActiveTurn(pending.channelId, pending.chatId),
@@ -81,7 +91,7 @@ export class SusieService {
 
     this.autoReviewer = new AutoReviewer({
       store,
-      history: this.history,
+      reviews: this.autoReviewRepo,
       createRuntime: (config) => this.createReviewRuntime(config),
       emit: (record) => broadcast('autoReview.record', record),
       log,
@@ -89,7 +99,7 @@ export class SusieService {
 
     this.chatManager = new ChatManager({
       store,
-      history: this.history,
+      messages: this.messages,
       mcpName: SUSIE_MCP_NAME,
       getChannel: (id) => this.hub.get(id),
       createRuntime: (assistant) => this.createRuntime(assistant),
@@ -141,8 +151,8 @@ export class SusieService {
         return this.chatManager.sendMessage({ channelId, chatId, parts })
       },
       listMessages: ({ channelId, chatId, num, dateStart, dateEnd }) =>
-        this.history.listMessages(channelId, chatId, { limit: num, dateStart, dateEnd }),
-      listChats: (channelId) => this.history.listChats(channelId),
+        this.messages.listMessages(channelId, chatId, { limit: num, dateStart, dateEnd }),
+      listChats: (channelId) => this.messages.listChats(channelId),
     })
 
     this.hub.start()
@@ -156,8 +166,8 @@ export class SusieService {
     await this.hub.stopAll()
     this.log.info('service stopping: mcp')
     await this.mcp.stop()
-    this.log.info('service stopping: history')
-    this.history.close()
+    this.log.info('service stopping: db')
+    this.db.close()
     this.log.info('service stopped')
   }
 

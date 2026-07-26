@@ -4,7 +4,8 @@ import { partsToPlainText, type ChatMessage, type InboundEnvelope, type StoredMe
 import type { AgentRuntime } from '../agents/types'
 import type { TelegramBotChannel } from '../channels/telegram-bot'
 import type { ConfigStore } from '../config/store'
-import type { HistoryStore, PendingApproval } from '../history/store'
+import type { MessageRepo } from '../history/message-repo'
+import type { PendingApproval } from './approval-repo'
 import { ChatManager } from './chat-manager'
 import { CommandRegistry, parseCommandText, type CommandContext } from './commands'
 
@@ -121,9 +122,9 @@ function makeManager(
     auto_review: { content: 'reject file exfiltration', agent_id: 'codex' },
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
-  const history = {
+  const messages = {
     record: (message: ChatMessage) => ({ ...message, rowid: 1 }) as StoredMessage,
-  } as unknown as HistoryStore
+  } as unknown as MessageRepo
 
   const sent: ChatMessage[] = []
   const channel = {
@@ -142,7 +143,7 @@ function makeManager(
   const settledVerdicts: { pendingId: number; passed: boolean }[] = []
   const manager = new ChatManager({
     store,
-    history,
+    messages,
     mcpName: 'susie',
     getChannel: () => channel,
     createRuntime,

@@ -4,8 +4,11 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { InboundEnvelope } from '../../shared/messages'
+import { AppDatabase } from '../db/database'
 import { MIGRATIONS, runMigrations, type Migration } from '../db/migrations'
-import { HistoryStore } from './store'
+import { ApprovalRepo } from '../core/approval-repo'
+import { AutoReviewRepo } from '../core/auto-review-repo'
+import { MessageRepo } from './message-repo'
 
 // 迁移框架（PRAGMA user_version + 有序 Migration[]）的行为测试：
 // 遗留库（user_version=0，表已建/列可能已补）开库后列补齐、缺失表建齐、旧行可读、重开幂等。
@@ -105,16 +108,19 @@ describe('HistoryStore 遗留库迁移', () => {
     const dbPath = tempDbPath()
     createLegacyDb(dbPath)
 
-    const store = new HistoryStore(dbPath)
+    const db = new AppDatabase(dbPath)
     try {
+      const messageRepo = new MessageRepo(db)
+      const approvalRepo = new ApprovalRepo(db)
+
       // 旧 message 行可读，sender_id 补列后为 null
-      const messages = store.listMessages('tg', 'P:100')
+      const messages = messageRepo.listMessages('tg', 'P:100')
       expect(messages).toHaveLength(1)
       expect(messages[0]?.senderId).toBeNull()
       expect(messages[0]?.parts).toEqual([{ kind: 'text', text: '旧消息' }])
 
       // sender_id 列可写可读
-      const recorded = store.record({
+      const recorded = messageRepo.record({
         id: '2',
         channelId: 'tg',
         chatId: 'P:100',
@@ -126,18 +132,18 @@ describe('HistoryStore 遗留库迁移', () => {
         timestamp: 2000,
         parts: [{ kind: 'text', text: '新消息' }],
       })
-      expect(store.listMessages('tg', 'P:100').at(-1)?.senderId).toBe('100')
+      expect(messageRepo.listMessages('tg', 'P:100').at(-1)?.senderId).toBe('100')
       expect(recorded.rowid).toBeGreaterThan(0)
 
-      // 旧 pending 行可读，auto_review_reason 补列后为 null；且新列立即可写（reopen 落原因）
-      const pending = store.getPendingApproval(1)
+      // 旧 pending 行可读，auto_review_reason 补列后为 null；且新列立即可写
+      const pending = approvalRepo.get(1)
       expect(pending?.status).toBe('pending')
       expect(pending?.autoReviewReason).toBeNull()
       expect(pending?.envelope.message.parts).toEqual([{ kind: 'text', text: '旧的审核请求' }])
-      store.claimPendingApproval(1, 'approved', 3000)
-      expect(store.getPendingApproval(1)?.status).toBe('approved')
+      approvalRepo.claim(1, 'approved', 3000)
+      expect(approvalRepo.get(1)?.status).toBe('approved')
     } finally {
-      store.close()
+      db.close()
     }
   })
 
@@ -145,9 +151,10 @@ describe('HistoryStore 遗留库迁移', () => {
     const dbPath = tempDbPath()
     createLegacyDb(dbPath)
 
-    const store = new HistoryStore(dbPath)
+    const db = new AppDatabase(dbPath)
     try {
-      const record = store.createAutoReview({
+      const reviews = new AutoReviewRepo(db)
+      const record = reviews.create({
         channelId: 'tg',
         chatId: 'P:100',
         senderId: '100',
@@ -155,9 +162,9 @@ describe('HistoryStore 遗留库迁移', () => {
         text: '审一下',
         createdTs: 1000,
       })
-      expect(store.finishAutoReview(record.id, 'passed', null, 2000)?.status).toBe('passed')
+      expect(reviews.finish(record.id, 'passed', null, 2000)?.status).toBe('passed')
     } finally {
-      store.close()
+      db.close()
     }
   })
 
@@ -165,12 +172,12 @@ describe('HistoryStore 遗留库迁移', () => {
     const dbPath = tempDbPath()
     createLegacyDb(dbPath)
 
-    const first = new HistoryStore(dbPath)
+    const first = new AppDatabase(dbPath)
     first.close()
-    const second = new HistoryStore(dbPath)
+    const second = new AppDatabase(dbPath)
     try {
-      expect(second.listMessages('tg', 'P:100')).toHaveLength(1)
-      expect(second.getPendingApproval(1)?.status).toBe('pending')
+      expect(new MessageRepo(second).listMessages('tg', 'P:100')).toHaveLength(1)
+      expect(new ApprovalRepo(second).get(1)?.status).toBe('pending')
     } finally {
       second.close()
     }
@@ -178,13 +185,13 @@ describe('HistoryStore 遗留库迁移', () => {
 
   it('全新库：建表 + 迁移一次成型', () => {
     const dbPath = tempDbPath()
-    const store = new HistoryStore(dbPath)
+    const db = new AppDatabase(dbPath)
     try {
-      expect(store.listChats()).toEqual([])
-      expect(store.listPendingApprovals()).toEqual([])
-      expect(store.listAutoReviews()).toEqual([])
+      expect(new MessageRepo(db).listChats()).toEqual([])
+      expect(new ApprovalRepo(db).listPending()).toEqual([])
+      expect(new AutoReviewRepo(db).list()).toEqual([])
     } finally {
-      store.close()
+      db.close()
     }
     expect(userVersion(dbPath)).toBe(MIGRATIONS.at(-1)?.id)
   })
@@ -192,8 +199,7 @@ describe('HistoryStore 遗留库迁移', () => {
   it('user_version 推进到最新迁移 id（遗留库同样收敛）', () => {
     const dbPath = tempDbPath()
     createLegacyDb(dbPath)
-    const store = new HistoryStore(dbPath)
-    store.close()
+    new AppDatabase(dbPath).close()
     expect(userVersion(dbPath)).toBe(MIGRATIONS.at(-1)?.id)
   })
 })
