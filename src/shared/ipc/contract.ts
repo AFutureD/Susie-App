@@ -28,6 +28,14 @@ import type {
   TaskStatus,
   UpdateState,
 } from '../messages'
+import { SKILL_DIRS, SKILL_SCOPES } from '../skills'
+import type {
+  AssistantSkills,
+  LocalSkillList,
+  RegistrySearchResult,
+  RepoSkillsResult,
+  SkillInstallResult,
+} from '../skills'
 
 export interface AppInfo {
   name: string
@@ -58,6 +66,13 @@ export type ContractShape = Record<string, Record<string, MethodDef>>
 
 /** 乐观并发控制的版本号（ConfigState.version） */
 const expectedVersion = z.number().int().nonnegative()
+
+/** 远程技能的安装目标：scope=assistant 时 assistantId 必填（handler 内校验） */
+const skillInstallTarget = z.object({
+  scope: z.enum(SKILL_SCOPES),
+  assistantId: z.string().optional(),
+  dir: z.enum(SKILL_DIRS),
+})
 
 export const ipcContract = {
   app: {
@@ -168,6 +183,47 @@ export const ipcContract = {
     models: { req: z.object({ agentId: z.string() }), res: res<AgentModelOption[]>() },
     install: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
     uninstall: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
+  },
+
+  skills: {
+    /** 本地技能清单：global 扫用户主目录，assistant 扫助手生效工作目录（三个容器目录全扫） */
+    listLocal: {
+      req: z.object({ scope: z.enum(SKILL_SCOPES), assistantId: z.string().optional() }),
+      res: res<LocalSkillList>(),
+    },
+    /** 某助手实际可读的技能（按 agent 支持目录过滤；助手弹窗与任务表单选择器共用） */
+    listForAssistant: { req: z.object({ id: z.string() }), res: res<AssistantSkills>() },
+    /** 删除本地技能目录 */
+    remove: {
+      req: z.object({
+        scope: z.enum(SKILL_SCOPES),
+        assistantId: z.string().optional(),
+        dir: z.enum(SKILL_DIRS),
+        dirName: z.string().min(1),
+      }),
+      res: res<ActionResult>(),
+    },
+    /** 在 Finder 打开技能目录 */
+    reveal: { req: z.object({ path: z.string().min(1) }), res: res<ActionResult>() },
+    /** 列出 GitHub 仓库中的技能（owner/repo 或 github.com 链接）；返回 sessionId 供安装复用解包结果 */
+    listRepo: { req: z.object({ source: z.string().min(1) }), res: res<RepoSkillsResult>() },
+    /** 从最近一次 listRepo 的解包结果安装指定技能 */
+    installFromRepo: {
+      req: z.object({
+        sessionId: z.string().min(1),
+        relPath: z.string().min(1),
+        target: skillInstallTarget,
+        overwrite: z.boolean().default(false),
+      }),
+      res: res<SkillInstallResult>(),
+    },
+    /** skillhubs registry 关键词搜索 */
+    searchRegistry: { req: z.object({ keyword: z.string() }), res: res<RegistrySearchResult>() },
+    /** 从 skillhubs registry 安装（取最新版本） */
+    installFromRegistry: {
+      req: z.object({ name: z.string().min(1), target: skillInstallTarget, overwrite: z.boolean().default(false) }),
+      res: res<SkillInstallResult>(),
+    },
   },
 
   logs: {

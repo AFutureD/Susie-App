@@ -1,3 +1,6 @@
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import type { AssistantConfig, Config, ScheduledTask } from '../../shared/config'
 import type { MessagePart, TaskRunRecord } from '../../shared/messages'
@@ -41,6 +44,8 @@ interface RuntimeScript {
   failWith?: string
   /** prompt 前的闸门（重叠/在跑用例手动放行） */
   gate?: Promise<void>
+  /** 捕获实际收到的 prompt 文本（skill 渲染用例） */
+  onPrompt?: (text: string) => void
 }
 
 function stubRuntime(script: RuntimeScript): AgentRuntime {
@@ -50,7 +55,8 @@ function stubRuntime(script: RuntimeScript): AgentRuntime {
     currentModel: async () => null,
     setModel: async () => true,
     cancel: async () => {},
-    prompt(): AsyncGenerator<AgentTurn> {
+    prompt(text: string): AsyncGenerator<AgentTurn> {
+      script.onPrompt?.(text)
       return (async function* () {
         if (script.gate !== undefined) await script.gate
         if (script.failWith !== undefined) {
@@ -221,6 +227,44 @@ describe('TaskScheduler.tick', () => {
     await settled(allFail.emitted)
     expect(allFail.emitted.at(-1)?.status).toBe('error')
     expect(allFail.emitted.at(-1)?.error).toBe('全部目标投递失败')
+  })
+})
+
+describe('技能任务（skill 引用）', () => {
+  it('skill 存在：prompt 渲染为「阅读 SKILL.md」指引并携带补充输入', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'susie-sched-skill-'))
+    const skillDir = path.join(workDir, '.agents/skills', 'daily')
+    fs.mkdirSync(skillDir, { recursive: true })
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '---\nname: daily\n---\n')
+
+    const prompts: string[] = []
+    const h = makeHarness({
+      tasks: [makeTask({ content: '只看要点', skill: { name: 'daily', dir: '.agents/skills', scope: 'assistant' } })],
+      assistants: [{ id: 'default', agent_id: 'codex', work_dir: workDir }],
+      runtime: { text: '完成', onPrompt: (text) => prompts.push(text) },
+    })
+    h.scheduler.tick()
+    await settled(h.emitted)
+
+    expect(h.emitted.at(-1)?.status).toBe('ok')
+    expect(prompts[0]).toContain('skill「daily」')
+    expect(prompts[0]).toContain(path.join(skillDir, 'SKILL.md'))
+    expect(prompts[0]).toContain('补充输入：\n只看要点')
+    fs.rmSync(workDir, { recursive: true, force: true })
+  })
+
+  it('skill 缺失：记 error 执行记录（与 assistant 缺失同型）', async () => {
+    const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'susie-sched-skill-'))
+    const h = makeHarness({
+      tasks: [makeTask({ content: '', skill: { name: 'ghost', dir: '.agents/skills', scope: 'assistant' } })],
+      assistants: [{ id: 'default', agent_id: 'codex', work_dir: workDir }],
+    })
+    h.scheduler.tick()
+    await settled(h.emitted)
+
+    expect(h.emitted.at(-1)?.status).toBe('error')
+    expect(h.emitted.at(-1)?.error).toContain('skill 不存在')
+    fs.rmSync(workDir, { recursive: true, force: true })
   })
 })
 

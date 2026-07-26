@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { parseCron } from './schedule'
+import { SKILL_DIRS, SKILL_SCOPES } from './skills'
 
 // 配置领域模型（对位 Python 版 susie.settings / susie_core）。
 // 字段名保持 snake_case 以兼容既有 config.toml。
@@ -127,19 +128,38 @@ export const taskTargetSchema = z.strictObject({
 })
 
 /**
+ * 定时任务引用的技能：name = 技能目录名，执行时按 assistant 的支持目录现场解析
+ * （工作目录/全局 × 容器目录），缺失记 error 执行记录——与 assistant 缺失同型，不做 schema 级校验。
+ */
+export const taskSkillSchema = z.strictObject({
+  name: z.string().min(1, 'skill 名称不能为空'),
+  dir: z.enum(SKILL_DIRS),
+  scope: z.enum(SKILL_SCOPES),
+})
+
+/**
  * 定时任务：到点用 assistant 执行一次 content，最终输出发送到全部 targets。
  * schedule 为标准 5 字段 cron（分 时 日 月 周，本地时区）；UI 用预设控件生成/反解析，
  * 不直接暴露表达式。错过的点位（睡眠/未运行）一律跳过，不补跑。
  */
-export const scheduledTaskSchema = z.strictObject({
-  id: z.string().regex(ID_PATTERN, 'id 只能包含字母、数字、_ 和 -'),
-  name: z.string().min(1, '任务名称不能为空'),
-  content: z.string().min(1, '任务内容不能为空'),
-  assistant_id: z.string().min(1),
-  schedule: z.string().refine((value) => parseCron(value) !== null, '调度表达式不合法'),
-  targets: z.array(taskTargetSchema).min(1, '至少选择一个会话'),
-  enabled: z.boolean().default(true),
-})
+export const scheduledTaskSchema = z
+  .strictObject({
+    id: z.string().regex(ID_PATTERN, 'id 只能包含字母、数字、_ 和 -'),
+    name: z.string().min(1, '任务名称不能为空'),
+    /** skill 未设时为任务全文（必填，见 superRefine）；设了 skill 时为补充输入（可空） */
+    content: z.string(),
+    /** 任务内容来自技能：执行期渲染为「阅读 SKILL.md 并遵循」的提示词（main/skills/task-prompt.ts） */
+    skill: taskSkillSchema.optional(),
+    assistant_id: z.string().min(1),
+    schedule: z.string().refine((value) => parseCron(value) !== null, '调度表达式不合法'),
+    targets: z.array(taskTargetSchema).min(1, '至少选择一个会话'),
+    enabled: z.boolean().default(true),
+  })
+  .superRefine((task, ctx) => {
+    if (task.skill === undefined && task.content.trim() === '') {
+      ctx.addIssue({ code: 'custom', path: ['content'], message: '任务内容不能为空' })
+    }
+  })
 
 export const configSchema = z
   .strictObject({
@@ -215,6 +235,7 @@ export type ChatBinding = z.infer<typeof bindingSchema>
 export type ChannelUser = z.infer<typeof userSchema>
 export type AutoReviewConfig = z.infer<typeof autoReviewSchema>
 export type TaskTarget = z.infer<typeof taskTargetSchema>
+export type TaskSkillRef = z.infer<typeof taskSkillSchema>
 export type ScheduledTask = z.infer<typeof scheduledTaskSchema>
 export type Config = z.infer<typeof configSchema>
 

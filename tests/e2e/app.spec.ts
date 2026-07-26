@@ -130,6 +130,24 @@ test('Agent 页：同构列表渲染 Codex 行与安装态', async () => {
   await expect(win.getByRole('button', { name: '刷新' })).toBeVisible()
 })
 
+test('技能页：维度切换、搜索与获取入口', async () => {
+  await win.getByRole('link', { name: '技能' }).click()
+  // 列表内容依赖真实 HOME（只读扫描），断言只做 presence，不做数量/空态
+  await expect(win.getByRole('button', { name: '全局' })).toBeVisible()
+  await expect(win.getByRole('button', { name: '助手', exact: true })).toBeVisible()
+  await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
+  await expect(win.getByText(/^目录 /)).toBeVisible()
+
+  // 获取子页：GitHub 与 skillhubs 两个来源
+  await win.getByRole('link', { name: '获取技能' }).click()
+  await expect(win.getByText('从 GitHub 仓库')).toBeVisible()
+  await expect(win.getByPlaceholder('owner/repo 或 https://github.com/...')).toBeVisible()
+  await expect(win.getByText('从 skillhubs registry')).toBeVisible()
+  await expect(win.getByRole('button', { name: '搜索', exact: true })).toBeVisible()
+  await win.getByRole('link', { name: '← 返回技能' }).click()
+  await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
+})
+
 test('历史页：空态与会话列表骨架', async () => {
   await win.getByRole('link', { name: '历史' }).click()
   await expect(win.getByText('还没有任何消息记录')).toBeVisible()

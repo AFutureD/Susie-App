@@ -18,6 +18,17 @@ Your job is trying to add documents in this swift package project.
 - You should add doc for every swift file in @/Sources  ;
 ```
 
+## 0x01. Content Generation
+
+生成内容时，考虑 skill /i-have-adhd 
+
+## 0x02. UI / UX
+
+[DESIGN.md](./DESIGN.md)
+
+
+---
+
 Susie 桌面版（TypeScript / Electron）。迁移计划、架构决策与里程碑见
 [docs/developer/tasks/260722T1917-migrate-macos-desktop-app/TASK.md](./docs/developer/tasks/260722T1917-migrate-macos-desktop-app/TASK.md)，
 行为参照 Python 源仓库 `~/Developer/susie`。

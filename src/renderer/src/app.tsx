@@ -16,6 +16,8 @@ import { HistoryPage } from './pages/history'
 import { IntelligencePage } from './pages/intelligence'
 import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
+import { SkillsPage } from './pages/skills'
+import { SkillsRemotePage } from './pages/skills/remote'
 import { TasksPage } from './pages/tasks'
 import { TaskHistoryPage } from './pages/tasks/history'
 import { UsersPage } from './pages/users'
@@ -100,6 +102,8 @@ export function App() {
             <Route path="/" element={<Navigate to="/channels" replace />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/agents" element={<AgentsPage />} />
+            <Route path="/skills" element={<SkillsPage />} />
+            <Route path="/skills/remote" element={<SkillsRemotePage />} />
             <Route path="/assistants" element={<AssistantsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />

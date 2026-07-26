@@ -3,6 +3,7 @@ import { useIntl } from 'react-intl'
 import { CHAT_ALL } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { Button, Field, TextInput } from '../form'
+import { Modal } from '../modal'
 
 /** 添加会话弹窗：历史会话候选 + 手动输入兜底 */
 export function ChatPickerModal({
@@ -26,46 +27,38 @@ export function ChatPickerModal({
   const manualValid = /^\S+$/.test(manual) && manual !== CHAT_ALL && !existingChatIds.has(manual)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div
-        className="max-h-[70vh] w-96 overflow-y-auto rounded-xl border border-line bg-raised p-4 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 className="mb-3 text-sm font-semibold">
-          {intl.formatMessage({ id: 'bindings.picker.chat.title' }, { id: channelId })}
-        </h3>
-        <div className="flex flex-col gap-1">
-          {candidates.length === 0 && (
-            <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'bindings.picker.chat.empty' })}</p>
-          )}
-          {candidates.map((chat) => (
-            <button
-              key={chat.chatId}
-              type="button"
-              onClick={() => onPick(chat.chatId, chat.name)}
-              className="rounded-md px-2 py-1.5 text-left transition-colors hover:bg-line/40"
-            >
-              <span className="block truncate text-sm">{chat.name ?? chat.chatId}</span>
-              <span className="block font-mono text-[11px] text-ink-muted">{chat.chatId}</span>
-            </button>
-          ))}
-        </div>
-        <div className="mt-4 border-t border-line pt-3">
-          <Field label={intl.formatMessage({ id: 'bindings.picker.chat.manual' })}>
-            <TextInput
-              value={manual}
-              placeholder="P:123456"
-              onChange={(event) => setManual(event.target.value.trim())}
-            />
-          </Field>
-          <div className="mt-3 flex gap-2">
-            <Button variant="primary" disabled={!manualValid} onClick={() => onPick(manual, null)}>
-              {intl.formatMessage({ id: 'bindings.picker.chat.confirm' })}
-            </Button>
-            <Button onClick={onClose}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-          </div>
+    <Modal
+      title={intl.formatMessage({ id: 'bindings.picker.chat.title' }, { id: channelId })}
+      panelClassName="w-96 overflow-y-auto p-4"
+      onClose={onClose}
+    >
+      <div className="flex flex-col gap-1">
+        {candidates.length === 0 && (
+          <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'bindings.picker.chat.empty' })}</p>
+        )}
+        {candidates.map((chat) => (
+          <button
+            key={chat.chatId}
+            type="button"
+            onClick={() => onPick(chat.chatId, chat.name)}
+            className="rounded-md px-2 py-1.5 text-left transition-colors hover:bg-line/40"
+          >
+            <span className="block truncate text-sm">{chat.name ?? chat.chatId}</span>
+            <span className="block font-mono text-[11px] text-ink-muted">{chat.chatId}</span>
+          </button>
+        ))}
+      </div>
+      <div className="mt-4 border-t border-line pt-3">
+        <Field label={intl.formatMessage({ id: 'bindings.picker.chat.manual' })}>
+          <TextInput value={manual} placeholder="P:123456" onChange={(event) => setManual(event.target.value.trim())} />
+        </Field>
+        <div className="mt-3 flex gap-2">
+          <Button variant="primary" disabled={!manualValid} onClick={() => onPick(manual, null)}>
+            {intl.formatMessage({ id: 'bindings.picker.chat.confirm' })}
+          </Button>
+          <Button onClick={onClose}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

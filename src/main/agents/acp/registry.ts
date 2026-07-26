@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import type { AgentProgress } from '../../../shared/messages'
+import { extractArchive } from '../../util/archive'
 import { probeAcpMcpHttp } from './probe'
 import { downloadWithProgress } from '../download'
 
@@ -220,27 +221,4 @@ export class AcpRegistryManager {
 export function compareAcpRows(a: AcpAgentRow, b: AcpAgentRow): number {
   const rank = (row: AcpAgentRow): number => (row.installedVersion !== null ? 0 : row.installable ? 1 : 2)
   return rank(a) - rank(b) || a.name.localeCompare(b.name)
-}
-
-/** macOS 自带 unzip/tar，免第三方解压依赖 */
-function extractArchive(archivePath: string, targetDir: string): void {
-  const lower = archivePath.toLowerCase()
-  let result
-  if (lower.endsWith('.zip')) {
-    result = spawnSync('unzip', ['-o', '-q', archivePath, '-d', targetDir], { stdio: 'pipe' })
-  } else if (
-    lower.endsWith('.tar.gz') ||
-    lower.endsWith('.tgz') ||
-    lower.endsWith('.tar.xz') ||
-    lower.endsWith('.tar')
-  ) {
-    result = spawnSync('tar', ['-xf', archivePath, '-C', targetDir], { stdio: 'pipe' })
-  } else {
-    // 无归档后缀：视为裸二进制
-    fs.copyFileSync(archivePath, path.join(targetDir, path.basename(archivePath)))
-    return
-  }
-  if (result.status !== 0) {
-    throw new Error(`解压失败：${result.stderr?.toString() ?? 'unknown'}`)
-  }
 }

@@ -4,6 +4,7 @@ import type { SenderInfo } from '../../../shared/messages'
 import { ipc } from '../lib/ipc'
 import { useIpcQuery } from '../lib/ipc-query'
 import { Button, Field, TextInput } from './form'
+import { Modal } from './modal'
 
 // 选人通用件：「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
 // UI 全程不显示 peer id（仅当手动添加且从无发言记录时以 id 兜底显示）。
@@ -58,62 +59,60 @@ export function MemberPickerModal({
   const manualValid = /^\d+$/.test(manual) && !existing.has(manual)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div
-        className="flex max-h-[70vh] w-96 flex-col rounded-xl border border-line bg-raised p-4 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 className="mb-3 text-sm font-semibold">{intl.formatMessage({ id: 'members.addMember' })}</h3>
-        <TextInput
-          value={query}
-          autoFocus
-          placeholder={intl.formatMessage({ id: 'members.picker.search' })}
-          onChange={(event) => setQuery(event.target.value)}
-        />
-        <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
-          {candidates.length === 0 ? (
-            <p className="py-2 text-xs text-ink-muted">{intl.formatMessage({ id: 'members.picker.empty' })}</p>
-          ) : filtered.length === 0 ? (
-            <p className="py-2 text-xs text-ink-muted">{intl.formatMessage({ id: 'members.picker.noMatch' })}</p>
-          ) : (
-            <div className="flex flex-col gap-0.5">
-              {filtered.map((sender) => (
-                <button
-                  key={sender.id}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => onAdd(sender.id)}
-                  className="rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-line/40 disabled:opacity-40"
-                >
-                  {sender.name ?? sender.id}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        <div className="mt-3 border-t border-line pt-3">
-          <Field label={intl.formatMessage({ id: 'members.picker.manual' })}>
-            <TextInput
-              value={manual}
-              placeholder="123456789"
-              onChange={(event) => setManual(event.target.value.trim())}
-            />
-          </Field>
-          <div className="mt-3 flex gap-2">
-            <Button
-              variant="primary"
-              disabled={busy === true || !manualValid}
-              onClick={() => {
-                onAdd(manual)
-                setManual('')
-              }}
-            >
-              {intl.formatMessage({ id: 'members.picker.add' })}
-            </Button>
-            <Button onClick={onClose}>{intl.formatMessage({ id: 'members.picker.done' })}</Button>
+    <Modal
+      title={intl.formatMessage({ id: 'members.addMember' })}
+      panelClassName="flex w-96 flex-col p-4"
+      onClose={onClose}
+    >
+      <TextInput
+        value={query}
+        autoFocus
+        placeholder={intl.formatMessage({ id: 'members.picker.search' })}
+        onChange={(event) => setQuery(event.target.value)}
+      />
+      <div className="mt-2 min-h-0 flex-1 overflow-y-auto">
+        {candidates.length === 0 ? (
+          <p className="py-2 text-xs text-ink-muted">{intl.formatMessage({ id: 'members.picker.empty' })}</p>
+        ) : filtered.length === 0 ? (
+          <p className="py-2 text-xs text-ink-muted">{intl.formatMessage({ id: 'members.picker.noMatch' })}</p>
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {filtered.map((sender) => (
+              <button
+                key={sender.id}
+                type="button"
+                disabled={busy}
+                onClick={() => onAdd(sender.id)}
+                className="rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-line/40 disabled:opacity-40"
+              >
+                {sender.name ?? sender.id}
+              </button>
+            ))}
           </div>
+        )}
+      </div>
+      <div className="mt-3 border-t border-line pt-3">
+        <Field label={intl.formatMessage({ id: 'members.picker.manual' })}>
+          <TextInput
+            value={manual}
+            placeholder="123456789"
+            onChange={(event) => setManual(event.target.value.trim())}
+          />
+        </Field>
+        <div className="mt-3 flex gap-2">
+          <Button
+            variant="primary"
+            disabled={busy === true || !manualValid}
+            onClick={() => {
+              onAdd(manual)
+              setManual('')
+            }}
+          >
+            {intl.formatMessage({ id: 'members.picker.add' })}
+          </Button>
+          <Button onClick={onClose}>{intl.formatMessage({ id: 'members.picker.done' })}</Button>
         </div>
       </div>
-    </div>
+    </Modal>
   )
 }

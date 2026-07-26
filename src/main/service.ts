@@ -22,6 +22,7 @@ import { MessageRepo } from './history/message-repo'
 import { ApprovalRepo } from './core/approval-repo'
 import { AutoReviewRepo } from './core/auto-review-repo'
 import { SusieMcpServer } from './mcp/server'
+import { SkillsManager } from './skills/manager'
 import { TaskRunRepo } from './tasks/task-run-repo'
 import { TaskScheduler } from './tasks/scheduler'
 import { withTimeout } from './util/async'
@@ -56,6 +57,7 @@ export class SusieService {
   readonly scheduler: TaskScheduler
   readonly mcp: SusieMcpServer
   readonly agents: AgentManager
+  readonly skills: SkillsManager
 
   private readonly log: Logger
   private readonly unsubUsers: () => void
@@ -82,6 +84,7 @@ export class SusieService {
       [new CodexProvider(codexInstaller, log), new AcpProvider(acpRegistry, SUSIE_MCP_NAME, log)],
       log,
     )
+    this.skills = new SkillsManager(store, log)
 
     // approvals ↔ chatManager ↔ hub 相互引用，一律用延迟闭包解环（构造顺序无关）
     this.approvals = new ApprovalManager({
@@ -190,6 +193,7 @@ export class SusieService {
     await this.hub.stopAll()
     this.log.info('service stopping: mcp')
     await withTimeout(this.mcp.stop(), 2000, undefined)
+    this.skills.dispose()
     this.log.info('service stopping: db')
     this.db.close()
     this.log.info('service stopped')

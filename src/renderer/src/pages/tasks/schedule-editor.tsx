@@ -2,6 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useIntl } from 'react-intl'
 import { nextRunAt, parseCron } from '../../../../shared/schedule'
 import { Button, Field, Select, TextInput } from '../../components/form'
+import { Modal } from '../../components/modal'
 import { describeSchedule, fromCron, toCron, type PresetKind, type SchedulePreset } from './model'
 
 // 调度编辑：行内只显示人类可读描述，「编辑」打开弹窗。
@@ -69,95 +70,92 @@ function ScheduleModal({
   const nextTs = spec === null ? null : nextRunAt(spec, Date.now())
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onCancel}>
-      <div
-        className="w-[26rem] rounded-xl border border-line bg-raised p-5 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <h3 className="text-sm font-semibold">{intl.formatMessage({ id: 'tasks.schedule.modal.title' })}</h3>
+    <Modal
+      title={intl.formatMessage({ id: 'tasks.schedule.modal.title' })}
+      panelClassName="w-[26rem] overflow-y-auto p-5"
+      onClose={onCancel}
+    >
+      <div className="mt-4 grid grid-cols-2 gap-4">
+        <Field label={intl.formatMessage({ id: 'tasks.schedule.field.kind' })}>
+          <Select value={preset?.kind ?? 'custom'} onChange={(event) => switchKind(event.target.value)}>
+            {preset === null && (
+              <option value="custom">{intl.formatMessage({ id: 'tasks.schedule.kind.custom' })}</option>
+            )}
+            {KINDS.map((kind) => (
+              <option key={kind} value={kind}>
+                {intl.formatMessage({ id: `tasks.schedule.kind.${kind}` })}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {preset !== null && <ParamField preset={preset} onChange={apply} />}
+      </div>
 
-        <div className="mt-4 grid grid-cols-2 gap-4">
-          <Field label={intl.formatMessage({ id: 'tasks.schedule.field.kind' })}>
-            <Select value={preset?.kind ?? 'custom'} onChange={(event) => switchKind(event.target.value)}>
-              {preset === null && (
-                <option value="custom">{intl.formatMessage({ id: 'tasks.schedule.kind.custom' })}</option>
-              )}
-              {KINDS.map((kind) => (
-                <option key={kind} value={kind}>
-                  {intl.formatMessage({ id: `tasks.schedule.kind.${kind}` })}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          {preset !== null && <ParamField preset={preset} onChange={apply} />}
-        </div>
+      {preset?.kind === 'weekly' && (
+        <Group label={intl.formatMessage({ id: 'tasks.schedule.field.weekdays' })}>
+          <div className="flex gap-1.5">
+            {WEEKDAY_ORDER.map((day) => (
+              <ToggleChip
+                key={day}
+                className="flex-1 py-1.5"
+                label={intl.formatMessage({ id: `tasks.weekday.${day}` })}
+                active={preset.weekdays.includes(day)}
+                onToggle={() => {
+                  const next = preset.weekdays.includes(day)
+                    ? preset.weekdays.filter((item) => item !== day)
+                    : [...preset.weekdays, day]
+                  // 至少保留一天
+                  if (next.length > 0) apply({ ...preset, weekdays: next })
+                }}
+              />
+            ))}
+          </div>
+        </Group>
+      )}
 
-        {preset?.kind === 'weekly' && (
-          <Group label={intl.formatMessage({ id: 'tasks.schedule.field.weekdays' })}>
-            <div className="flex gap-1.5">
-              {WEEKDAY_ORDER.map((day) => (
-                <ToggleChip
-                  key={day}
-                  className="flex-1 py-1.5"
-                  label={intl.formatMessage({ id: `tasks.weekday.${day}` })}
-                  active={preset.weekdays.includes(day)}
-                  onToggle={() => {
-                    const next = preset.weekdays.includes(day)
-                      ? preset.weekdays.filter((item) => item !== day)
-                      : [...preset.weekdays, day]
-                    // 至少保留一天
-                    if (next.length > 0) apply({ ...preset, weekdays: next })
-                  }}
-                />
-              ))}
-            </div>
-          </Group>
-        )}
+      {preset?.kind === 'monthly' && (
+        <Group label={intl.formatMessage({ id: 'tasks.schedule.field.days' })}>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+              <ToggleChip
+                key={day}
+                className="py-1"
+                label={String(day)}
+                active={preset.days.includes(day)}
+                onToggle={() => {
+                  const next = preset.days.includes(day)
+                    ? preset.days.filter((item) => item !== day)
+                    : [...preset.days, day]
+                  if (next.length > 0) apply({ ...preset, days: next })
+                }}
+              />
+            ))}
+          </div>
+        </Group>
+      )}
 
-        {preset?.kind === 'monthly' && (
-          <Group label={intl.formatMessage({ id: 'tasks.schedule.field.days' })}>
-            <div className="grid grid-cols-7 gap-1">
-              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-                <ToggleChip
-                  key={day}
-                  className="py-1"
-                  label={String(day)}
-                  active={preset.days.includes(day)}
-                  onToggle={() => {
-                    const next = preset.days.includes(day)
-                      ? preset.days.filter((item) => item !== day)
-                      : [...preset.days, day]
-                    if (next.length > 0) apply({ ...preset, days: next })
-                  }}
-                />
-              ))}
-            </div>
-          </Group>
-        )}
+      {preset === null && (
+        <p className="mt-3 text-xs leading-5 text-ink-muted">
+          {intl.formatMessage({ id: 'tasks.schedule.custom.hint' })}
+        </p>
+      )}
 
-        {preset === null && (
-          <p className="mt-3 text-xs leading-5 text-ink-muted">
-            {intl.formatMessage({ id: 'tasks.schedule.custom.hint' })}
+      <div className="mt-4 rounded-lg border border-line bg-surface px-3.5 py-2.5">
+        <p className="text-sm font-medium">{describeSchedule(intl, cron)}</p>
+        {nextTs !== null && (
+          <p className="mt-0.5 text-xs text-ink-muted">
+            {intl.formatMessage({ id: 'tasks.schedule.next' }, { time: new Date(nextTs).toLocaleString() })}
           </p>
         )}
-
-        <div className="mt-4 rounded-lg border border-line bg-surface px-3.5 py-2.5">
-          <p className="text-sm font-medium">{describeSchedule(intl, cron)}</p>
-          {nextTs !== null && (
-            <p className="mt-0.5 text-xs text-ink-muted">
-              {intl.formatMessage({ id: 'tasks.schedule.next' }, { time: new Date(nextTs).toLocaleString() })}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-5 flex gap-2">
-          <Button variant="primary" onClick={() => onConfirm(cron)}>
-            {intl.formatMessage({ id: 'tasks.schedule.confirm' })}
-          </Button>
-          <Button onClick={onCancel}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-        </div>
       </div>
-    </div>
+
+      <div className="mt-5 flex gap-2">
+        <Button variant="primary" onClick={() => onConfirm(cron)}>
+          {intl.formatMessage({ id: 'tasks.schedule.confirm' })}
+        </Button>
+        <Button onClick={onCancel}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+      </div>
+    </Modal>
   )
 }
 

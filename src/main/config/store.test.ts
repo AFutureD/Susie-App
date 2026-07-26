@@ -337,4 +337,41 @@ members = ["7"]
     const good = store.saveRaw('[[assistants]]\nid = "default"\n', versionBefore)
     expect(good.ok).toBe(true)
   })
+
+  it('scheduled task：设 skill 时空 content 合法（补充输入可空），未设时拒绝；skill 完整往返', () => {
+    const configPath = tempConfigPath()
+    writeFileSync(configPath, '[[assistants]]\nid = "default"\n')
+    const store = ConfigStore.init(configPath)
+
+    const base = {
+      id: 't1',
+      name: '技能任务',
+      content: '',
+      assistant_id: 'default',
+      schedule: '0 9 * * *',
+      targets: [{ channel: 'bot', chat_id: 'P:1' }],
+      enabled: true,
+    }
+
+    const rejected = store.upsertScheduledTask(base, store.currentVersion)
+    expect(rejected.ok).toBe(false)
+    if (!rejected.ok) expect(rejected.message).toContain('任务内容不能为空')
+
+    const withSkill = store.upsertScheduledTask(
+      { ...base, skill: { name: 'daily', dir: '.agents/skills', scope: 'global' } },
+      store.currentVersion,
+    )
+    expect(withSkill.ok).toBe(true)
+    const text = readFileSync(configPath, 'utf-8')
+    expect(text).toContain('[[scheduled_tasks]]')
+    expect(text).toContain('.agents/skills')
+
+    const reloaded = ConfigStore.init(configPath)
+    expect(reloaded.state().lastError).toBeNull()
+    expect(reloaded.current.scheduled_tasks[0]?.skill).toEqual({
+      name: 'daily',
+      dir: '.agents/skills',
+      scope: 'global',
+    })
+  })
 })

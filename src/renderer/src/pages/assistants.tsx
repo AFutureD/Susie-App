@@ -4,6 +4,7 @@ import { useAtomValue } from 'jotai'
 import type { AssistantConfig, ConfigState, ThinkingLevel } from '../../../shared/config'
 import { THINKING_LEVELS } from '../../../shared/config'
 import type { AgentModelOption } from '../../../shared/messages'
+import { AssistantSkillsModal } from '../components/assistant-skills-modal'
 import { BindingsPanel } from '../components/bindings-panel/bindings-panel'
 import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
@@ -25,6 +26,7 @@ export function AssistantsPage() {
   const intl = useIntl()
   const state = useAtomValue(configStateAtom)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
+  const [skillsFor, setSkillsFor] = useState<string | null>(null)
 
   if (!state) {
     return <Page titleId="page.assistants.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
@@ -55,6 +57,11 @@ export function AssistantsPage() {
                   {assistant.forward_to && <span>→ {assistant.forward_to}</span>}
                 </div>
               </div>
+              {editing !== assistant.id && (
+                <Button onClick={() => setSkillsFor(assistant.id)}>
+                  {intl.formatMessage({ id: 'assistants.skills' })}
+                </Button>
+              )}
               {editing !== assistant.id && (
                 <Button onClick={() => void openWorkDir(assistant.id)}>
                   {intl.formatMessage({ id: 'assistants.openWorkdir' })}
@@ -90,6 +97,8 @@ export function AssistantsPage() {
           </div>
         )}
       </div>
+
+      {skillsFor !== null && <AssistantSkillsModal assistantId={skillsFor} onClose={() => setSkillsFor(null)} />}
 
       <BindingsPanel state={state} />
     </Page>

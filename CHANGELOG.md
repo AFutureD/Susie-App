@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.4.0 · 2026-07-27
+
+新增「技能」模块：
+
+- 按 全局（~）/ 助手（工作目录）两个维度管理本地 agent skills，支持搜索；v1 认 `.agents/skills`、`.claude/skills`、`.pi/skills` 三个容器目录，每行标明所在目录，可删除、可在 Finder 打开。
+- 「获取技能」子页：从 GitHub 仓库（owner/repo 或链接，含 /tree/<分支>/<子目录>）列出仓库内全部 SKILL.md 技能后选择安装；从 skillhubs registry（skill.drojian.dev）关键词搜索并安装。安装目标可选 全局/助手 × 容器目录，已存在时二次确认覆盖。
+- 助手卡片新增「技能」弹窗：只显示该助手的 agent 能读取的技能（映射对齐 vercel-labs/skills Supported agents，如 claude 只读 `.claude/skills`）。
+- 定时任务「任务内容」支持「使用技能」：候选仅限所选助手可读，执行时助手先阅读该技能的 SKILL.md 再执行，可附补充输入；技能缺失时该次执行记失败留痕。
+
+杂项：
+
+- 新增共享弹窗组件 Modal，统一既有三处手写弹窗壳。
+
 ## v0.3.0 · 2026-07-26
 
 新增「定时任务」模块：

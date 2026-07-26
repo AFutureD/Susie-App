@@ -12,6 +12,7 @@ import {
 import { cronMatches, nextRunAt, parseCron } from '../../shared/schedule'
 import type { AgentRuntime } from '../agents/types'
 import type { ConfigStore } from '../config/store'
+import { renderTaskPrompt } from '../skills/task-prompt'
 import { withDeadline, withTimeout } from '../util/async'
 import type { Logger } from '../util/logger'
 import type { TaskRunRepo } from './task-run-repo'
@@ -151,10 +152,13 @@ export class TaskScheduler {
       const assistant = this.deps.store.current.assistants.find((item) => item.id === task.assistant_id)
       if (assistant === undefined) throw new Error(`assistant 不存在：${task.assistant_id}`)
 
+      // skill 引用在建 runtime 之前解析：缺失快速失败，不空耗 agent 子进程
+      const prompt = renderTaskPrompt(task, assistant)
+
       runtime = await this.deps.createRuntime(assistant)
       this.activeRuntimes.add(runtime)
       await withDeadline(runtime.newSession(TASK_INSTRUCTION), SESSION_DEADLINE_MS, '定时任务建会话')
-      const output = (await withDeadline(consumePrompt(runtime, task.content), RUN_DEADLINE_MS, '定时任务执行')).trim()
+      const output = (await withDeadline(consumePrompt(runtime, prompt), RUN_DEADLINE_MS, '定时任务执行')).trim()
       if (output === '') throw new Error('任务执行无输出')
 
       for (const target of task.targets) {

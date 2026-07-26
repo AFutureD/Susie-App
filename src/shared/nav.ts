@@ -5,6 +5,7 @@
 export const NAV_ROUTES = [
   'channels',
   'agents',
+  'skills',
   'assistants',
   'users',
   'intelligence',
