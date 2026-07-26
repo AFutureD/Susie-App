@@ -162,7 +162,7 @@ function ChannelForm({
     // 频道 ID 留空 → 用 token 问 getMe 拿 bot username
     let finalId = id.trim()
     if (finalId === '') {
-      const resolved = await susie.invoke('channels:resolve-username', { token: token.trim() })
+      const resolved = await ipc.channels.resolveUsername({ token: token.trim() })
       if (!resolved.ok) {
         setBusy(false)
         setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))

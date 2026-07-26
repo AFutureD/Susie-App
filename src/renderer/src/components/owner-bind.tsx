@@ -117,7 +117,7 @@ export function OwnerBindModal({
   useEffect(() => {
     if (botUsername !== null || token === undefined) return
     let alive = true
-    void susie.invoke('channels:resolve-username', { token }).then((result) => {
+    void ipc.channels.resolveUsername({ token }).then((result) => {
       if (!alive) return
       if (result.ok) setBotUsername(result.username)
       else setLinkError(result.message)

@@ -3,14 +3,19 @@
 
 import type { IpcHandlers } from '../router'
 import { appHandlers, type AppHandlerDeps } from './app'
+import { channelsHandlers, chatHandlers, type ServiceHandlerDeps } from './channels'
 import { assistantsHandlers, configHandlers, type ConfigHandlerDeps } from './config'
+import { historyHandlers } from './history'
 
-export type IpcHandlerDeps = AppHandlerDeps & ConfigHandlerDeps
+export type IpcHandlerDeps = AppHandlerDeps & ConfigHandlerDeps & ServiceHandlerDeps
 
 export function buildIpcHandlers(deps: IpcHandlerDeps): IpcHandlers {
   return {
     app: appHandlers(deps),
     config: configHandlers(deps),
     assistants: assistantsHandlers(deps),
+    channels: channelsHandlers(deps),
+    chat: chatHandlers(deps),
+    history: historyHandlers(deps),
   } satisfies IpcHandlers
 }

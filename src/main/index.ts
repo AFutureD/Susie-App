@@ -109,7 +109,10 @@ if (!app.requestSingleInstanceLock()) {
   void app.whenReady().then(async () => {
     await shellPathMerged
     registerIpcHandlers(service)
-    registerIpcRouter(buildIpcHandlers({ getMcpUrl: () => service.mcp.url, config: configStore }), serviceLogger)
+    registerIpcRouter(
+      buildIpcHandlers({ getMcpUrl: () => service.mcp.url, config: configStore, service }),
+      serviceLogger,
+    )
     initUpdater((state) => broadcast('update:state', state))
     createTray()
     watchConfigFile(configStore, serviceLogger)
@@ -136,7 +139,7 @@ if (!app.requestSingleInstanceLock()) {
 /**
  * 冒烟自检（隐藏窗口，不打扰用户）：
  * 1. renderer 加载 + React 挂载；
- * 2. preload 桥 IPC 全链路（app:get-info / config:get / channel:statuses / history:chats）；
+ * 2. preload 桥 IPC 全链路（susie:app.getInfo / susie:config.get / susie:channels.statuses / susie:history.chats）；
  * 3. 配置热加载端到端：外部写 config.toml → chokidar → ConfigStore 生效。
  */
 async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
@@ -170,8 +173,10 @@ async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
       throw new Error(`unexpected config state: ${JSON.stringify(configState)}`)
     }
 
-    const statuses = (await win.webContents.executeJavaScript(`window.susie.invoke('channel:statuses')`)) as unknown[]
-    const chats = (await win.webContents.executeJavaScript(`window.susie.invoke('history:chats')`)) as unknown[]
+    const statuses = (await win.webContents.executeJavaScript(
+      `window.susie.invoke('susie:channels.statuses')`,
+    )) as unknown[]
+    const chats = (await win.webContents.executeJavaScript(`window.susie.invoke('susie:history.chats')`)) as unknown[]
     if (!Array.isArray(statuses) || !Array.isArray(chats)) {
       throw new Error('service ipc not ready')
     }

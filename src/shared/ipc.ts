@@ -28,23 +28,6 @@ import type { ActionResult } from './ipc/contract'
 
 /** invoke（请求/响应）通道（逐域迁往 shared/ipc/contract.ts，迁完删除） */
 export interface IpcInvokeSchema {
-  'channel:statuses': { req: undefined; res: ChannelStatus[] }
-  /** 用 token 调 getMe 拿 bot username（频道 ID 留空时自动命名） */
-  'channels:resolve-username': {
-    req: { token: string }
-    res: { ok: true; username: string } | { ok: false; message: string }
-  }
-
-  'history:chats': { req: undefined; res: ChatInfo[] }
-  /** 出现过的发送者（白名单/用户候选）；chatId 省略时跨该频道全部会话；privateOnly 仅私聊发送者（owner 候选） */
-  'history:senders': { req: { channelId: string; chatId?: string; privateOnly?: boolean }; res: SenderInfo[] }
-  'history:messages': {
-    req: { channelId: string; chatId: string; limit?: number; beforeId?: number }
-    res: StoredMessage[]
-  }
-  'history:search': { req: { q: string; limit?: number }; res: StoredMessage[] }
-  'chat:send': { req: { channelId: string; chatId: string; text: string }; res: ActionResult }
-
   'agents:overview': { req: undefined; res: AgentsOverview }
   /** 枚举指定 agent 的模型候选；agent 未安装或枚举失败返回 [] */
   'agents:models': { req: { agentId: string }; res: AgentModelOption[] }
@@ -65,13 +48,6 @@ export interface IpcInvokeSchema {
 }
 
 export const IPC_INVOKE_CHANNELS = [
-  'channel:statuses',
-  'channels:resolve-username',
-  'history:chats',
-  'history:senders',
-  'history:messages',
-  'history:search',
-  'chat:send',
   'agents:overview',
   'agents:models',
   'agents:install',

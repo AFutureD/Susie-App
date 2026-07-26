@@ -53,7 +53,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
   useEffect(() => {
     let alive = true
     const refresh = (): void => {
-      void susie.invoke('history:chats').then((list) => {
+      void ipc.history.chats().then((list) => {
         if (alive) setChats(list)
       })
     }

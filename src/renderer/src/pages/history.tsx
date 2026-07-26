@@ -4,7 +4,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatInfo, MessagePart, StoredMessage } from '../../../shared/messages'
 import { Button, TextInput } from '../components/form'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 
 function chatKey(channelId: string, chatId: string): string {
   return `${channelId}/${chatId}`
@@ -74,7 +74,7 @@ export function HistoryPage() {
   selectedRef.current = selected
 
   const refreshChats = useCallback(() => {
-    void susie.invoke('history:chats').then(setChats)
+    void ipc.history.chats().then(setChats)
   }, [])
 
   useEffect(() => {
@@ -91,9 +91,7 @@ export function HistoryPage() {
 
   useEffect(() => {
     if (selected === null) return
-    void susie
-      .invoke('history:messages', { channelId: selected.channelId, chatId: selected.chatId, limit: 120 })
-      .then(setMessages)
+    void ipc.history.messages({ channelId: selected.channelId, chatId: selected.chatId, limit: 120 }).then(setMessages)
   }, [selected])
 
   useEffect(() => {
@@ -105,13 +103,13 @@ export function HistoryPage() {
       setSearchResults(null)
       return
     }
-    setSearchResults(await susie.invoke('history:search', { q: query.trim() }))
+    setSearchResults(await ipc.history.search({ q: query.trim() }))
   }
 
   const send = async () => {
     if (selected === null || draft.trim() === '') return
     setSendError(null)
-    const result = await susie.invoke('chat:send', {
+    const result = await ipc.chat.send({
       channelId: selected.channelId,
       chatId: selected.chatId,
       text: draft,

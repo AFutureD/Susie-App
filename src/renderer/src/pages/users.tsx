@@ -40,7 +40,7 @@ function useChannelGroups(channelId: string): KnownGroup[] {
     }
     let alive = true
     const refresh = (): void => {
-      void susie.invoke('history:chats').then((list) => {
+      void ipc.history.chats().then((list) => {
         if (!alive) return
         const byKey = new Map<string, string | null>()
         for (const chat of list) {

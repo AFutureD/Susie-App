@@ -15,6 +15,7 @@ import {
   type ConfigMutationResult,
   type ConfigState,
 } from '../config'
+import type { ChannelStatus, ChatInfo, SenderInfo, StoredMessage } from '../messages'
 
 export interface AppInfo {
   name: string
@@ -92,6 +93,44 @@ export const ipcContract = {
   assistants: {
     /** 在 Finder 打开 assistant 的生效工作目录（缺省为 workspace/<id>，会自动创建） */
     openWorkdir: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
+  },
+
+  channels: {
+    statuses: { req: z.void(), res: res<ChannelStatus[]>() },
+    /** 用 token 调 getMe 拿 bot username（频道 ID 留空时自动命名） */
+    resolveUsername: {
+      req: z.object({ token: z.string() }),
+      res: res<{ ok: true; username: string } | { ok: false; message: string }>(),
+    },
+  },
+
+  chat: {
+    send: {
+      req: z.object({ channelId: z.string(), chatId: z.string(), text: z.string() }),
+      res: res<ActionResult>(),
+    },
+  },
+
+  history: {
+    chats: { req: z.void(), res: res<ChatInfo[]>() },
+    /** 出现过的发送者（白名单/用户候选）；chatId 省略时跨该频道全部会话；privateOnly 仅私聊发送者（owner 候选） */
+    senders: {
+      req: z.object({ channelId: z.string(), chatId: z.string().optional(), privateOnly: z.boolean().optional() }),
+      res: res<SenderInfo[]>(),
+    },
+    messages: {
+      req: z.object({
+        channelId: z.string(),
+        chatId: z.string(),
+        limit: z.number().int().positive().optional(),
+        beforeId: z.number().int().optional(),
+      }),
+      res: res<StoredMessage[]>(),
+    },
+    search: {
+      req: z.object({ q: z.string(), limit: z.number().int().positive().optional() }),
+      res: res<StoredMessage[]>(),
+    },
   },
 } as const satisfies ContractShape
 

@@ -2,7 +2,6 @@ import fs from 'node:fs'
 import { BrowserWindow, ipcMain } from 'electron'
 import log from 'electron-log/main'
 import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
-import { fetchBotUsername } from './channels/telegram-bot'
 import { errorLog } from './logging'
 import type { SusieService } from './service'
 import { checkForUpdates, getUpdateState, quitAndInstall } from './updater'
@@ -23,44 +22,7 @@ export function broadcast<K extends keyof IpcEventSchema>(channel: K, payload: I
 }
 
 export function registerIpcHandlers(service: SusieService): void {
-  // app / config / assistants 域已迁移到契约路由（main/ipc/handlers/）
-
-  handle('channels:resolve-username', async (payload) => {
-    try {
-      return { ok: true as const, username: await fetchBotUsername(payload.token) }
-    } catch (error) {
-      return { ok: false as const, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
-
-  // ---------- 服务 ----------
-
-  handle('channel:statuses', () => service.hub.statuses())
-
-  handle('history:chats', () => service.history.listChats())
-  handle('history:senders', (payload) =>
-    service.history.listSenders(payload.channelId, payload.chatId, { privateOnly: payload.privateOnly ?? false }),
-  )
-  handle('history:messages', (payload) =>
-    service.history.listMessages(payload.channelId, payload.chatId, {
-      limit: payload.limit ?? 80,
-      ...(payload.beforeId === undefined ? {} : { beforeId: payload.beforeId }),
-    }),
-  )
-  handle('history:search', (payload) => service.history.search(payload.q, payload.limit ?? 50))
-
-  handle('chat:send', async (payload) => {
-    try {
-      await service.chatManager.sendMessage({
-        channelId: payload.channelId,
-        chatId: payload.chatId,
-        parts: [{ kind: 'text', text: payload.text }],
-      })
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
+  // app / config / assistants / channels / chat / history 域已迁移到契约路由（main/ipc/handlers/）
 
   handle('agents:overview', () => service.agentsOverview())
   handle('agents:models', (payload) => service.listAgentModels(payload.agentId))

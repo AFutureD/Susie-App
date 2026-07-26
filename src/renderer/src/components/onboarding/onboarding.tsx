@@ -47,7 +47,7 @@ export function OnboardingOverlay() {
     const settings = state.config.channels[channelId]
     if (settings === undefined) return
     let alive = true
-    void susie.invoke('channels:resolve-username', { token: settings.token }).then((result) => {
+    void ipc.channels.resolveUsername({ token: settings.token }).then((result) => {
       if (!alive) return
       if (result.ok) setBotUsername(result.username)
       else setLinkError(result.message)
@@ -144,7 +144,7 @@ function ChannelStep({
     setError(null)
     const trimmed = token.trim()
     // 用 token 问 getMe：既校验 token，又拿 username 作频道 ID 与深链
-    const resolved = await susie.invoke('channels:resolve-username', { token: trimmed })
+    const resolved = await ipc.channels.resolveUsername({ token: trimmed })
     if (!resolved.ok) {
       setBusy(false)
       setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))
@@ -364,7 +364,7 @@ function useChannelChats(channelId: string): ChatInfo[] {
   useEffect(() => {
     let alive = true
     const refresh = (): void => {
-      void susie.invoke('history:chats').then((list) => {
+      void ipc.history.chats().then((list) => {
         if (!alive) return
         setChats(list.filter((chat) => chat.channelId === channelId).toSorted((a, b) => b.lastTs - a.lastTs))
       })

@@ -38,7 +38,7 @@ function ConfigBootstrap() {
     void ipc.config.get().then((state) => {
       if (alive) setState(state)
     })
-    void susie.invoke('channel:statuses').then((statuses) => {
+    void ipc.channels.statuses().then((statuses) => {
       if (alive) setStatuses(statuses)
     })
     void susie.invoke('update:get-state').then((state) => {
