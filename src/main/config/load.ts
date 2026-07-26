@@ -48,21 +48,5 @@ export function defaultConfig(): Config {
   return configSchema.parse({})
 }
 
-export function stableStringify(value: unknown): string {
-  return JSON.stringify(sortKeys(value))
-}
-
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys)
-  if (value !== null && typeof value === 'object') {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .map(([k, v]) => [k, sortKeys(v)] as const)
-      .toSorted(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    return Object.fromEntries(entries)
-  }
-  return value
-}
-
-export function deepEqual(a: unknown, b: unknown): boolean {
-  return stableStringify(a) === stableStringify(b)
-}
+// stableStringify / deepEqual 已上移 shared/equal.ts（renderer 的 configAtom 选择器复用）
+export { deepEqual, stableStringify } from '../../shared/equal'
