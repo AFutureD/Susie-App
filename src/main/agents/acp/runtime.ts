@@ -2,7 +2,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream, type Client } from '@agentclientprotocol/sdk'
 import type { MessagePart } from '../../../shared/messages'
-import { withDeadline } from '../../util/async'
+import { SerialGate, waitChildExit, withDeadline } from '../../util/async'
 import type { Logger } from '../../util/logger'
 import type { AgentModelOption, AgentRuntime, AgentTurn } from '../types'
 
@@ -55,8 +55,8 @@ export class AcpRuntime implements AgentRuntime {
   private modelOptions: AgentModelOption[] = []
   private model: string | null = null
   private turn: TurnState | null = null
-  /** turn 串行链：并发 prompt 时后到者等待前一 turn 结束（ACP 不支持同 session 并发 prompt） */
-  private turnChain: Promise<void> = Promise.resolve()
+  /** turn 串行闸门：并发 prompt 时后到者等待前一 turn 结束（ACP 不支持同 session 并发 prompt） */
+  private readonly turnGate = new SerialGate()
 
   constructor(options: AcpRuntimeOptions) {
     this.options = options
@@ -314,12 +314,7 @@ export class AcpRuntime implements AgentRuntime {
   async *prompt(text: string): AsyncGenerator<AgentTurn> {
     // chat-manager 的 turn 消费在队列临界区外（codex steer 需要并发到达 prompt）；
     // ACP 同一 session 不支持并发 prompt，这里串行化保持既有先来后到行为
-    const previous = this.turnChain
-    let release: () => void = () => {}
-    this.turnChain = new Promise((resolve) => {
-      release = resolve
-    })
-    await previous
+    const release = await this.turnGate.acquire()
 
     try {
       const connection = await this.ensureConnected()
@@ -362,10 +357,17 @@ export class AcpRuntime implements AgentRuntime {
 
   async dispose(): Promise<void> {
     await this.cancel()
-    this.child?.kill()
+    const child = this.child
     this.child = null
     this.connection = null
     this.sessionId = null
+    if (child === null) return
+    child.kill('SIGTERM')
+    // SIGTERM 被忽略/卡死的 agent 限时收尸，防止成为孤儿进程继续运行
+    if (!(await waitChildExit(child, 3000))) {
+      child.kill('SIGKILL')
+      await waitChildExit(child, 1000)
+    }
   }
 }
 

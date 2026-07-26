@@ -23,3 +23,41 @@ export async function withDeadline<T>(promise: Promise<T>, ms: number, label: st
     if (timer !== null) clearTimeout(timer)
   }
 }
+
+/** 串行闸门：acquire() 排队取锁，返回 release（ACP turn 串行与 Codex steer-or-start 判定的公共形态） */
+export class SerialGate {
+  private tail: Promise<void> = Promise.resolve()
+
+  async acquire(): Promise<() => void> {
+    const previous = this.tail
+    let release: () => void = () => {}
+    this.tail = new Promise((resolve) => {
+      release = resolve
+    })
+    await previous
+    return release
+  }
+}
+
+interface ExitWaitable {
+  exitCode: number | null
+  signalCode: NodeJS.Signals | null
+  once(event: 'exit', listener: () => void): unknown
+  off(event: 'exit', listener: () => void): unknown
+}
+
+/** 等子进程退出；超时返回 false（调用方决定是否升级 SIGKILL）。已退出的进程立即返回 true。 */
+export function waitChildExit(child: ExitWaitable, ms: number): Promise<boolean> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const onExit = (): void => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      child.off('exit', onExit)
+      resolve(false)
+    }, ms)
+    child.once('exit', onExit)
+  })
+}

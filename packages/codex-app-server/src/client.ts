@@ -72,6 +72,29 @@ export interface CodexClientOptions {
 
 const STDERR_TAIL_LIMIT = 400
 
+function waitExit(
+  proc: {
+    exitCode: number | null
+    signalCode: NodeJS.Signals | null
+    once(e: 'exit', l: () => void): unknown
+    off(e: 'exit', l: () => void): unknown
+  },
+  ms: number,
+): Promise<boolean> {
+  if (proc.exitCode !== null || proc.signalCode !== null) return Promise.resolve(true)
+  return new Promise((resolve) => {
+    const onExit = (): void => {
+      clearTimeout(timer)
+      resolve(true)
+    }
+    const timer = setTimeout(() => {
+      proc.off('exit', onExit)
+      resolve(false)
+    }, ms)
+    proc.once('exit', onExit)
+  })
+}
+
 export class CodexClient {
   private readonly options: CodexClientOptions
   private readonly router = new MessageRouter()
@@ -150,7 +173,7 @@ export class CodexClient {
     return result as unknown as InitializeResponse
   }
 
-  close(): void {
+  async close(): Promise<void> {
     const proc = this.proc
     if (proc === null) return
     this.closed = true
@@ -158,6 +181,11 @@ export class CodexClient {
     proc.stdin.end()
     proc.kill()
     this.router.failAll(new TransportClosedError('客户端已关闭'))
+    // 限时收尸：SIGTERM 无效则升级 SIGKILL，防止 codex 子进程成孤儿
+    if (!(await waitExit(proc, 3000))) {
+      proc.kill('SIGKILL')
+      await waitExit(proc, 1000)
+    }
   }
 
   get running(): boolean {

@@ -63,7 +63,7 @@ export class Codex {
         this.client.start()
         this.init = await this.client.initialize()
       } catch (error) {
-        this.client.close()
+        void this.client.close()
         this.initializing = null
         throw error
       }
@@ -76,10 +76,11 @@ export class Codex {
     return this.init
   }
 
-  close(): void {
-    this.client.close()
+  async close(): Promise<void> {
+    const closed = this.client.close()
     this.init = null
     this.initializing = null
+    await closed
   }
 
   // ---------- account ----------

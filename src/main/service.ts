@@ -22,6 +22,7 @@ import { MessageRepo } from './history/message-repo'
 import { ApprovalRepo } from './core/approval-repo'
 import { AutoReviewRepo } from './core/auto-review-repo'
 import { SusieMcpServer } from './mcp/server'
+import { withTimeout } from './util/async'
 import type { Logger } from './util/logger'
 
 export interface ServicePaths {
@@ -163,11 +164,13 @@ export class SusieService {
   async stop(): Promise<void> {
     this.unsubUsers()
     this.log.info('service stopping: chats')
-    this.chatManager.dispose()
+    // 各段自带预算（index.ts 的 5s 总闸只作最后兜底）：
+    // 会话销毁要等 agent 子进程限时收尸；mcp.stop 不允许挂住退出
+    await withTimeout(this.chatManager.dispose(), 3500, undefined)
     this.log.info('service stopping: hub')
     await this.hub.stopAll()
     this.log.info('service stopping: mcp')
-    await this.mcp.stop()
+    await withTimeout(this.mcp.stop(), 2000, undefined)
     this.log.info('service stopping: db')
     this.db.close()
     this.log.info('service stopped')

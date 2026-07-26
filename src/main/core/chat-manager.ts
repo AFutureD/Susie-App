@@ -77,7 +77,7 @@ export class ChatManager {
     this.unsubs.push(
       deps.store.subscribePath('bindings', () => {
         this.deps.log.info('bindings 变更：所有会话失效，下条消息按新绑定重建')
-        this.disposeAll()
+        void this.disposeAll()
       }),
     )
   }
@@ -171,12 +171,14 @@ export class ChatManager {
 
   onChannelRemoved(channelId: string): void {
     for (const entry of Array.from(this.chats.values())) {
-      if (entry.channelId === channelId) this.disposeChat(entry.key)
+      if (entry.channelId === channelId) void this.disposeChat(entry.key)
     }
   }
 
-  disposeAll(): void {
-    for (const key of Array.from(this.chats.keys())) this.disposeChat(key)
+  /** 全部会话销毁；stop 路径 await（限时收尸子进程），热更新路径 fire-and-forget */
+  disposeAll(): Promise<void> {
+    const keys = Array.from(this.chats.keys())
+    return Promise.allSettled(keys.map((key) => this.disposeChat(key))).then(() => undefined)
   }
 
   // ---------- 内部 ----------
@@ -405,7 +407,7 @@ export class ChatManager {
     entry.unsubs.push(
       this.deps.store.subscribePath(`assistants.${assistant.id}`, () => {
         this.deps.log.info(`assistant "${assistant.id}" 配置变更：chat ${key} 会话失效，下条消息重建`)
-        this.disposeChat(key)
+        void this.disposeChat(key)
       }),
     )
 
@@ -431,17 +433,18 @@ export class ChatManager {
     }
   }
 
-  private disposeChat(key: string): void {
+  private disposeChat(key: string): Promise<void> {
     const entry = this.chats.get(key)
-    if (entry === undefined) return
+    if (entry === undefined) return Promise.resolve()
     this.chats.delete(key)
     for (const unsub of entry.unsubs) unsub()
-    void entry.runtime.dispose()
+    return entry.runtime.dispose()
   }
 
-  dispose(): void {
-    this.disposeAll()
+  async dispose(): Promise<void> {
+    const disposed = this.disposeAll()
     for (const unsub of this.unsubs) unsub()
+    await disposed
   }
 }
 

@@ -142,7 +142,7 @@ describe('AcpRuntime.dispose 子进程回收', () => {
     await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 3000 })
   })
 
-  it('表征已知债务：忽略 SIGTERM 的 agent 在 dispose 后成为孤儿（P6 停机加固改为限时 SIGKILL 收尸）', async () => {
+  it('忽略 SIGTERM 的 agent：dispose 限时升级 SIGKILL 收尸（停机加固）', { timeout: 10_000 }, async () => {
     const { runtime, pidFile } = makeRuntime(null, { IGNORE_SIGTERM: '1' })
     await runtime.newSession(null)
     const pid = Number(readFileSync(pidFile, 'utf-8'))
@@ -150,13 +150,7 @@ describe('AcpRuntime.dispose 子进程回收', () => {
 
     await runtime.dispose()
 
-    // 现状：child.kill() 发出 SIGTERM 即返回，不等退出也不升级 SIGKILL —— 进程泄漏。
-    // P6 修复后本用例的断言翻转为「限时内被 SIGKILL 收尸」。
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    expect(processAlive(pid)).toBe(true)
-
-    // 测试自清理，防止孤儿进程泄漏出测试运行
-    process.kill(pid, 'SIGKILL')
-    await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 3000 })
+    // dispose resolve 时进程必须已被收尸（SIGTERM 3s 无效 → SIGKILL）
+    await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 2000 })
   })
 })

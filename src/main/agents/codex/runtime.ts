@@ -9,6 +9,7 @@ import {
   type TurnHandle,
 } from '@susie/codex-app-server'
 import type { MessagePart } from '../../../shared/messages'
+import { SerialGate } from '../../util/async'
 import type { Logger } from '../../util/logger'
 import { mapAppServerModels } from './models'
 import { mapThreadItem } from './map'
@@ -43,8 +44,9 @@ export class CodexRuntime implements AgentRuntime {
   private codex: Codex | null = null
   private thread: Thread | null = null
   private activeTurn: TurnHandle | null = null
+  /** steer-or-start 判定的串行闸门（不覆盖 turn 流消费） */
+  private readonly startGate = new SerialGate()
   /** turn 启动临界区：保证 steer-or-start 判定原子，避免同一 thread 并发 turn/start */
-  private startLock: Promise<void> = Promise.resolve()
   private model: string | null
   private lastInstruction: string | null = null
   private modelOptions: AgentModelOption[] | null = null
@@ -143,12 +145,8 @@ export class CodexRuntime implements AgentRuntime {
 
   async *prompt(text: string): AsyncGenerator<AgentTurn> {
     // steer-or-start 临界区：并发 prompt 时后到者要么 steer，要么等前者 turn/start 完成
-    let release: () => void = () => {}
-    const previous = this.startLock
-    this.startLock = new Promise((resolve) => {
-      release = resolve
-    })
-    await previous
+    // （只锁判定段，turn 流消费在临界区外——这是与 ACP 全 turn 串行的有意差异）
+    const release = await this.startGate.acquire()
 
     let turn: TurnHandle
     try {
@@ -222,7 +220,8 @@ export class CodexRuntime implements AgentRuntime {
 
   async dispose(): Promise<void> {
     await this.cancel()
-    this.codex?.close()
+    // close() 等子进程退出（限时 SIGKILL 收尸），防止 codex 子进程成孤儿
+    await this.codex?.close()
     this.codex = null
     this.thread = null
     this.activeTurn = null

@@ -6,6 +6,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Codex } from './api'
+import { CodexClient } from './client'
 
 const FAKE_SERVER = String.raw`
 import readline from 'node:readline'
@@ -96,14 +97,14 @@ describe('CodexClient + Codex（假 app-server）', () => {
     const codex = new Codex({ codexPath: codexShim })
     await codex.ensureInitialized()
     expect(codex.metadata.userAgent).toBe('fake/1.0')
-    codex.close()
+    await codex.close()
   })
 
   it('model/list 走同一连接并过滤 hidden 由调用方决定', async () => {
     const codex = new Codex({ codexPath: codexShim })
     const models = await codex.models()
     expect(models.data.map((model) => model.model)).toEqual(['fake-model', 'hidden-model'])
-    codex.close()
+    await codex.close()
   })
 
   it('turn 流：审批自动 accept，steer 并入当前 turn 后完成', async () => {
@@ -131,7 +132,7 @@ describe('CodexClient + Codex（假 app-server）', () => {
     }
     expect(events).toEqual(['item/completed', 'turn/completed'])
     expect(steeredText).toBe('steered: more input')
-    codex.close()
+    await codex.close()
   })
 
   it('interrupt 使 turn 以 interrupted 完成', async () => {
@@ -146,7 +147,7 @@ describe('CodexClient + Codex（假 app-server）', () => {
       }
     }
     expect(status).toBe('interrupted')
-    codex.close()
+    await codex.close()
   })
 
   it('进程退出时所有在途等待者被 TransportClosedError 唤醒', async () => {
@@ -156,6 +157,19 @@ describe('CodexClient + Codex（假 app-server）', () => {
     // 直接杀进程（绕过 close 的優雅关闭标记）
     ;(codex.client as unknown as { proc: { kill: () => void } }).proc.kill()
     await expect(pending).rejects.toMatchObject({ name: 'TransportClosedError' })
-    codex.close()
+    await codex.close()
+  })
+})
+
+describe('close 收尸', () => {
+  it('close 等到子进程退出（SIGTERM 生效路径）', async () => {
+    const client = new CodexClient({ codexPath: codexShim })
+    client.start()
+    const proc = (client as unknown as { proc: { exitCode: number | null; signalCode: string | null } | null }).proc
+    expect(proc).not.toBeNull()
+
+    await client.close()
+    // close resolve 时进程必须已退出（exitCode 或 signalCode 至少其一已定）
+    expect(proc !== null && (proc.exitCode !== null || proc.signalCode !== null)).toBe(true)
   })
 })
