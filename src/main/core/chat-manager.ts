@@ -1,7 +1,7 @@
 import { isTriggerSatisfied, resolveBinding } from '../../shared/bindings'
 import { decodeChatId } from '../../shared/chat-id'
-import { channelOwner, permissionFor } from '../../shared/users'
-import type { AssistantConfig } from '../../shared/config'
+import type { AssistantConfig, ChatBinding } from '../../shared/config'
+import { errorMessage } from '../../shared/errors'
 import {
   partsToPlainText,
   partsToPromptText,
@@ -12,7 +12,6 @@ import {
 } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
 import type { Channel } from '../channels/types'
-import { botCopy } from '../copy/bot-copy'
 import type { ConfigStore, Unsubscribe } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { PendingApproval } from './approval-repo'
@@ -21,9 +20,23 @@ import { renderPrompt, renderSystemInstruction } from '../replier/templates'
 import type { Logger } from '../util/logger'
 import type { AutoReviewVerdict } from './auto-review'
 import { CommandRegistry, parseCommandText, type CommandContext, type CommandSpec } from './commands'
+import { PermissionGate, type GateDecision } from './permission-gate'
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
 const IGNORE_AFTER_SELF_REPLY_MS = 120_000
+
+/** 入站消息在管线各阶段间传递的上下文（一次入站一份，阶段按序填充） */
+interface InboundContext {
+  readonly envelope: InboundEnvelope
+  readonly message: ChatMessage
+  readonly key: string
+  /** owner 批准重放：跳过身份门与免打扰窗（路由仍要重查——绑定可能已失效） */
+  readonly preapproved: boolean
+  readonly chatType: string | null
+  binding: ChatBinding | null
+  command: { name: string; args: string[] } | null
+  gate: GateDecision | null
+}
 
 interface ChatEntry {
   key: string
@@ -63,9 +76,20 @@ export class ChatManager {
   private readonly queues = new Map<string, Promise<void>>()
   private readonly globalRegistry = new CommandRegistry()
   private readonly unsubs: Unsubscribe[] = []
+  private readonly gate: PermissionGate
 
   constructor(deps: ChatManagerDeps) {
     this.deps = deps
+    this.gate = new PermissionGate({
+      store: deps.store,
+      isCommandGated: (name) => this.isCommandGated(name),
+      requestApproval: deps.requestApproval,
+      autoReview: deps.autoReview,
+      beginAutoReview: deps.beginAutoReview,
+      settleAutoReview: deps.settleAutoReview,
+      reply: (source, text) => this.replyText(source, text),
+      log: deps.log,
+    })
     // 检视命令（对位 Python Inspector）：只依赖 ctx，注册在全局链
     this.globalRegistry.register({
       name: 'chat_id',
@@ -73,11 +97,21 @@ export class ChatManager {
       gated: false,
       handler: (ctx) => ctx.chatId,
     })
-    // binding 变化 → 全部会话下次消息时按新 binding 重建
+    // binding 变化 → 按会话比对路由结论，结论变了才失效（改一条无关绑定不再殃及全部活跃会话）。
+    // 只比较 assistant_id：only_mention 在触发判定时现读、send_output 在发送时现读（变更即时生效），
+    // 会话 runtime 的构造输入里来自 binding 的只有 assistant_id。
     this.unsubs.push(
-      deps.store.subscribePath('bindings', () => {
-        this.deps.log.info('bindings 变更：所有会话失效，下条消息按新绑定重建')
-        void this.disposeAll()
+      deps.store.subscribePath('bindings', (next, prev) => {
+        const prevBindings = (prev ?? []) as ChatBinding[]
+        const nextBindings = (next ?? []) as ChatBinding[]
+        for (const entry of Array.from(this.chats.values())) {
+          const before = resolveBinding(prevBindings, entry.channelId, entry.chatId)?.assistant_id ?? null
+          const after = resolveBinding(nextBindings, entry.channelId, entry.chatId)?.assistant_id ?? null
+          if (before !== after) {
+            this.deps.log.info(`bindings 变更：chat ${entry.key} 路由结论变化，会话失效（下条消息重建）`)
+            void this.disposeChat(entry.key)
+          }
+        }
       }),
     )
   }
@@ -191,116 +225,96 @@ export class ChatManager {
     this.queues.set(key, next)
   }
 
+  /**
+   * 入站处理管线（每会话串行队列内执行）：
+   * ① 路由 → ② 命令解析 → ③ 身份门 → ④ 会话确保 → ⑤ 免打扰窗 → ⑥ 命令分发 → ⑦ agent turn。
+   * 不是通用 middleware 框架——命名阶段方法 + 线性 driver 就是终态。
+   */
   private async process(envelope: InboundEnvelope, opts: { preapproved?: boolean } = {}): Promise<void> {
-    const { message, mentioned } = envelope
-    const preapproved = opts.preapproved === true
-    const key = chatKey(message.channelId, message.chatId)
+    const ctx = this.createContext(envelope, opts)
+    if (!this.resolveRoute(ctx)) return
+    this.parseCommand(ctx)
+    ctx.gate = ctx.preapproved ? { kind: 'pass' } : await this.gate.evaluate(ctx)
+    if (ctx.gate.kind === 'handled') return
+    const entry = await this.ensureChatOrReply(ctx)
+    if (entry === null) return
+    if (this.inDoNotDisturbWindow(ctx, entry)) return
+    if (await this.dispatchCommand(ctx, entry)) return
+    this.runAssistantTurn(entry, ctx.message)
+  }
 
-    // 路由：绑定未命中 = 无助手承接（不回复——不是权限拒绝，是无路由）
-    const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
+  private createContext(envelope: InboundEnvelope, opts: { preapproved?: boolean }): InboundContext {
+    const { message } = envelope
+    return {
+      envelope,
+      message,
+      key: chatKey(message.channelId, message.chatId),
+      preapproved: opts.preapproved === true,
+      chatType: decodeChatId(message.chatId)?.chatType ?? null,
+      binding: null,
+      command: null,
+      gate: null,
+    }
+  }
+
+  /** ① 路由：绑定命中 + 触发条件（群内 @ 提及）。未命中静默——不是权限拒绝，是无路由。 */
+  private resolveRoute(ctx: InboundContext): boolean {
+    const binding = resolveBinding(this.deps.store.current.bindings, ctx.message.channelId, ctx.message.chatId)
     if (binding === null) {
-      this.deps.log.info(`chat ${key} 无绑定且通道无默认助手，不响应${preapproved ? '（审核通过但绑定已失效）' : ''}`)
-      return
-    }
-    // 会话触发条件（群内 @ 提及要求）——未触发不算被拦，不回复
-    const chatType = decodeChatId(message.chatId)?.chatType ?? null
-    if (!isTriggerSatisfied(binding, { chatType, mentioned })) {
-      this.deps.log.info(`chat ${key} 群消息未 @ 提及，不触发`)
-      return
-    }
-
-    // 命令先于身份门解析：命令有权限分类（免审命令无权限也响应）
-    const plain = partsToPlainText(message.parts)
-    const parsed = parseCommandText(plain)
-
-    // 身份门（在 ensureChat 之前——被拦/暂存的消息不建 runtime）：
-    // owner 全局直通；其余按发送者在该范围（私聊/具体群）的档位。被拦下的发送者给出明确反馈，不静默。
-    let gatedAllowed = true // 直通档 / owner / 批准重放；免审执行时降为 false（help 据此隐藏需审核命令）
-    if (!preapproved) {
-      const users = this.deps.store.current.users
-      const permission = permissionFor(users, message.channelId, message.senderId, message.chatId, chatType)
-      if (permission === 'ignore') {
-        this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 在该范围为忽略档，不响应`)
-        await this.replyText(message, botCopy.gate.permissionIgnored)
-        return
-      }
-      if (permission === 'review' || permission === 'auto') {
-        // 免审命令（help / chat_id / new）：审核/自动档用户也直接执行；忽略档不豁免（显式拉黑强于免审）
-        const exemptCommand = parsed !== null && !this.isCommandGated(parsed.name)
-        if (exemptCommand) {
-          this.deps.log.info(`chat ${key} 免审命令 /${parsed.name}：${permission} 档发送者直接执行`)
-          gatedAllowed = false
-        } else {
-          // 自动档：先发「审核中」进度卡片（尽力而为），再跑自动审核。
-          // 通过 → 卡片更新为可终止（急停），放行处理；未通过 → 卡片转人工（附拒绝原因）。
-          let autoPassed = false
-          let autoReviewReason: string | null = null
-          if (permission === 'auto') {
-            const card = await this.deps.beginAutoReview(envelope)
-            const verdict = await this.deps.autoReview(envelope)
-            if (verdict.passed) {
-              autoPassed = true
-              this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核通过，放行`)
-              if (card !== null) await this.deps.settleAutoReview(card, verdict)
-            } else {
-              autoReviewReason = verdict.reason
-              this.deps.log.info(
-                `chat ${key} 发送者 ${message.senderId ?? '?'} 自动审核未通过（${verdict.reason ?? '无理由'}），回落人工审核`,
-              )
-              if (card !== null) {
-                // 卡片就位：settle 负责转人工（原因 + 允许/拒绝按钮 + member 通知），不再另发卡片
-                await this.deps.settleAutoReview(card, verdict)
-                return
-              }
-            }
-          }
-          if (!autoPassed) {
-            if (channelOwner(users, message.channelId) === null) {
-              this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
-              await this.replyText(message, botCopy.gate.noOwner)
-              return
-            }
-            this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 转 owner 审核`)
-            await this.deps.requestApproval(envelope, { autoReviewReason })
-            return
-          }
-          // autoPassed：落到下方按直通处理（gatedAllowed 维持 true）
-        }
-      }
-    }
-
-    let entry: ChatEntry
-    try {
-      entry = await this.ensureChat(message.channelId, message.chatId, binding.assistant_id)
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
-      this.deps.log.error(`chat ${key} 无 agent 承接：${detail}`)
-      await this.replyText(message, `Error: ${detail}`)
-      return
-    }
-
-    // owner 的显式批准优先于本人回复后的静默窗
-    if (!preapproved && Date.now() < entry.ignoreUntil) {
       this.deps.log.info(
-        `chat ${key} 处于本人回复后的免打扰窗口（剩余 ${Math.ceil((entry.ignoreUntil - Date.now()) / 1000)}s），消息不处理`,
+        `chat ${ctx.key} 无绑定且通道无默认助手，不响应${ctx.preapproved ? '（审核通过但绑定已失效）' : ''}`,
       )
-      return
+      return false
     }
-
-    if (parsed !== null) {
-      const ctx: CommandContext = {
-        channelId: message.channelId,
-        chatId: message.chatId,
-        gatedAllowed,
-        reply: async (text) => {
-          await this.replyText(message, text)
-        },
-      }
-      const handled = await entry.registry.execute(ctx, parsed.name, parsed.args)
-      if (handled) return
+    if (!isTriggerSatisfied(binding, { chatType: ctx.chatType, mentioned: ctx.envelope.mentioned })) {
+      this.deps.log.info(`chat ${ctx.key} 群消息未 @ 提及，不触发`)
+      return false
     }
+    ctx.binding = binding
+    return true
+  }
 
-    this.runAssistantTurn(entry, message)
+  /** ② 命令先于身份门解析：命令有权限分类（免审命令无权限也响应） */
+  private parseCommand(ctx: InboundContext): void {
+    ctx.command = parseCommandText(partsToPlainText(ctx.message.parts))
+  }
+
+  /** ④ 会话确保（身份门之后——被拦/暂存的消息不建 runtime）；失败给会话内 Error 反馈 */
+  private async ensureChatOrReply(ctx: InboundContext): Promise<ChatEntry | null> {
+    const binding = ctx.binding
+    if (binding === null) return null
+    try {
+      return await this.ensureChat(ctx.message.channelId, ctx.message.chatId, binding.assistant_id)
+    } catch (error) {
+      const detail = errorMessage(error)
+      this.deps.log.error(`chat ${ctx.key} 无 agent 承接：${detail}`)
+      await this.replyText(ctx.message, `Error: ${detail}`)
+      return null
+    }
+  }
+
+  /** ⑤ 免打扰窗：本人亲自回复后 120s 静默；owner 的显式批准穿透 */
+  private inDoNotDisturbWindow(ctx: InboundContext, entry: ChatEntry): boolean {
+    if (ctx.preapproved || Date.now() >= entry.ignoreUntil) return false
+    this.deps.log.info(
+      `chat ${ctx.key} 处于本人回复后的免打扰窗口（剩余 ${Math.ceil((entry.ignoreUntil - Date.now()) / 1000)}s），消息不处理`,
+    )
+    return true
+  }
+
+  /** ⑥ 命令分发：registry 命中即终结；未注册命令 fall through 给 assistant（按普通消息管控） */
+  private async dispatchCommand(ctx: InboundContext, entry: ChatEntry): Promise<boolean> {
+    if (ctx.command === null) return false
+    const commandCtx: CommandContext = {
+      channelId: ctx.message.channelId,
+      chatId: ctx.message.chatId,
+      // 免审放行的命令降权（help 据此隐藏需审核命令）；直通/批准重放为完整权限
+      gatedAllowed: ctx.gate?.kind !== 'exempt',
+      reply: async (text) => {
+        await this.replyText(ctx.message, text)
+      },
+    }
+    return entry.registry.execute(commandCtx, ctx.command.name, ctx.command.args)
   }
 
   private runAssistantTurn(entry: ChatEntry, message: ChatMessage): void {
