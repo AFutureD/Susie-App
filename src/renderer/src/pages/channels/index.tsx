@@ -10,6 +10,7 @@ import { ipc } from '../../lib/ipc'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import type { ChannelTypeUi } from './form-types'
 import { TelegramChannelForm, TelegramChannelSummary } from './telegram-form'
+import { useConfigMutation } from '../../lib/ipc-mutation'
 
 /** per-type UI 注册表：新增通道类型 = 加一个 <type>-form.tsx + 此处登记一项 */
 const CHANNEL_UI: Record<ChannelSettings['type'], ChannelTypeUi> = {
@@ -30,6 +31,7 @@ export function ChannelsPage() {
   const intl = useIntl()
   const state = useAtomValue(configStateAtom)
   const statuses = useAtomValue(channelStatusesAtom)
+  const mutation = useConfigMutation()
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   // 新建频道后立即进入 owner 绑定（之后仍可在「用户」页调整）
   const [ownerBindChannel, setOwnerBindChannel] = useState<string | null>(null)
@@ -44,19 +46,15 @@ export function ChannelsPage() {
 
   const deleteChannel = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'channels.deleteConfirm' }, { id }))) return
-    const result = await ipc.config.deleteChannel({ id, expectedVersion: state.version })
-    if (!result.ok) window.alert(result.message)
+    await mutation.run((expectedVersion) => ipc.config.deleteChannel({ id, expectedVersion }))
   }
 
   const toggleEnabled = async (id: string) => {
     const settings = state.config.channels[id]
     if (settings === undefined) return
-    const result = await ipc.config.upsertChannel({
-      id,
-      settings: { ...settings, enabled: !settings.enabled },
-      expectedVersion: state.version,
-    })
-    if (!result.ok) window.alert(result.message)
+    await mutation.run((expectedVersion) =>
+      ipc.config.upsertChannel({ id, settings: { ...settings, enabled: !settings.enabled }, expectedVersion }),
+    )
   }
 
   return (

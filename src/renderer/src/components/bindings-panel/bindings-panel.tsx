@@ -8,7 +8,8 @@ import {
 } from '../../../../shared/bindings'
 import { CHAT_ALL, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
-import { ipc, onIpcEvent } from '../../lib/ipc'
+import { ipc } from '../../lib/ipc'
+import { useChatsQuery } from '../../lib/ipc-query'
 import { Button, CheckboxField, ErrorText, Field, Select, TextInput } from '../form'
 import { buildTree, type ChannelTree, type ChatRow, type DraftChat } from './model'
 
@@ -42,28 +43,15 @@ type AssignmentPatch = Partial<Pick<ChatAssignment, 'onlyMention' | 'sendOutput'
 export function BindingsPanel({ state }: { state: ConfigState }) {
   const intl = useIntl()
 
-  const [chats, setChats] = useState<ChatInfo[]>([])
   const [drafts, setDrafts] = useState<DraftChat[]>([])
   const [selection, setSelection] = useState<Selection>(null)
   const [pickerChannel, setPickerChannel] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 已知会话列表：历史库 + 新消息事件刷新
-  useEffect(() => {
-    let alive = true
-    const refresh = (): void => {
-      void ipc.history.chats().then((list) => {
-        if (alive) setChats(list)
-      })
-    }
-    refresh()
-    const unsubscribe = onIpcEvent('history.message', refresh)
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [])
+  // 已知会话列表：共享查询缓存（history.message 事件自动失效）
+  const { data: chatsData } = useChatsQuery()
+  const chats = chatsData ?? []
 
   const tree = useMemo(() => buildTree(state.config, chats, drafts), [state.config, chats, drafts])
 

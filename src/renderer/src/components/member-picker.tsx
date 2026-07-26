@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { SenderInfo } from '../../../shared/messages'
-import { ipc, onIpcEvent } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
+import { useIpcQuery } from '../lib/ipc-query'
 import { Button, Field, TextInput } from './form'
 
 // 选人通用件：「添加成员」滚动弹窗（搜索 + 发言候选 + 手动输入兜底）。
@@ -13,34 +14,17 @@ import { Button, Field, TextInput } from './form'
  */
 export function useSenders(channelId: string, chatId?: string, options: { privateOnly?: boolean } = {}): SenderInfo[] {
   const privateOnly = options.privateOnly === true
-  const [senders, setSenders] = useState<SenderInfo[]>([])
-  useEffect(() => {
-    if (channelId === '') {
-      setSenders([])
-      return
-    }
-    let alive = true
-    const refresh = (): void => {
-      void ipc.history
-        .senders({
-          channelId,
-          ...(chatId === undefined ? {} : { chatId }),
-          ...(privateOnly ? { privateOnly: true } : {}),
-        })
-        .then((list) => {
-          if (alive) setSenders(list)
-        })
-    }
-    refresh()
-    const unsubscribe = onIpcEvent('history.message', (message) => {
-      if (message.channelId === channelId && !message.out) refresh()
-    })
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [channelId, chatId, privateOnly])
-  return senders
+  const { data } = useIpcQuery(
+    `history.senders:${channelId}:${chatId ?? ''}:${privateOnly ? 1 : 0}`,
+    () =>
+      ipc.history.senders({
+        channelId,
+        ...(chatId === undefined ? {} : { chatId }),
+        ...(privateOnly ? { privateOnly: true } : {}),
+      }),
+    { invalidateOn: ['history.message'], enabled: channelId !== '' },
+  )
+  return data ?? []
 }
 
 /** 添加成员弹窗：点选即回调 onAdd 且保持打开（可连续添加）；已在 existing 中的候选不再出现 */

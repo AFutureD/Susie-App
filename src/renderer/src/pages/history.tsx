@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ChatInfo, MessagePart, StoredMessage } from '../../../shared/messages'
+import type { MessagePart, StoredMessage } from '../../../shared/messages'
 import { Button, TextInput } from '../components/form'
 import { ipc, onIpcEvent } from '../lib/ipc'
+import { useChatsQuery } from '../lib/ipc-query'
 
 function chatKey(channelId: string, chatId: string): string {
   return `${channelId}/${chatId}`
@@ -62,7 +63,6 @@ function MessageRow({ message }: { message: StoredMessage }) {
 
 export function HistoryPage() {
   const intl = useIntl()
-  const [chats, setChats] = useState<ChatInfo[]>([])
   const [selected, setSelected] = useState<{ channelId: string; chatId: string } | null>(null)
   const [messages, setMessages] = useState<StoredMessage[]>([])
   const [query, setQuery] = useState('')
@@ -73,21 +73,18 @@ export function HistoryPage() {
   const selectedRef = useRef(selected)
   selectedRef.current = selected
 
-  const refreshChats = useCallback(() => {
-    void ipc.history.chats().then(setChats)
-  }, [])
+  const { data: chatsData } = useChatsQuery()
+  const chats = chatsData ?? []
 
   useEffect(() => {
-    refreshChats()
     const off = onIpcEvent('history.message', (message) => {
-      refreshChats()
       const current = selectedRef.current
       if (current !== null && current.channelId === message.channelId && current.chatId === message.chatId) {
         setMessages((prev) => [...prev, message])
       }
     })
     return off
-  }, [refreshChats])
+  }, [])
 
   useEffect(() => {
     if (selected === null) return

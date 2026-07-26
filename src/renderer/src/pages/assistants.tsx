@@ -9,6 +9,8 @@ import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
+import { useConfigMutation } from '../lib/ipc-mutation'
+import { toast } from '../lib/toast'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -16,7 +18,7 @@ const CODEX_AGENT_ID = 'codex'
 /** 在 Finder 打开 assistant 的生效工作目录（目录由 main 侧解析并确保存在） */
 async function openWorkDir(id: string): Promise<void> {
   const result = await ipc.assistants.openWorkdir({ id })
-  if (!result.ok) window.alert(result.message)
+  if (!result.ok) toast(result.message, 'error')
 }
 
 export function AssistantsPage() {
@@ -28,10 +30,11 @@ export function AssistantsPage() {
     return <Page titleId="page.assistants.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
   }
 
+  const mutation = useConfigMutation()
+
   const deleteAssistant = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id }))) return
-    const result = await ipc.config.deleteAssistant({ id, expectedVersion: state.version })
-    if (!result.ok) window.alert(result.message)
+    await mutation.run((expectedVersion) => ipc.config.deleteAssistant({ id, expectedVersion }))
   }
 
   return (

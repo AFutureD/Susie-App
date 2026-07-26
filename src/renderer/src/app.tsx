@@ -4,6 +4,7 @@ import { useAtomValue, useSetAtom } from 'jotai'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
 import { OnboardingOverlay } from './components/onboarding/onboarding'
 import { configStateAtom } from './lib/config-atoms'
+import { ToastHost } from './lib/toast'
 import { ipc, onIpcEvent } from './lib/ipc'
 import { channelStatusesAtom } from './lib/service-atoms'
 import { updateStateAtom } from './lib/update-atoms'
@@ -113,6 +114,7 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
+        <ToastHost />
       </div>
     </div>
   )

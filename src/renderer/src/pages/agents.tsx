@@ -4,6 +4,7 @@ import type { AgentInfo, AgentProgress, AgentsOverview } from '../../../shared/m
 import { Button } from '../components/form'
 import { Page } from '../components/page'
 import { ipc, onIpcEvent } from '../lib/ipc'
+import { toast } from '../lib/toast'
 
 export function AgentsPage() {
   const intl = useIntl()
@@ -45,7 +46,7 @@ export function AgentsPage() {
   const uninstall = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'agents.uninstallConfirm' }, { id }))) return
     const result = await ipc.agents.uninstall({ id })
-    if (!result.ok) window.alert(result.message)
+    if (!result.ok) toast(result.message, 'error')
     refresh()
   }
 

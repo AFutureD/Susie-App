@@ -5,6 +5,7 @@ import type { AppInfo } from '../../../shared/ipc/contract'
 import { ipc } from '../lib/ipc'
 import { updateStateAtom } from '../lib/update-atoms'
 import { Button } from './form'
+import { toast } from '../lib/toast'
 
 function formatMegabytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -20,12 +21,12 @@ function UpdateSection() {
     setBusy(true)
     const result = await ipc.update.check()
     setBusy(false)
-    if (!result.ok) window.alert(result.message)
+    if (!result.ok) toast(result.message, 'error')
   }
 
   const install = async () => {
     const result = await ipc.update.install()
-    if (!result.ok) window.alert(result.message)
+    if (!result.ok) toast(result.message, 'error')
   }
 
   const statusText = (() => {

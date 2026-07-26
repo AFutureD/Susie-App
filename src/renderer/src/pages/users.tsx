@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { PERMISSION_LEVELS, type ChannelUser, type ConfigState, type PermissionLevel } from '../../../shared/config'
@@ -19,7 +19,9 @@ import { MemberPickerModal, useSenders } from '../components/member-picker'
 import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, onIpcEvent } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
+import { useChatsQuery } from '../lib/ipc-query'
+import { useConfigMutation } from '../lib/ipc-mutation'
 
 // 用户管理 = 身份轴：owner 全局直通并负责审核；其余用户按范围（私聊 / 具体群）三档
 // （直通 / 审核 / 忽略）。未登记发送者与未设置的范围默认审核，批准后自动登记。
@@ -32,37 +34,20 @@ interface KnownGroup {
 }
 
 function useChannelGroups(channelId: string): KnownGroup[] {
-  const [groups, setGroups] = useState<KnownGroup[]>([])
-  useEffect(() => {
-    if (channelId === '') {
-      setGroups([])
-      return
+  // 共享查询缓存（history.message 事件自动失效）；本 hook 只做按频道的派生计算
+  const { data } = useChatsQuery()
+  return useMemo(() => {
+    if (channelId === '' || data === null) return []
+    const byKey = new Map<string, string | null>()
+    for (const chat of data) {
+      if (chat.channelId !== channelId) continue
+      const chatType = decodeChatId(chat.chatId)?.chatType ?? null
+      if (chatType !== 'group' && chatType !== 'supergroup') continue
+      const key = groupKey(chat.chatId)
+      if (!byKey.has(key) || byKey.get(key) === null) byKey.set(key, chat.name)
     }
-    let alive = true
-    const refresh = (): void => {
-      void ipc.history.chats().then((list) => {
-        if (!alive) return
-        const byKey = new Map<string, string | null>()
-        for (const chat of list) {
-          if (chat.channelId !== channelId) continue
-          const chatType = decodeChatId(chat.chatId)?.chatType ?? null
-          if (chatType !== 'group' && chatType !== 'supergroup') continue
-          const key = groupKey(chat.chatId)
-          if (!byKey.has(key) || byKey.get(key) === null) byKey.set(key, chat.name)
-        }
-        setGroups([...byKey.entries()].map(([key, name]) => ({ key, name })))
-      })
-    }
-    refresh()
-    const unsubscribe = onIpcEvent('history.message', (message) => {
-      if (message.channelId === channelId) refresh()
-    })
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [channelId])
-  return groups
+    return [...byKey.entries()].map(([key, name]) => ({ key, name }))
+  }, [data, channelId])
 }
 
 export function UsersPage() {
@@ -107,24 +92,19 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
   const [pickerOpen, setPickerOpen] = useState(false)
   const [ownerBindOpen, setOwnerBindOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
 
   const users = channelUsers(state.config.users, channelId).toSorted(
     (a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1),
   )
+  const mutation = useConfigMutation()
   const owner = channelOwner(state.config.users, channelId)
 
   const displayName = (user: ChannelUser): string =>
     user.name ?? senders.find((sender) => sender.id === user.user_id)?.name ?? user.user_id
 
   const save = async (next: ChannelUser[]): Promise<void> => {
-    if (busy) return
-    setBusy(true)
-    const result = await ipc.config.setUsers({ users: next, expectedVersion: state.version })
-    setBusy(false)
-    if (!result.ok) {
-      window.alert(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)
-    }
+    if (mutation.busy) return
+    await mutation.run((expectedVersion) => ipc.config.setUsers({ users: next, expectedVersion }))
   }
 
   const setScope = (user: ChannelUser, scope: PermissionScope, level: PermissionLevel): void => {
@@ -163,7 +143,7 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
         )}
         <div className="flex-1" />
         {!ghost && (
-          <Button disabled={busy} onClick={() => setPickerOpen(true)}>
+          <Button disabled={mutation.busy} onClick={() => setPickerOpen(true)}>
             {intl.formatMessage({ id: 'users.add' })}
           </Button>
         )}
@@ -172,7 +152,7 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
       {owner === null && !ghost && (
         <div className="mt-2 flex items-center gap-3">
           <p className="min-w-0 flex-1 text-xs text-red-500">{intl.formatMessage({ id: 'users.channel.noOwner' })}</p>
-          <Button className="shrink-0" disabled={busy} onClick={() => setOwnerBindOpen(true)}>
+          <Button className="shrink-0" disabled={mutation.busy} onClick={() => setOwnerBindOpen(true)}>
             {intl.formatMessage({ id: 'ownerBind.title' })}
           </Button>
         </div>
@@ -189,7 +169,7 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
               name={displayName(user)}
               knownGroups={knownGroups}
               expanded={expandedId === user.user_id}
-              busy={busy}
+              busy={mutation.busy}
               onToggle={() => setExpandedId(expandedId === user.user_id ? null : user.user_id)}
               onScope={(scope, level) => setScope(user, scope, level)}
               onMakeOwner={() => makeOwner(user)}
@@ -203,7 +183,7 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
         <MemberPickerModal
           channelId={channelId}
           existing={new Set(users.map((user) => user.user_id))}
-          busy={busy}
+          busy={mutation.busy}
           onAdd={addMember}
           onClose={() => setPickerOpen(false)}
         />

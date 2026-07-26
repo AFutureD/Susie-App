@@ -6,7 +6,8 @@ import { decodeChatId } from '../../../../shared/chat-id'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { configStateAtom } from '../../lib/config-atoms'
-import { ipc, onIpcEvent } from '../../lib/ipc'
+import { ipc } from '../../lib/ipc'
+import { useChatsQuery } from '../../lib/ipc-query'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import { Button, ErrorText, Field, TextInput } from '../form'
 import { OwnerBindPanel } from '../owner-bind'
@@ -358,25 +359,13 @@ function OptionCard({
 
 // ---------- 监听新会话（仅指定会话模式） ----------
 
-/** 该频道的历史会话列表：初次拉取 + 新消息事件刷新，按最近活跃排序 */
+/** 该频道的历史会话列表：共享查询缓存（history.message 事件自动失效），按最近活跃排序 */
 function useChannelChats(channelId: string): ChatInfo[] {
-  const [chats, setChats] = useState<ChatInfo[]>([])
-  useEffect(() => {
-    let alive = true
-    const refresh = (): void => {
-      void ipc.history.chats().then((list) => {
-        if (!alive) return
-        setChats(list.filter((chat) => chat.channelId === channelId).toSorted((a, b) => b.lastTs - a.lastTs))
-      })
-    }
-    refresh()
-    const unsubscribe = onIpcEvent('history.message', refresh)
-    return () => {
-      alive = false
-      unsubscribe()
-    }
-  }, [channelId])
-  return chats
+  const { data } = useChatsQuery()
+  return useMemo(
+    () => (data ?? []).filter((chat) => chat.channelId === channelId).toSorted((a, b) => b.lastTs - a.lastTs),
+    [data, channelId],
+  )
 }
 
 function ListenPanel({

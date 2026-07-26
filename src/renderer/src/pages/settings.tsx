@@ -6,6 +6,7 @@ import { Button, CheckboxField, ErrorText, TextArea } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
+import { toast } from '../lib/toast'
 
 function LoginItemToggle() {
   const intl = useIntl()
@@ -20,7 +21,7 @@ function LoginItemToggle() {
     const result = await ipc.app.setLoginItem({ enabled: value })
     if (!result.ok) {
       setEnabled(!value)
-      window.alert(result.message)
+      toast(result.message, 'error')
     }
   }
 
