@@ -49,7 +49,9 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
     let cancelled = false
     void ipc.agents.overview().then((overview) => {
       if (cancelled) return
-      const installed = overview.acp.filter((agent) => agent.installedVersion !== null).map((agent) => agent.id)
+      const installed = overview
+        .filter((agent) => agent.id !== CODEX_AGENT_ID && agent.source === 'installed')
+        .map((agent) => agent.id)
       setAgentIds([CODEX_AGENT_ID, ...installed])
     })
     return () => {

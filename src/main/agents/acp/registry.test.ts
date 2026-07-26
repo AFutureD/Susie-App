@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { AcpAgentRow } from '../../shared/messages'
-import { compareAcpRows } from './acp-registry'
+import type { AcpAgentRow } from './registry'
+import { compareAcpRows } from './registry'
 
 const row = (overrides: Partial<AcpAgentRow>): AcpAgentRow => ({
   id: 'x',

@@ -1,10 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
 import { Readable, Writable } from 'node:stream'
 import { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream, type Client } from '@agentclientprotocol/sdk'
-import type { MessagePart } from '../../shared/messages'
-import { withDeadline } from '../util/async'
-import type { Logger } from '../util/logger'
-import type { AgentModelOption, AgentRuntime, AgentTurn } from './types'
+import type { MessagePart } from '../../../shared/messages'
+import { withDeadline } from '../../util/async'
+import type { Logger } from '../../util/logger'
+import type { AgentModelOption, AgentRuntime, AgentTurn } from '../types'
 
 type RequestPermissionRequest = Parameters<Client['requestPermission']>[0]
 type RequestPermissionResponse = Awaited<ReturnType<Client['requestPermission']>>

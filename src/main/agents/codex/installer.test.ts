@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CodexInstaller, codexTarballUrl, platformTarget } from './codex-installer'
+import { CodexInstaller, codexTarballUrl, platformTarget } from './installer'
 
 function tempDataDir(): string {
   return path.join(mkdtempSync(path.join(tmpdir(), 'susie-codex-test-')), 'codex')

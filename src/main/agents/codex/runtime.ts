@@ -8,11 +8,11 @@ import {
   type TurnCompletedNotification,
   type TurnHandle,
 } from '@susie/codex-app-server'
-import type { MessagePart } from '../../shared/messages'
-import type { Logger } from '../util/logger'
-import { mapAppServerModels } from './codex-models'
-import { mapThreadItem } from './codex-map'
-import type { AgentModelOption, AgentRuntime, AgentTurn } from './types'
+import type { MessagePart } from '../../../shared/messages'
+import type { Logger } from '../../util/logger'
+import { mapAppServerModels } from './models'
+import { mapThreadItem } from './map'
+import type { AgentModelOption, AgentRuntime, AgentTurn } from '../types'
 
 export interface CodexRuntimeOptions {
   cwd: string

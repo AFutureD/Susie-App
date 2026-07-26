@@ -2,8 +2,8 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AcpRuntime } from './acp'
-import type { Logger } from '../util/logger'
+import { AcpRuntime } from './runtime'
+import type { Logger } from '../../util/logger'
 
 const silentLog: Logger = { info: () => {}, error: () => {} }
 

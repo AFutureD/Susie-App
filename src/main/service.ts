@@ -1,13 +1,12 @@
 import fs from 'node:fs'
-import os from 'node:os'
 import type { AssistantConfig, AutoReviewConfig } from '../shared/config'
-import type { AgentModelOption, AgentProgress, AgentsOverview, MessagePart } from '../shared/messages'
+import type { AgentProgress, MessagePart } from '../shared/messages'
 import type { IpcBroadcaster } from '../shared/ipc/events'
-import { AcpRuntime } from './agents/acp'
-import { AcpRegistryManager } from './agents/acp-registry'
-import { CodexRuntime } from './agents/codex'
-import { CODEX_AGENT_ID, CodexInstaller } from './agents/codex-installer'
-import { fetchCodexModels } from './agents/codex-models'
+import { AcpProvider } from './agents/acp/provider'
+import { AcpRegistryManager } from './agents/acp/registry'
+import { CodexProvider } from './agents/codex/provider'
+import { CodexInstaller } from './agents/codex/installer'
+import { AgentManager } from './agents/manager'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
 import { telegramBotFactory } from './channels/telegram/factory'
@@ -23,11 +22,7 @@ import { MessageRepo } from './history/message-repo'
 import { ApprovalRepo } from './core/approval-repo'
 import { AutoReviewRepo } from './core/auto-review-repo'
 import { SusieMcpServer } from './mcp/server'
-import { withDeadline } from './util/async'
 import type { Logger } from './util/logger'
-
-/** 模型枚举结果缓存时长（探针要起子进程，避免每次打开表单都付启动成本） */
-const MODEL_OPTIONS_TTL_MS = 5 * 60 * 1000
 
 export interface ServicePaths {
   /** SQLite 历史库 */
@@ -55,8 +50,7 @@ export class SusieService {
   readonly approvals: ApprovalManager
   readonly autoReviewer: AutoReviewer
   readonly mcp: SusieMcpServer
-  readonly acpRegistry: AcpRegistryManager
-  readonly codexInstaller: CodexInstaller
+  readonly agents: AgentManager
 
   private readonly log: Logger
   private readonly unsubUsers: () => void
@@ -76,8 +70,13 @@ export class SusieService {
       }
       broadcast('agents.progress', progress)
     }
-    this.acpRegistry = new AcpRegistryManager(paths.acpDataDir, agentsProgress)
-    this.codexInstaller = new CodexInstaller(paths.codexDataDir, agentsProgress)
+    const acpRegistry = new AcpRegistryManager(paths.acpDataDir, agentsProgress)
+    const codexInstaller = new CodexInstaller(paths.codexDataDir, agentsProgress)
+    // 有序注册：codex 精确认领，acp 兜底（owns 恒真）必须在末位
+    this.agents = new AgentManager(
+      [new CodexProvider(codexInstaller, log), new AcpProvider(acpRegistry, SUSIE_MCP_NAME, log)],
+      log,
+    )
 
     // approvals ↔ chatManager ↔ hub 相互引用，一律用延迟闭包解环（构造顺序无关）
     this.approvals = new ApprovalManager({
@@ -174,155 +173,33 @@ export class SusieService {
     this.log.info('service stopped')
   }
 
-  /** agent_id === 'codex' 用 Codex SDK；其余按 ACP registry 已安装的 agent 解析 */
+  /** 会话运行时：注入 susie MCP；工作目录缺省 workspace/<assistant.id>（环境准备留在 service 层） */
   private createRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
     const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
-    return this.buildRuntime({
+    fs.mkdirSync(cwd, { recursive: true })
+    return this.agents.createRuntime({
       agentId: assistant.agent_id,
       model: assistant.model ?? null,
       thinkingLevel: assistant.thinking_level ?? null,
       models: assistant.models ?? [],
       cwd,
       mcpUrl: this.mcp.url,
+      mcpName: SUSIE_MCP_NAME,
     })
   }
 
   /** 自动审核运行时：不注入 susie MCP（审核 agent 不应对外发消息），用独立工作目录 */
   private createReviewRuntime(config: AutoReviewConfig): Promise<AgentRuntime> {
-    return this.buildRuntime({
+    const cwd = getWorkspaceDir('auto-review')
+    fs.mkdirSync(cwd, { recursive: true })
+    return this.agents.createRuntime({
       agentId: config.agent_id,
       model: config.model ?? null,
       thinkingLevel: config.thinking_level ?? null,
       models: [],
-      cwd: getWorkspaceDir('auto-review'),
+      cwd,
       mcpUrl: null,
-    })
-  }
-
-  private async buildRuntime(spec: {
-    agentId: string
-    model: string | null
-    thinkingLevel: AssistantConfig['thinking_level'] | null
-    models: string[]
-    cwd: string
-    mcpUrl: string | null
-  }): Promise<AgentRuntime> {
-    fs.mkdirSync(spec.cwd, { recursive: true })
-
-    if (spec.agentId === CODEX_AGENT_ID) {
-      const codex = this.codexInstaller.resolve()
-      if (codex === null) {
-        throw new Error('codex 未安装——请到 Agent 页下载 codex 后重试')
-      }
-      return new CodexRuntime({
-        cwd: spec.cwd,
-        mcpUrl: spec.mcpUrl,
-        mcpName: SUSIE_MCP_NAME,
-        model: spec.model,
-        thinkingLevel: spec.thinkingLevel ?? null,
-        models: spec.models,
-        codexPath: codex.executablePath,
-        codexPathDir: codex.pathDir,
-        log: this.log,
-      })
-    }
-
-    const manifest = this.acpRegistry.installedManifest(spec.agentId)
-    if (manifest === null) {
-      throw new Error(`ACP agent "${spec.agentId}" 未安装——请到 Agent 页安装后重试`)
-    }
-    return new AcpRuntime({
-      cmd: manifest.cmd,
-      args: manifest.args,
-      env: manifest.env,
-      cwd: spec.cwd,
-      mcpUrl: spec.mcpUrl,
       mcpName: SUSIE_MCP_NAME,
-      model: spec.model,
-      log: this.log,
     })
-  }
-
-  async agentsOverview(): Promise<AgentsOverview> {
-    const resolved = this.codexInstaller.resolve()
-    let acp: AgentsOverview['acp'] = []
-    try {
-      acp = await this.acpRegistry.overview()
-    } catch (error) {
-      this.log.error(`ACP registry 不可用：${error instanceof Error ? error.message : String(error)}`)
-    }
-    return {
-      codex: {
-        available: resolved !== null,
-        source: resolved?.source ?? null,
-        version: resolved?.version ?? null,
-        targetVersion: this.codexInstaller.targetVersion(),
-      },
-      acp,
-    }
-  }
-
-  /** 模型枚举缓存（agent id → 结果）；只缓存非空结果，失败时下次重试 */
-  private readonly modelOptionsCache = new Map<string, { at: number; options: AgentModelOption[] }>()
-
-  /** 枚举 agent 的模型候选（UI 下拉用）；agent 未安装或枚举失败返回 [] */
-  async listAgentModels(agentId: string): Promise<AgentModelOption[]> {
-    const cached = this.modelOptionsCache.get(agentId)
-    if (cached !== undefined && Date.now() - cached.at < MODEL_OPTIONS_TTL_MS) return cached.options
-    const options = await this.probeAgentModels(agentId)
-    if (options.length > 0) this.modelOptionsCache.set(agentId, { at: Date.now(), options })
-    return options
-  }
-
-  private async probeAgentModels(agentId: string): Promise<AgentModelOption[]> {
-    try {
-      if (agentId === CODEX_AGENT_ID) {
-        const codex = this.codexInstaller.resolve()
-        if (codex === null) return []
-        return await fetchCodexModels({
-          codexPath: codex.executablePath,
-          pathDirs: codex.pathDir === null ? [] : [codex.pathDir],
-        })
-      }
-      const manifest = this.acpRegistry.installedManifest(agentId)
-      if (manifest === null) return []
-      // ACP 的模型列表只在 session/new 的 configOptions 里给：起一次性会话读完即弃
-      const runtime = new AcpRuntime({
-        cmd: manifest.cmd,
-        args: manifest.args,
-        env: manifest.env,
-        cwd: os.tmpdir(),
-        mcpUrl: null,
-        mcpName: SUSIE_MCP_NAME,
-        model: null,
-        log: this.log,
-      })
-      try {
-        await withDeadline(runtime.newSession(null), 30_000, `acp ${agentId} 模型枚举`)
-        return await runtime.listModels()
-      } finally {
-        void runtime.dispose()
-      }
-    } catch (error) {
-      this.log.error(`agent ${agentId} 模型枚举失败：${error instanceof Error ? error.message : String(error)}`)
-      return []
-    }
-  }
-
-  /** codex 走内置下载器，其余按 ACP registry 处理 */
-  async installAgent(id: string): Promise<void> {
-    if (id === CODEX_AGENT_ID) {
-      await this.codexInstaller.install()
-      return
-    }
-    await this.acpRegistry.install(id)
-  }
-
-  uninstallAgent(id: string): void {
-    if (id === CODEX_AGENT_ID) {
-      this.codexInstaller.uninstall()
-      return
-    }
-    this.acpRegistry.uninstall(id)
   }
 }

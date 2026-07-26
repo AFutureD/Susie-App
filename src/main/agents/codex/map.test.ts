@@ -1,6 +1,6 @@
 import type { ThreadItem } from '@susie/codex-app-server'
 import { describe, expect, it } from 'vitest'
-import { mapThreadItem } from './codex-map'
+import { mapThreadItem } from './map'
 
 describe('mapThreadItem', () => {
   it('maps agent messages to text and tools to quotes', () => {

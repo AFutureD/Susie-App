@@ -1,6 +1,6 @@
 import type { Model } from '@susie/codex-app-server'
 import { describe, expect, it } from 'vitest'
-import { mapAppServerModels } from './codex-models'
+import { mapAppServerModels } from './models'
 
 function model(partial: Partial<Model>): Model {
   return {

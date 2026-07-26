@@ -1,5 +1,5 @@
 import type { ThreadItem } from '@susie/codex-app-server'
-import type { MessagePart } from '../../shared/messages'
+import type { MessagePart } from '../../../shared/messages'
 
 /** app-server v2 ThreadItem → 消息 parts（对位 Python CodexSDKMessage.chat_message_parts） */
 export function mapThreadItem(item: ThreadItem): MessagePart[] {

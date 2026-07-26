@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
-import type { AgentProgress, AgentsOverview } from '../../../shared/messages'
+import type { AgentInfo, AgentProgress, AgentsOverview } from '../../../shared/messages'
 import { Button } from '../components/form'
 import { Page } from '../components/page'
 import { ipc, onIpcEvent } from '../lib/ipc'
@@ -49,142 +49,110 @@ export function AgentsPage() {
     refresh()
   }
 
-  const codex = overview?.codex ?? null
-  const codexStatusText = () => {
-    if (codex === null) return intl.formatMessage({ id: 'common.loading' })
-    if (!codex.available) {
-      return intl.formatMessage({ id: 'agents.codex.missing' }, { version: codex.targetVersion ?? '?' })
-    }
-    const sourceId =
-      codex.source === 'installed'
-        ? 'agents.codex.ready.installed'
-        : codex.source === 'dev'
-          ? 'agents.codex.ready.dev'
-          : 'agents.codex.ready.path'
-    return intl.formatMessage({ id: sourceId }, { version: codex.version ?? '?' })
-  }
-
-  const uninstallCodex = async () => {
-    if (!window.confirm(intl.formatMessage({ id: 'agents.codex.uninstallConfirm' }))) return
-    const result = await ipc.agents.uninstall({ id: 'codex' })
-    if (!result.ok) window.alert(result.message)
-    refresh()
-  }
-
   return (
     <Page titleId="page.agents.title">
-      <section className="mb-6 rounded-xl border border-line bg-raised p-5">
-        <div className="flex items-center gap-3">
-          <span className={`size-2.5 rounded-full ${codex?.available ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2">
-              <span className="text-sm font-semibold">Codex</span>
-              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                agent_id: codex
-              </span>
-            </div>
-            <div className="mt-0.5 text-xs text-ink-muted">{codexStatusText()}</div>
-          </div>
-          {codex !== null && !codex.available && (
-            <Button
-              variant="primary"
-              disabled={codex.targetVersion === null || busyId === 'codex'}
-              onClick={() => void install('codex')}
-            >
-              {busyId === 'codex'
-                ? intl.formatMessage({ id: 'agents.installing' })
-                : intl.formatMessage({ id: 'agents.codex.download' })}
-            </Button>
-          )}
-          {codex?.source === 'installed' && (
-            <>
-              {codex.targetVersion !== null && codex.targetVersion !== codex.version && (
-                <Button variant="primary" disabled={busyId === 'codex'} onClick={() => void install('codex')}>
-                  {busyId === 'codex'
-                    ? intl.formatMessage({ id: 'agents.installing' })
-                    : intl.formatMessage({ id: 'agents.update' })}
-                </Button>
-              )}
-              <Button variant="danger" onClick={() => void uninstallCodex()}>
-                {intl.formatMessage({ id: 'agents.uninstall' })}
-              </Button>
-            </>
-          )}
-        </div>
-        {progress['codex'] !== undefined && <ProgressLine progress={progress['codex']} />}
-      </section>
-
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-base font-semibold">{intl.formatMessage({ id: 'agents.acp.title' })}</h2>
-          <Button onClick={refresh}>{intl.formatMessage({ id: 'agents.refresh' })}</Button>
-        </div>
-        <div className="flex flex-col gap-2">
-          {overview === null && (
-            <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'common.loading' })}</p>
-          )}
-          {overview !== null && overview.acp.length === 0 && (
-            <p className="rounded-xl border border-dashed border-line p-5 text-xs text-ink-muted">
-              {intl.formatMessage({ id: 'agents.acp.empty' })}
-            </p>
-          )}
-          {overview?.acp.map((agent) => {
-            const agentProgress = progress[agent.id]
-            return (
-              <div key={agent.id} className="rounded-xl border border-line bg-raised p-4">
-                <div className="flex items-center gap-3">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold">{agent.name}</span>
-                      <span className="font-mono text-[11px] text-ink-muted">
-                        {agent.id} · v{agent.version}
-                      </span>
-                      {agent.installedVersion !== null && (
-                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-[11px] font-medium text-emerald-600">
-                          {intl.formatMessage({ id: 'agents.installed' }, { version: agent.installedVersion })}
-                        </span>
-                      )}
-                      {agent.installedVersion !== null && agent.mcpHttp === false && (
-                        <span
-                          className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600"
-                          title={intl.formatMessage({ id: 'agents.mcpUnsupported.hint' })}
-                        >
-                          {intl.formatMessage({ id: 'agents.mcpUnsupported' })}
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-xs text-ink-muted">{agent.description}</p>
-                  </div>
-                  {agent.installedVersion === null ? (
-                    <Button
-                      variant="primary"
-                      disabled={!agent.installable || busyId === agent.id}
-                      onClick={() => void install(agent.id)}
-                    >
-                      {busyId === agent.id
-                        ? intl.formatMessage({ id: 'agents.installing' })
-                        : intl.formatMessage({ id: 'agents.install' })}
-                    </Button>
-                  ) : (
-                    <>
-                      {agent.installedVersion !== agent.version && (
-                        <Button variant="primary" disabled={busyId === agent.id} onClick={() => void install(agent.id)}>
-                          {intl.formatMessage({ id: 'agents.update' })}
-                        </Button>
-                      )}
-                      <Button variant="danger" onClick={() => void uninstall(agent.id)}>
-                        {intl.formatMessage({ id: 'agents.uninstall' })}
-                      </Button>
-                    </>
-                  )}
-                </div>
-                {agentProgress !== undefined && <ProgressLine progress={agentProgress} />}
-              </div>
-            )
-          })}
-        </div>
-      </section>
+      <div className="mb-3 flex items-center justify-end">
+        <Button onClick={refresh}>{intl.formatMessage({ id: 'agents.refresh' })}</Button>
+      </div>
+      <div className="flex flex-col gap-2">
+        {overview === null && <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'common.loading' })}</p>}
+        {overview?.map((agent) => (
+          <AgentRow
+            key={agent.id}
+            agent={agent}
+            busy={busyId === agent.id}
+            progress={progress[agent.id]}
+            onInstall={() => void install(agent.id)}
+            onUninstall={() => void uninstall(agent.id)}
+          />
+        ))}
+        {overview !== null && overview.every((agent) => agent.source === null || agent.id === 'codex') && (
+          <p className="rounded-xl border border-dashed border-line p-5 text-xs text-ink-muted">
+            {intl.formatMessage({ id: 'agents.acp.empty' })}
+          </p>
+        )}
+      </div>
     </Page>
+  )
+}
+
+/** 同构 agent 行：字段驱动（安装态/来源/更新/卸载/MCP 告警），不再按 provider 分块特判 */
+function AgentRow({
+  agent,
+  busy,
+  progress,
+  onInstall,
+  onUninstall,
+}: {
+  agent: AgentInfo
+  busy: boolean
+  progress: AgentProgress | undefined
+  onInstall: () => void
+  onUninstall: () => void
+}) {
+  const intl = useIntl()
+  const available = agent.source !== null
+
+  const statusText = () => {
+    switch (agent.source) {
+      case 'installed':
+        return intl.formatMessage({ id: 'agents.status.installed' }, { version: agent.installedVersion ?? '?' })
+      case 'dev':
+        return intl.formatMessage({ id: 'agents.status.dev' }, { version: agent.installedVersion ?? '?' })
+      case 'path':
+        return intl.formatMessage({ id: 'agents.status.path' }, { version: agent.installedVersion ?? '?' })
+      default:
+        return intl.formatMessage({ id: 'agents.status.missing' })
+    }
+  }
+
+  const updatable =
+    agent.source === 'installed' && agent.latestVersion !== null && agent.latestVersion !== agent.installedVersion
+
+  return (
+    <div className="rounded-xl border border-line bg-raised p-4">
+      <div className="flex items-center gap-3">
+        <span className={`size-2.5 shrink-0 rounded-full ${available ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold">{agent.name}</span>
+            <span className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent">
+              {agent.id}
+            </span>
+            {agent.latestVersion !== null && (
+              <span className="font-mono text-[11px] text-ink-muted">v{agent.latestVersion}</span>
+            )}
+            {available && agent.mcpHttp === false && (
+              <span
+                className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600"
+                title={intl.formatMessage({ id: 'agents.mcpUnsupported.hint' })}
+              >
+                {intl.formatMessage({ id: 'agents.mcpUnsupported' })}
+              </span>
+            )}
+          </div>
+          <div className="mt-0.5 text-xs text-ink-muted">{statusText()}</div>
+          {agent.description !== '' && <p className="mt-0.5 truncate text-xs text-ink-muted">{agent.description}</p>}
+        </div>
+
+        {!available && (
+          <Button variant="primary" disabled={!agent.installable || busy} onClick={onInstall}>
+            {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.install' })}
+          </Button>
+        )}
+        {updatable && (
+          <Button variant="primary" disabled={busy} onClick={onInstall}>
+            {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.update' })}
+          </Button>
+        )}
+        {agent.source === 'installed' && (
+          <Button variant="danger" onClick={onUninstall}>
+            {intl.formatMessage({ id: 'agents.uninstall' })}
+          </Button>
+        )}
+      </div>
+      {progress !== undefined && <ProgressLine progress={progress} />}
+    </div>
   )
 }
 

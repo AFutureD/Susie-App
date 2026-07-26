@@ -2,9 +2,9 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { AcpAgentRow, AgentProgress } from '../../shared/messages'
-import { probeAcpMcpHttp } from './acp-probe'
-import { downloadWithProgress } from './download'
+import type { AgentProgress } from '../../../shared/messages'
+import { probeAcpMcpHttp } from './probe'
+import { downloadWithProgress } from '../download'
 
 const REGISTRY_URL = 'https://cdn.agentclientprotocol.com/registry/v1/latest/registry.json'
 const REGISTRY_TTL_MS = 60 * 60 * 1000
@@ -27,6 +27,18 @@ interface RegistryAgent {
     npx?: { package: string; args?: string[] }
     uvx?: { package: string; args?: string[] }
   }
+}
+
+/** registry 视角的 agent 行（provider 映射为共享的 AgentInfo） */
+export interface AcpAgentRow {
+  id: string
+  name: string
+  version: string
+  description: string
+  /** 本平台是否有可用分发（binary/npx） */
+  installable: boolean
+  installedVersion: string | null
+  mcpHttp: boolean | null
 }
 
 export interface InstalledManifest {

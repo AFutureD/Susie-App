@@ -2,7 +2,7 @@
 // UI 下拉（service.listAgentModels）在没有常驻 runtime 时使用；
 // runtime 内部枚举复用自身常驻连接（见 codex.ts fetchModelOptions）。
 import { Codex, type Model } from '@susie/codex-app-server'
-import type { AgentModelOption } from './types'
+import type { AgentModelOption } from '../types'
 
 /** model/list data → 候选列表（过滤 hidden，displayName/description 缺省回退） */
 export function mapAppServerModels(data: Model[]): AgentModelOption[] {

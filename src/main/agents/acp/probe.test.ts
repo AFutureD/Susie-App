@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { probeAcpMcpHttp } from './acp-probe'
+import { probeAcpMcpHttp } from './probe'
 
 /** 假 ACP agent：读一行 initialize 请求，回指定 capabilities（借 node 执行，免依赖 shell） */
 function fakeAgent(mcpCapabilities: string): { cmd: string; args: string[]; env: Record<string, string> } {

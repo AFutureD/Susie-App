@@ -121,11 +121,12 @@ test('Raw 编辑器：非法配置被拒绝，不影响运行态', async () => {
   await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
 })
 
-test('Agent 页：Codex 检测可用，ACP registry 列表渲染', async () => {
+test('Agent 页：同构列表渲染 Codex 行与安装态', async () => {
   await win.getByRole('link', { name: 'Agent' }).click()
-  await expect(win.getByText('Codex', { exact: true })).toBeVisible()
-  await expect(win.getByText(/可用（.+）|未安装/)).toBeVisible()
-  await expect(win.getByText('ACP Registry')).toBeVisible()
+  // registry 里可能有同名 agent（codex-acp 的显示名也是 Codex）——用唯一的 id 徽标定位内置行
+  await expect(win.getByText('codex', { exact: true })).toBeVisible()
+  await expect(win.getByText(/可用（.+）|未安装/).first()).toBeVisible()
+  await expect(win.getByRole('button', { name: '刷新' })).toBeVisible()
 })
 
 test('历史页：空态与会话列表骨架', async () => {

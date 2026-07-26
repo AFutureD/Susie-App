@@ -120,9 +120,9 @@ function AssistantForm({
     void ipc.agents.overview().then((overview) => {
       if (cancelled) return
       // 不支持 http MCP 的 agent（mcpHttp === false）拿不到 susie 工具（send_message 等），
-      // 不进候选；null（探测失败/旧 manifest）视为未知，保守放行
-      const installed = overview.acp
-        .filter((agent) => agent.installedVersion !== null && agent.mcpHttp !== false)
+      // 不进候选；null（探测失败/旧 manifest）视为未知，保守放行。codex 恒在候选（未装则运行时引导下载）
+      const installed = overview
+        .filter((agent) => agent.id !== CODEX_AGENT_ID && agent.source === 'installed' && agent.mcpHttp !== false)
         .map((agent) => agent.id)
       setAgentIds([CODEX_AGENT_ID, ...installed])
     })

@@ -101,32 +101,26 @@ export interface AgentProgress {
   total?: number | null
 }
 
-export interface AgentsOverview {
-  codex: {
-    available: boolean
-    /** 二进制来源：本地下载 / 开发 node_modules / PATH；不可用为 null */
-    source: 'installed' | 'dev' | 'path' | null
-    version: string | null
-    /** SDK 期望的 codex 版本（下载目标） */
-    targetVersion: string | null
-  }
-  acp: AcpAgentRow[]
-}
-
-export interface AcpAgentRow {
+/** 同构的 agent 安装态行（codex 与 ACP registry 同列，AgentManager.overview 聚合） */
+export interface AgentInfo {
   id: string
   name: string
-  version: string
   description: string
-  /** 本平台是否有可用分发（binary/npx） */
+  /** 本平台是否有可用分发 */
   installable: boolean
   installedVersion: string | null
+  /** 可安装/更新到的版本（registry 版本 / codex 下载目标）；未知为 null */
+  latestVersion: string | null
+  /** 安装来源：installed=本地托管；dev/path=外部提供（不可卸载）；null=未安装 */
+  source: 'installed' | 'dev' | 'path' | null
   /**
    * 是否支持 http 分发的 MCP server（susie 注入 send_message 的唯一方式）。
    * 安装时探测 initialize 的 mcpCapabilities.http；null = 未安装或探测失败（未知）。
    */
   mcpHttp: boolean | null
 }
+
+export type AgentsOverview = AgentInfo[]
 
 export function partsToPromptText(parts: MessagePart[]): string {
   return parts
