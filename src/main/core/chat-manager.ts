@@ -12,6 +12,7 @@ import {
 } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
 import type { Channel } from '../channels/types'
+import { botCopy } from '../copy/bot-copy'
 import type { ConfigStore, Unsubscribe } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { PendingApproval } from './approval-repo'
@@ -23,10 +24,6 @@ import { CommandRegistry, parseCommandText, type CommandContext, type CommandSpe
 
 /** 自己在别的客户端亲自回复后，忽略该会话新消息的时长（对位 Python IGNORE_MESSAGE_DURATION） */
 const IGNORE_AFTER_SELF_REPLY_MS = 120_000
-
-// 权限拦截的会话反馈（不静默：被拦下的发送者要知道原因；纯路由缺失不回复）
-const PERMISSION_IGNORED_NOTICE = '⛔ 你没有使用权限。'
-const NO_OWNER_NOTICE = '⚠️ 该频道未绑定 owner，消息无法审核。'
 
 interface ChatEntry {
   key: string
@@ -222,7 +219,7 @@ export class ChatManager {
       const permission = permissionFor(users, message.channelId, message.senderId, message.chatId, chatType)
       if (permission === 'ignore') {
         this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 在该范围为忽略档，不响应`)
-        await this.replyText(message, PERMISSION_IGNORED_NOTICE)
+        await this.replyText(message, botCopy.gate.permissionIgnored)
         return
       }
       if (permission === 'review' || permission === 'auto') {
@@ -258,7 +255,7 @@ export class ChatManager {
           if (!autoPassed) {
             if (channelOwner(users, message.channelId) === null) {
               this.deps.log.info(`chat ${key} 需审核但频道未绑定 owner，无人可审，不响应`)
-              await this.replyText(message, NO_OWNER_NOTICE)
+              await this.replyText(message, botCopy.gate.noOwner)
               return
             }
             this.deps.log.info(`chat ${key} 发送者 ${message.senderId ?? '?'} 转 owner 审核`)

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { InboundEnvelope, MessagePart } from '../../shared/messages'
 import type { PendingApproval } from './approval-repo'
-import { buildCardParts } from './approvals'
+import { buildCardParts } from './approval-card'
 
 // 审核卡片文案的逐字节钉死（全状态矩阵）。
-// 这些字符串即将迁入 copy/bot-copy.ts + core/approval-card.ts——迁移的验收标准是本文件零 diff。
+// 文案唯一出处是 copy/bot-copy.ts，渲染在 core/approval-card.ts——本文件把两者的组合结果逐字节钉死。
 
 function makeEnvelope(parts: MessagePart[], chatName: string | null = '客厅'): InboundEnvelope {
   return {

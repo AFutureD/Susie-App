@@ -1,17 +1,13 @@
 import { resolveBinding } from '../../shared/bindings'
-import {
-  partsToPlainText,
-  type ChatMessage,
-  type InboundEnvelope,
-  type MessagePart,
-  type StoredMessage,
-} from '../../shared/messages'
+import type { ChatMessage, InboundEnvelope, StoredMessage } from '../../shared/messages'
 import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
 import type { Channel, ChannelCallbackEvent, InlineButton } from '../channels/types'
+import { botCopy } from '../copy/bot-copy'
+import { buildCardParts } from './approval-card'
 import type { ConfigStore } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { Logger } from '../util/logger'
-import type { ApprovalRepo, ApprovalStatus, PendingApproval } from './approval-repo'
+import type { ApprovalRepo, PendingApproval } from './approval-repo'
 
 // member 消息审核流：暂存 → owner 私聊卡片 → 回调裁决 → 重放或丢弃。
 // 暂存持久化在应用库（pending_approvals，ApprovalRepo），重启后卡片按钮仍可用。
@@ -24,23 +20,8 @@ import type { ApprovalRepo, ApprovalStatus, PendingApproval } from './approval-r
 
 /** callback_data 形态：apv:<pendingId>:<allow|deny|stop>（Bot API 限 ≤64 字节） */
 const CALLBACK_PATTERN = /^apv:(\d+):(allow|deny|stop)$/
-/** 卡片引用的消息正文截断长度 */
-const CARD_TEXT_LIMIT = 500
 
-const MEMBER_PENDING_NOTICE = '⏳ 消息已提交 owner 审核。'
-const MEMBER_DENIED_NOTICE = '🚫 消息未获 owner 批准。'
-const MEMBER_UNDELIVERABLE_NOTICE = 'Error: 审核请求发送失败（owner 不可达），消息未处理。'
-
-/** 卡片标题状态 tag：随裁决更新（曾经固定「待审核」，自动放行后的卡片标签误导 owner） */
-const STATUS_TAGS: Record<ApprovalStatus, string> = {
-  pending: '待审核',
-  auto_reviewing: '自动审核中',
-  auto_passed: '已放行',
-  terminated: '已终止',
-  approved: '已允许',
-  denied: '已拒绝',
-  failed: '未执行',
-}
+const COPY = botCopy.approval
 
 export interface ApprovalManagerDeps {
   store: ConfigStore
@@ -55,41 +36,18 @@ export interface ApprovalManagerDeps {
   log: Logger
 }
 
-/** 审核卡片正文（状态行按 pending.status 渲染；裁决后重建同一份并追加裁决行，避免另存卡片文案） */
-export function buildCardParts(pending: PendingApproval, decision?: string): MessagePart[] {
-  const { envelope } = pending
-  const sender = pending.sender ?? pending.senderId ?? '未知用户'
-  const chatLabel = envelope.chatName ?? pending.chatId
-  const text = partsToPlainText(envelope.message.parts)
-  const clipped = text.length > CARD_TEXT_LIMIT ? `${text.slice(0, CARD_TEXT_LIMIT)}…` : text
-  const files = envelope.message.parts.filter((part) => part.kind === 'file').length
-
-  const lines = [`【${STATUS_TAGS[pending.status]}】${sender} 在「${chatLabel}」发来消息：`]
-  if (clipped !== '') lines.push(clipped)
-  if (files > 0) lines.push(`（含 ${files} 个附件）`)
-  if (pending.status === 'auto_reviewing') {
-    lines.push('', '🤖 自动审核中…')
-  } else if (pending.status === 'auto_passed' || pending.status === 'terminated') {
-    lines.push('', '✅ 自动审核通过，已放行处理。')
-  } else if (pending.autoReviewReason !== null) {
-    lines.push('', `🤖 自动审核未通过：${pending.autoReviewReason}`)
-  }
-  if (decision !== undefined) lines.push('', decision)
-  return [{ kind: 'text', text: lines.join('\n') }]
-}
-
 function approvalButtons(pendingId: number): InlineButton[][] {
   return [
     [
-      { id: `apv:${pendingId}:allow`, label: '允许' },
-      { id: `apv:${pendingId}:deny`, label: '拒绝' },
+      { id: `apv:${pendingId}:allow`, label: COPY.action.allow },
+      { id: `apv:${pendingId}:deny`, label: COPY.action.deny },
     ],
   ]
 }
 
 /** 自动审核通过后的急停按钮（防误判：消息已放行，owner 可中断 agent 处理） */
 function terminateButtons(pendingId: number): InlineButton[][] {
-  return [[{ id: `apv:${pendingId}:stop`, label: '终止' }]]
+  return [[{ id: `apv:${pendingId}:stop`, label: COPY.action.stop }]]
 }
 
 export class ApprovalManager {
@@ -123,10 +81,10 @@ export class ApprovalManager {
 
     const sent = await this.sendCard(pending, owner.user_id, owner.name ?? null, approvalButtons(pending.id))
     if (!sent) {
-      await this.notifyChat(channelId, message.chatId, MEMBER_UNDELIVERABLE_NOTICE, message.id)
+      await this.notifyChat(channelId, message.chatId, COPY.memberUndeliverable, message.id)
       return
     }
-    await this.notifyChat(channelId, message.chatId, MEMBER_PENDING_NOTICE, message.id)
+    await this.notifyChat(channelId, message.chatId, COPY.memberPending, message.id)
   }
 
   /**
@@ -191,7 +149,7 @@ export class ApprovalManager {
       )
     }
     this.deps.log.info(`approval#${pending.id}: 自动审核未通过（${verdict.reason ?? '无理由'}），已转人工审核`)
-    await this.notifyChat(pending.channelId, pending.chatId, MEMBER_PENDING_NOTICE, pending.envelope.message.id)
+    await this.notifyChat(pending.channelId, pending.chatId, COPY.memberPending, pending.envelope.message.id)
   }
 
   /** 发送审核卡片至 owner 私聊并回填卡片位置；失败 claim failed（返回 false），不抛异常 */
@@ -262,27 +220,27 @@ export class ApprovalManager {
 
     const pending = this.deps.approvals.get(pendingId)
     if (pending === null || pending.channelId !== event.channelId) {
-      await channel.answerCallback(event.callbackQueryId, '该审核请求不存在或已失效')
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.missing)
       return
     }
 
     // 按当前配置校验点按者身份（卡片发出后 owner 交接过也以现任为准）
     const owner = channelOwner(this.deps.store.current.users, pending.channelId)
     if (owner === null || event.fromId !== owner.user_id) {
-      await channel.answerCallback(event.callbackQueryId, '仅 owner 可操作')
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.ownerOnly)
       return
     }
 
     if (action === 'stop') {
       // 急停：仅自动审核放行态可终止（原子认领防双击）
       if (!this.deps.approvals.claim(pending.id, 'terminated', Date.now(), 'auto_passed')) {
-        await channel.answerCallback(event.callbackQueryId, '已处理')
+        await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.handled)
         return
       }
       const cancelled = await this.deps.terminateChat(pending)
-      const decision = cancelled ? '⛔ 已终止，进行中的处理已中断' : '⛔ 已终止（处理已结束，无可中断任务）'
+      const decision = cancelled ? COPY.decision.terminatedActive : COPY.decision.terminatedIdle
       await this.editCard(channel, { ...pending, status: 'terminated' }, decision)
-      await channel.answerCallback(event.callbackQueryId, '已终止')
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.terminated)
       this.deps.log.info(`approval#${pending.id}: owner 已终止（活跃任务${cancelled ? '已中断' : '不存在'}）`)
       return
     }
@@ -290,12 +248,12 @@ export class ApprovalManager {
     if (action === 'deny') {
       // 原子认领：双击/重启重放只有第一次生效
       if (!this.deps.approvals.claim(pending.id, 'denied', Date.now())) {
-        await channel.answerCallback(event.callbackQueryId, '已处理')
+        await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.handled)
         return
       }
-      await this.editCard(channel, { ...pending, status: 'denied' }, '🚫 已拒绝')
-      await channel.answerCallback(event.callbackQueryId, '已拒绝')
-      await this.notifyChat(pending.channelId, pending.chatId, MEMBER_DENIED_NOTICE, pending.envelope.message.id)
+      await this.editCard(channel, { ...pending, status: 'denied' }, COPY.decision.denied)
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.denied)
+      await this.notifyChat(pending.channelId, pending.chatId, COPY.memberDenied, pending.envelope.message.id)
       this.deps.log.info(`approval#${pending.id}: owner 已拒绝`)
       return
     }
@@ -306,19 +264,19 @@ export class ApprovalManager {
       binding !== null && this.deps.store.current.assistants.some((a) => a.id === binding.assistant_id)
     if (binding === null || !assistantExists) {
       if (this.deps.approvals.claim(pending.id, 'failed', Date.now())) {
-        await this.editCard(channel, { ...pending, status: 'failed' }, '⚠️ 绑定已失效，未执行')
+        await this.editCard(channel, { ...pending, status: 'failed' }, COPY.decision.bindingGone)
       }
-      await channel.answerCallback(event.callbackQueryId, '绑定已失效，未执行')
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.bindingGone)
       this.deps.log.error(`approval#${pending.id}: 批准时绑定/assistant 已失效，未重放`)
       return
     }
 
     if (!this.deps.approvals.claim(pending.id, 'approved', Date.now())) {
-      await channel.answerCallback(event.callbackQueryId, '已处理')
+      await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.handled)
       return
     }
-    await this.editCard(channel, { ...pending, status: 'approved' }, '✅ 已允许')
-    await channel.answerCallback(event.callbackQueryId, '已允许')
+    await this.editCard(channel, { ...pending, status: 'approved' }, COPY.decision.approved)
+    await channel.answerCallback(event.callbackQueryId, COPY.callbackToast.approved)
     this.deps.log.info(`approval#${pending.id}: owner 已批准，消息重放处理`)
     this.registerApprovedSender(pending)
     this.deps.dispatchApproved(pending)
