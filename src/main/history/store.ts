@@ -1,6 +1,4 @@
-import fs from 'node:fs'
-import path from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import type { DatabaseSync } from 'node:sqlite'
 import type {
   AutoReviewRecord,
   AutoReviewStatus,
@@ -11,57 +9,7 @@ import type {
   SenderInfo,
   StoredMessage,
 } from '../../shared/messages'
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS messages(
-  rowid INTEGER PRIMARY KEY AUTOINCREMENT,
-  channel_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  msg_id TEXT,
-  sender TEXT,
-  sender_id TEXT,
-  reply_to TEXT,
-  receiver TEXT,
-  out INTEGER NOT NULL,
-  ts INTEGER NOT NULL,
-  parts TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(channel_id, chat_id, ts);
-CREATE TABLE IF NOT EXISTS chats(
-  channel_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  name TEXT,
-  last_ts INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY(channel_id, chat_id)
-);
-CREATE TABLE IF NOT EXISTS pending_approvals(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  channel_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  sender_id TEXT,
-  sender TEXT,
-  envelope TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  card_chat_id TEXT,
-  card_msg_id TEXT,
-  created_ts INTEGER NOT NULL,
-  decided_ts INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_pending_approvals_status ON pending_approvals(status, channel_id);
-CREATE TABLE IF NOT EXISTS auto_reviews(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  channel_id TEXT NOT NULL,
-  chat_id TEXT NOT NULL,
-  sender_id TEXT,
-  sender TEXT,
-  text TEXT NOT NULL,
-  status TEXT NOT NULL DEFAULT 'running',
-  reason TEXT,
-  created_ts INTEGER NOT NULL,
-  decided_ts INTEGER
-);
-CREATE INDEX IF NOT EXISTS idx_auto_reviews_created ON auto_reviews(created_ts);
-`
+import { AppDatabase } from '../db/database'
 
 interface MessageRow {
   rowid: number
@@ -199,30 +147,12 @@ function rowToMessage(row: MessageRow): StoredMessage {
  * 兼作 MCP list_messages / list_chats 的数据源——Bot API 拉不到历史，本地库是唯一权威。
  */
 export class HistoryStore {
+  private readonly appDb: AppDatabase
   private readonly db: DatabaseSync
 
   constructor(dbPath: string) {
-    if (dbPath !== ':memory:') {
-      fs.mkdirSync(path.dirname(dbPath), { recursive: true })
-    }
-    this.db = new DatabaseSync(dbPath)
-    this.db.exec('PRAGMA journal_mode = WAL')
-    this.db.exec(SCHEMA)
-    this.migrate()
-  }
-
-  /** 既有库的列迁移：CREATE TABLE IF NOT EXISTS 不会给老表加新列 */
-  private migrate(): void {
-    const columns = this.db.prepare('PRAGMA table_info(messages)').all() as unknown as { name: string }[]
-    if (!columns.some((column) => column.name === 'sender_id')) {
-      this.db.exec('ALTER TABLE messages ADD COLUMN sender_id TEXT')
-    }
-    const pendingColumns = this.db.prepare('PRAGMA table_info(pending_approvals)').all() as unknown as {
-      name: string
-    }[]
-    if (!pendingColumns.some((column) => column.name === 'auto_review_reason')) {
-      this.db.exec('ALTER TABLE pending_approvals ADD COLUMN auto_review_reason TEXT')
-    }
+    this.appDb = new AppDatabase(dbPath)
+    this.db = this.appDb.db
   }
 
   record(message: ChatMessage, chatName?: string | null): StoredMessage {
@@ -497,6 +427,6 @@ export class HistoryStore {
   }
 
   close(): void {
-    this.db.close()
+    this.appDb.close()
   }
 }

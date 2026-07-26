@@ -4,11 +4,21 @@ import path from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { InboundEnvelope } from '../../shared/messages'
+import { MIGRATIONS, runMigrations, type Migration } from '../db/migrations'
 import { HistoryStore } from './store'
 
-// 现 migrate()（PRAGMA table_info + ALTER 链）的表征测试：
-// 遗留库开库后列补齐、缺失表建齐、旧行可读、重开幂等。
-// P4 引入 PRAGMA user_version 迁移框架后，本文件断言随之改为版本推进（数据断言不变）。
+// 迁移框架（PRAGMA user_version + 有序 Migration[]）的行为测试：
+// 遗留库（user_version=0，表已建/列可能已补）开库后列补齐、缺失表建齐、旧行可读、重开幂等。
+
+function userVersion(dbPath: string): number {
+  const db = new DatabaseSync(dbPath)
+  try {
+    const row = db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }
+    return Number(row.user_version)
+  } finally {
+    db.close()
+  }
+}
 
 const dirs: string[] = []
 
@@ -176,5 +186,67 @@ describe('HistoryStore 遗留库迁移', () => {
     } finally {
       store.close()
     }
+    expect(userVersion(dbPath)).toBe(MIGRATIONS.at(-1)?.id)
+  })
+
+  it('user_version 推进到最新迁移 id（遗留库同样收敛）', () => {
+    const dbPath = tempDbPath()
+    createLegacyDb(dbPath)
+    const store = new HistoryStore(dbPath)
+    store.close()
+    expect(userVersion(dbPath)).toBe(MIGRATIONS.at(-1)?.id)
+  })
+})
+
+describe('runMigrations 框架', () => {
+  it('只执行 id 大于 user_version 的迁移，且逐条推进版本', () => {
+    const db = new DatabaseSync(':memory:')
+    const applied: number[] = []
+    const migrations: Migration[] = [
+      { id: 1, comment: 'a', up: () => applied.push(1) },
+      { id: 2, comment: 'b', up: () => applied.push(2) },
+    ]
+    runMigrations(db, migrations)
+    expect(applied).toEqual([1, 2])
+
+    runMigrations(db, migrations)
+    expect(applied).toEqual([1, 2]) // 幂等：已应用不重跑
+
+    migrations.push({ id: 3, comment: 'c', up: () => applied.push(3) })
+    runMigrations(db, migrations)
+    expect(applied).toEqual([1, 2, 3])
+    db.close()
+  })
+
+  it('迁移失败：事务回滚、版本不推进、错误带迁移 id', () => {
+    const db = new DatabaseSync(':memory:')
+    const migrations: Migration[] = [
+      {
+        id: 1,
+        comment: 'creates then explodes',
+        up(target) {
+          target.exec('CREATE TABLE half_done(x)')
+          throw new Error('boom')
+        },
+      },
+    ]
+    expect(() => runMigrations(db, migrations)).toThrow('#1')
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as unknown as {
+      name: string
+    }[]
+    expect(tables.some((t) => t.name === 'half_done')).toBe(false)
+    const row = db.prepare('PRAGMA user_version').get() as unknown as { user_version: number }
+    expect(Number(row.user_version)).toBe(0)
+    db.close()
+  })
+
+  it('id 不递增：拒绝执行', () => {
+    const db = new DatabaseSync(':memory:')
+    const migrations: Migration[] = [
+      { id: 2, comment: 'b', up: () => {} },
+      { id: 1, comment: 'a', up: () => {} },
+    ]
+    expect(() => runMigrations(db, migrations)).toThrow('严格递增')
+    db.close()
   })
 })
