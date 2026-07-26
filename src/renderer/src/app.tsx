@@ -3,6 +3,7 @@ import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue, useSetAtom } from 'jotai'
 import { NavLink, Navigate, Route, Routes } from 'react-router'
 import { OnboardingOverlay } from './components/onboarding/onboarding'
+import { NAV_ROUTES } from '../../shared/nav'
 import { configStateAtom } from './lib/config-atoms'
 import { ToastHost } from './lib/toast'
 import { ipc, onIpcEvent } from './lib/ipc'
@@ -17,16 +18,7 @@ import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
 import { UsersPage } from './pages/users'
 
-const NAV_ITEMS = [
-  { to: '/channels', id: 'nav.channels' },
-  { to: '/agents', id: 'nav.agents' },
-  { to: '/assistants', id: 'nav.assistants' },
-  { to: '/users', id: 'nav.users' },
-  { to: '/intelligence', id: 'nav.intelligence' },
-  { to: '/history', id: 'nav.history' },
-  { to: '/logs', id: 'nav.logs' },
-  { to: '/settings', id: 'nav.settings' },
-] as const
+const NAV_ITEMS = NAV_ROUTES.map((name) => ({ to: `/${name}`, id: `nav.${name}` }))
 
 /** 把主进程 ConfigStore / ChannelHub 状态镜像到 atoms */
 function ConfigBootstrap() {

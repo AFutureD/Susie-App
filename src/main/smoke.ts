@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import { app, type BrowserWindow } from 'electron'
 import type { ConfigState } from '../shared/config'
 import type { AppInfo } from '../shared/ipc/contract'
+import { NAV_ROUTES } from '../shared/nav'
 import type { ConfigStore } from './config/store'
 
 export interface SmokeCheckDeps {
@@ -34,9 +35,9 @@ export async function runSmokeCheck(configStore: ConfigStore, deps: SmokeCheckDe
       throw new Error(`mcp server not running: ${String(info.mcpUrl)}`)
     }
 
-    // 与 renderer app.tsx 的 NAV_ITEMS 数量同步（channels/agents/assistants/users/intelligence/history/logs/settings）
+    // 与 renderer 同源（shared/nav.ts）：加/删页面无需再改这里
     const navCount = (await win.webContents.executeJavaScript(`document.querySelectorAll('nav a').length`)) as number
-    if (navCount !== 8) {
+    if (navCount !== NAV_ROUTES.length) {
       throw new Error(`react ui not mounted, nav items = ${navCount}`)
     }
 

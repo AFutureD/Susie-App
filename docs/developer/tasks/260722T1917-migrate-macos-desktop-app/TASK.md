@@ -2,7 +2,7 @@
 
 * Task: 260722T1917-migrate-macos-desktop-app
 * Author: [Huanan](https://github.com/AFutureD)
-* Status: DEVELOPING
+* Status: DONE
 * Type: FEAT
 
 ## 背景
@@ -32,7 +32,7 @@ Susie 目前是 Python 实现的守护进程（源仓库 `~/Developer/susie`）�
 
 ### 技术栈
 
-Electron 43 + TypeScript strict。renderer：React 19.2 / React Router 7 / Jotai / Radix + Floating UI / Motion / Tailwind 4（语义 token）/ ProseMirror / CodeMirror 6 + Shiki / React Markdown + KaTeX + Mermaid / React Intl（对齐 ChatGPT.app 的栈）。构建：Vite 8（Rolldown）+ tsdown（main/preload）+ 自研 `scripts/dev.mjs`（electron-vite 5 不支持 Vite 8）。核心依赖：`node-telegram-bot-api`、`@openai/codex-sdk`、`@agentclientprotocol/sdk`、`@modelcontextprotocol/sdk`、`nunjucks`、`smol-toml`、`chokidar`、`better-sqlite3`（ChatGPT.app 同款选择）、`chrono-node`、`zod`、`electron-log`。
+Electron 43 + TypeScript strict。renderer：React 19.2 / React Router 7 / Jotai / Tailwind 4（语义 token）/ React Markdown / React Intl。（原计划的 Radix / Floating UI / Motion / ProseMirror / CodeMirror / KaTeX / Mermaid 未引入——当前自研 80 行 form 组件已够用，需要时再评估。）构建：Vite 8（Rolldown）+ tsdown（main/preload）+ 自研 `scripts/dev.mjs`（electron-vite 5 不支持 Vite 8）。核心依赖：`node-telegram-bot-api`、`packages/codex-app-server`（自研 codex app-server JSON-RPC SDK，替代 `@openai/codex-sdk`）、`@agentclientprotocol/sdk`、`@modelcontextprotocol/sdk`、`nunjucks`、`smol-toml`、`chokidar`、`better-sqlite3`（ChatGPT.app 同款选择）、`chrono-node`、`zod`、`electron-log`。
 
 ### 配置引用（ConfigRef）
 
@@ -43,20 +43,20 @@ Electron 43 + TypeScript strict。renderer：React 19.2 / React Router 7 / Jotai
 - 热加载 = 解析 → 校验 → swap snapshot，按 path 结构比较只通知变化的订阅者；解析失败保留 last-good 并在 UI 报错；
 - 字段分两类：read-through（白名单/群策略等，消息到达时读 `current` 即刻生效）与 restart-required（token、drop_pending_updates，由 Hub 在 onChange 中判定重启）；
 - `assistants` 数组 load 后建 by-id 索引（`assistants.<id>` 可引用）；
-- renderer 经 IPC 订阅相同 path（`atomWithConfigRef`），UI 与服务层共享同一实时实体。
+- renderer 侧以 `configAtom(key)`（jotai selectAtom + deepEqual，见 `lib/config-atoms.ts`）按顶层 key 订阅切片，来源仍是 `config.state` 广播的整包快照。
 
 ### 已定结论
 
 - 历史存储最终用 **`node:sqlite`**（Electron 43 内置 Node 24.18 已支持）：零原生依赖、零 rebuild、单测直接在本机 Node 跑。放弃 better-sqlite3 的原因：本机 npm 策略阻止 install scripts + Electron/Node 双 ABI 让测试链路复杂；`HistoryStore` 封装完整，日后要换回只动一个文件。
 - Telegram polling 409 是**跨进程**风险（老 Python 服务未停 / dev 与正式版并行）：`requestSingleInstanceLock` + 409 状态灯 + 重启通道时 `await stopPolling()`。
-- `@openai/codex-sdk` 经构造器 `config` 注入 `mcp_servers.*`；**必须带 `default_tools_approval_mode = "approve"`**，否则 `codex exec` 非交互模式会直接取消 susie MCP 工具的审批请求（真实 codex 集成测试踩出，二进制 serde 字段逆向确认）。turn 取消用 `TurnOptions.signal`（SDK 原生支持）。沙箱默认 `workspace-write` + `approvalPolicy: never` + 网络放行。
-- codex 无模型枚举 → `/model` 用 assistant 配置的 `models` 候选；切换即开新会话。
+- codex 集成改为自研 `packages/codex-app-server`（`codex app-server` JSON-RPC，`turn/interrupt` 取消、`turn/steer` 并入、`model/list` 枚举）；注入 susie MCP **必须带 `default_tools_approval_mode = "approve"`**，否则非交互模式会直接取消工具审批请求（真实 codex 集成测试踩出）。审批策略为 `approvalMode: 'auto_review'`（自动应答审批请求）。
+- 模型枚举已动态化：codex 走 `model/list`、ACP 读 session configOptions（`AgentManager` 统一缓存 5 分钟）；assistant 配置的 `models` 仅作 legacy 手改 TOML 的候选兜底。
 - 出站富文本用 Telegram `<blockquote expandable>`（HTML parse mode）+ 纯文本降级。
 - 语音消息：不捆绑 ffmpeg（省 ~70MB），系统有 `ffmpeg` 则 OGG→WAV，否则原样附带 .oga 文件。
 - ACP registry 支持 binary（下载解压 + quarantine 清理）与 npx 两种分发；解压用系统 unzip/tar。
 - 退出路径全部带硬超时（will-quit 5s、getMe 15s、stopPolling 3s）；will-quit 里异步清理后须 `setImmediate(() => app.quit())`——同步栈内重入 quit 会被 Electron 吞掉（e2e 踩出）。
 - UI 写回 config.toml 不保留手写注释（JS 无 tomlkit 等价物，接受此取舍）。
-- 包体 ~600MB（Electron + codex 全平台 vendor 二进制 asarUnpack）；后续可裁剪非本平台内容。
+- 包体问题已解决：codex 二进制改为运行时按需下载（`CodexInstaller`），不再打进安装包。
 
 ## 里程碑
 
@@ -69,7 +69,20 @@ Electron 43 + TypeScript strict。renderer：React 19.2 / React Router 7 / Jotai
 | M4 ACP | registry 浏览/安装/卸载 + AcpRuntime + Agent 管理 UI（真实 agent 端到端待安装后验证） | ✅ |
 | M5 打磨发布 | Assistant/Binding 完整 UI、/model、日志视图、开机自启、签名/公证接线（缺 Developer ID 证书，`npm run dist` + Apple 环境变量即出公证包） | ✅ |
 
-遗留（有意后置）：xterm.js workspace 终端（可选增强）、Sparkle/electron-updater 自动更新（需签名先行）、KaTeX/Mermaid 历史渲染增强、CodeMirror Raw 编辑器升级。
+遗留（有意后置）：xterm.js workspace 终端（可选增强）、KaTeX/Mermaid 历史渲染增强、CodeMirror Raw 编辑器升级。（electron-updater 已完成：`UpdaterManager` + 分渠道 GitHub Releases。）
+
+## 后续：260726 架构重构（借鉴 LobeHub Desktop）
+
+2026-07-26 完成一轮全面架构重构（详见当次会话的分阶段 patch 与 AGENTS.md 更新）：
+
+- IPC 契约优先：`shared/ipc/contract.ts`（zod req + phantom res）+ `main/ipc/router.ts`（完整性编译期强制）+ preload 前缀门卫 + renderer Proxy 客户端；错误信封保留 cause 链。
+- 主进程分层：`app.ts` 组合根；WindowManager / TrayManager / UpdaterManager 类化（删 lifecycle.ts 全局单例）；SusieService 瘦身为纯组装 + 停机编排。
+- 持久化：`db/migrations.ts`（PRAGMA user_version 版本化迁移）+ MessageRepo / ApprovalRepo / AutoReviewRepo 按领域拆分（HistoryStore 解散）。
+- Channel 抽象：`channels/types.ts` 接口 + ChannelFactory 注册表（hub 平台无关；顺带修复 restart 双 spawn 孤儿实例 bug）；bot 文案收敛 `copy/bot-copy.ts`。
+- Agent Provider：`agents/provider.ts` + `AgentManager`（owns() 有序认领）；`AgentsOverview` 同构为 `AgentInfo[]`；停机加固（SerialGate / waitChildExit / 限时 SIGKILL 收尸）。
+- ChatManager 管线化：6 阶段方法 + `core/permission-gate.ts`（GateDecision 取代四布尔）；bindings 变更按会话 diff（不再全量销毁会话）。
+- Renderer 数据层：toast、useIpcQuery（共享缓存 + 事件失效）、useConfigMutation、configAtom(key)；bindings-panel / onboarding 拆分。
+- 导航清单同源 `shared/nav.ts`（app / smoke / e2e 三处不再各写一份）。
 
 ## 参照
 

@@ -39,15 +39,15 @@ npm run test:codex   # 真实 codex 集成测试（含 MCP 回环；耗 token，
 
 ## 结构与约定
 
-- `src/main/` 主进程 = 服务核心宿主（`app.ts` 组合根只做装配编排；config/channels/agents/mcp/history 按目录分层）；`src/preload/` 必须保持 CJS（sandbox）且只依赖零 import 的 `shared/ipc/{channel,envelope}.ts`；`src/renderer/` React UI；`src/shared/` 三端共享的类型与 zod schema。
+- `src/main/` 主进程 = 服务核心宿主。`app.ts` 组合根只做装配编排（持有 WindowManager / TrayManager / UpdaterManager / ConfigStore / SusieService）；`service.ts` 纯领域组装 + 停机顺序（延迟闭包解 approvals ↔ chatManager ↔ hub 的环）；`db/` 版本化迁移（PRAGMA user_version）；`history/message-repo.ts` 与 `core/{approval,auto-review}-repo.ts` 按领域分仓；`channels/`（Channel 接口 + ChannelFactory 注册表 + telegram/ 实现）；`agents/`（AgentProvider 注册表 + AgentManager + codex/ acp/ 实现）；`core/` 消息管线（chat-manager 六阶段 driver + permission-gate 门矩阵）；`copy/bot-copy.ts` 是 bot 侧文案唯一出处。`src/preload/` 必须保持 CJS（sandbox）且只依赖零 import 的 `shared/ipc/{channel,envelope}.ts`；`src/renderer/` React UI；`src/shared/` 三端共享的类型与 zod schema。
 - IPC（契约优先）：唯一事实源是 `src/shared/ipc/contract.ts`（invoke，req 用 zod / res 用 `res<T>()` 占位）与 `src/shared/ipc/events.ts`（主→渲染事件，type-only）。新通道 = contract 加一条 + `src/main/ipc/handlers/<域>.ts` 实现一处——完整性由 `IpcHandlers` 映射类型编译期强制，preload 只做 `susie:`/`susie-evt:` 前缀门卫，无手工清单。渲染进程经 `lib/ipc.ts` 的类型化客户端调用（`ipc.<group>.<method>(payload)`）、`onIpcEvent`/`useIpcEvent` 订阅事件；主进程广播走 `WindowManager.broadcast`。handler 抛错由路由统一转错误信封（preload 还原真 Error，保留 cause/code）；用户可编辑载荷（settings/users 等）在 handler 内 safeParse 并以 `{ ok:false, message }` 返回供表单内联展示。
 - 配置：`ConfigStore`（`src/main/config/store.ts`）是唯一入口——消费方持 `ConfigRef`（`store.ref('channels.<id>')`），不要缓存配置拷贝；所有写操作带 `expectedVersion`。配置文件 `~/.config/susie/config.toml`（`SUSIE_CONFIG_DIR` 可覆盖，测试/冒烟必须覆盖，避免碰真实配置）。
 - 字段名与 TOML 保持 snake_case（兼容 Python 版配置）。
-- UI 文案走 React Intl（`src/renderer/src/i18n/zh-Hans.ts`），语义色用 Tailwind token（`bg-surface` / `text-ink` / `border-line` 等，定义在 `styles.css`）。
+- UI 文案走 React Intl（`src/renderer/src/i18n/zh-Hans.ts`），语义色用 Tailwind token（`bg-surface` / `text-ink` / `border-line` 等，定义在 `styles.css`）。renderer 数据层：`lib/ipc-query.ts`（useIpcQuery 共享缓存 + 事件失效）、`lib/ipc-mutation.ts`（useConfigMutation 自动注入 expectedVersion）、`lib/toast.ts`（取代 window.alert）、`lib/config-atoms.ts` 的 `configAtom(key)` 切片订阅。导航清单唯一出处 `src/shared/nav.ts`（app/smoke/e2e 同源）。
 - main 产物为 ESM（`dist/main/index.mjs`），`electron` 由运行时提供（tsdown `deps.neverBundle`）。
 - 测试隔离：任何会启动应用的测试都必须设置 `SUSIE_CONFIG_DIR` 与 `SUSIE_USER_DATA_DIR`（后者决定单实例锁，不隔离会被正在运行的实例踢掉）。
 - E2E 约定：表单 `fill` 之后先 `toHaveValue` 断言再点提交（等 React 提交输入状态，避免竞态）。
 - 图标：`build/icon.icns` 与 `src/main/tray-icon.ts`（base64 模板图标）由 `icon.svg → qlmanage → sips → iconutil` 流水线生成。
-- 停机纪律：任何网络/子进程操作出现在退出路径上都必须 `withTimeout`（`src/main/util/async.ts`）；will-quit 里异步清理完成后用 `setImmediate(() => app.quit())` 重新触发退出。
+- 停机纪律：任何网络/子进程操作出现在退出路径上都必须 `withTimeout`（`src/main/util/async.ts`）；agent 子进程 dispose 走「SIGTERM → `waitChildExit` 限时 → SIGKILL」收尸；will-quit 里异步清理完成后用 `setImmediate(() => app.quit())` 重新触发退出。
 - codex 注入 susie MCP 时必须带 `default_tools_approval_mode: 'approve'`，否则非交互模式下工具调用会被自动取消。
 - 历史库用 `node:sqlite`（Electron ≥43 内置），不要引入需要 rebuild 的原生模块。

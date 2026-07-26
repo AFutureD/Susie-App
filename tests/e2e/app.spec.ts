@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
 import { _electron as electron, expect, test, type ElectronApplication, type Page } from '@playwright/test'
+import { NAV_ROUTES } from '../../src/shared/nav'
 
 // 端到端：驱动真实 Electron 实例（隔离 SUSIE_CONFIG_DIR / SUSIE_USER_DATA_DIR，
 // 不触碰真实配置，也不与正在运行的 dev 实例抢单实例锁）。
@@ -45,8 +46,8 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await win.getByRole('button', { name: /跳过引导/ }).click()
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
 
-  // 主界面：侧边栏挂载，频道页为空态（与 app.tsx NAV_ITEMS 数量同步）
-  await expect(win.locator('nav a')).toHaveCount(8)
+  // 主界面：侧边栏挂载，频道页为空态（导航清单同源 shared/nav.ts）
+  await expect(win.locator('nav a')).toHaveCount(NAV_ROUTES.length)
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })
 
