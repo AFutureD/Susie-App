@@ -1,4 +1,4 @@
-import { fetchBotUsername } from '../../channels/telegram-bot'
+import { fetchBotUsername } from '../../channels/telegram/bot'
 import { errorMessage } from '../../../shared/errors'
 import type { SusieService } from '../../service'
 import type { IpcHandlers } from '../router'

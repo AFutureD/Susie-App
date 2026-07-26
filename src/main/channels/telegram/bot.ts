@@ -9,15 +9,15 @@ import TelegramBot, {
   type Message,
   type User,
 } from 'node-telegram-bot-api'
-import type { TelegramBotChannelSettings } from '../../shared/config'
-import type { ChannelStatus, ChatMessage, InboundEnvelope, MessagePart } from '../../shared/messages'
-import type { ConfigRef } from '../config/store'
-import type { CommandSpec } from '../core/commands'
-import { withDeadline, withTimeout } from '../util/async'
-import type { Logger } from '../util/logger'
-import { decodeChatId, encodeChatId } from '../../shared/chat-id'
-import { renderMessageHtml, renderMessagePlain } from './telegram-render'
-import type { Channel, ChannelCallbackEvent, InlineButton } from './types'
+import type { TelegramBotChannelSettings } from '../../../shared/config'
+import type { ChannelStatus, ChatMessage, InboundEnvelope, MessagePart } from '../../../shared/messages'
+import type { ConfigRef } from '../../config/store'
+import type { CommandSpec } from '../../core/commands'
+import { withDeadline, withTimeout } from '../../util/async'
+import type { Logger } from '../../util/logger'
+import { decodeChatId, encodeChatId } from '../../../shared/chat-id'
+import { renderMessageHtml, renderMessagePlain } from './render'
+import type { Channel, ChannelCallbackEvent, InlineButton } from '../types'
 
 type SendMessageForm = NonNullable<Parameters<TelegramBot['sendMessage']>[2]>
 type SendDocumentForm = NonNullable<Parameters<TelegramBot['sendDocument']>[2]>

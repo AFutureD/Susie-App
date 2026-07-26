@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { decodeChatId, encodeChatId } from '../../shared/chat-id'
-import { toBotCommands, toInlineKeyboard } from './telegram-bot'
-import { markdownToTelegramHtml } from './telegram-markdown'
-import { escapeHtml, renderMessageHtml, renderMessagePlain } from './telegram-render'
+import { decodeChatId, encodeChatId } from '../../../shared/chat-id'
+import { toBotCommands, toInlineKeyboard } from './bot'
+import { markdownToTelegramHtml } from './markdown'
+import { escapeHtml, renderMessageHtml, renderMessagePlain } from './render'
 
 describe('chat-id codec', () => {
   it('round-trips all chat kinds', () => {

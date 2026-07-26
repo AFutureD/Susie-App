@@ -1,7 +1,7 @@
-import type { MessagePart } from '../../shared/messages'
-import { escapeHtml, markdownToTelegramHtml } from './telegram-markdown'
+import type { MessagePart } from '../../../shared/messages'
+import { escapeHtml, markdownToTelegramHtml } from './markdown'
 
-export { escapeHtml, markdownToTelegramHtml } from './telegram-markdown'
+export { escapeHtml, markdownToTelegramHtml } from './markdown'
 
 const MAX_QUOTE_BODY = 2800
 

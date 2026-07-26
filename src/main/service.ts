@@ -10,6 +10,8 @@ import { CODEX_AGENT_ID, CodexInstaller } from './agents/codex-installer'
 import { fetchCodexModels } from './agents/codex-models'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
+import { telegramBotFactory } from './channels/telegram/factory'
+import type { ChannelFactory } from './channels/types'
 import { getWorkspaceDir } from './config/paths'
 import type { ConfigStore } from './config/store'
 import { SUSIE_MCP_NAME, SUSIE_MCP_PORT } from './constants'
@@ -114,6 +116,7 @@ export class SusieService {
 
     this.hub = new ChannelHub({
       store,
+      factories: new Map<string, ChannelFactory>([[telegramBotFactory.type, telegramBotFactory]]),
       attachmentsDir: paths.attachmentsDir,
       listCommands: () => this.chatManager.listCommandSpecs(),
       // 完整命令菜单只给能执行需审核命令的私聊：owner + 私聊直通档
