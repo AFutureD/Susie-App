@@ -8,7 +8,7 @@ import { getConfigPath } from './config/paths'
 import { ConfigStore } from './config/store'
 import { watchConfigFile } from './config/watcher'
 import { appFlags, isDev } from './env'
-import { broadcast, registerIpcHandlers } from './ipc'
+import { broadcast } from './ipc'
 import { buildIpcHandlers } from './ipc/handlers'
 import { registerIpcRouter } from './ipc/router'
 import { lifecycle } from './lifecycle'
@@ -108,7 +108,6 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     await shellPathMerged
-    registerIpcHandlers(service)
     registerIpcRouter(
       buildIpcHandlers({ getMcpUrl: () => service.mcp.url, config: configStore, service }),
       serviceLogger,

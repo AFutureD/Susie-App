@@ -47,7 +47,7 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
 
   useEffect(() => {
     let cancelled = false
-    void susie.invoke('agents:overview').then((overview) => {
+    void ipc.agents.overview().then((overview) => {
       if (cancelled) return
       const installed = overview.acp.filter((agent) => agent.installedVersion !== null).map((agent) => agent.id)
       setAgentIds([CODEX_AGENT_ID, ...installed])
@@ -61,7 +61,7 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
   useEffect(() => {
     let cancelled = false
     setModelOptions(null)
-    void susie.invoke('agents:models', { agentId }).then((options) => {
+    void ipc.agents.models({ agentId }).then((options) => {
       if (!cancelled) setModelOptions(options)
     })
     return () => {
@@ -224,7 +224,7 @@ function AutoReviewHistory() {
 
   useEffect(() => {
     let alive = true
-    void susie.invoke('autoreview:list', { limit: 100 }).then((list) => {
+    void ipc.autoReview.list({ limit: 100 }).then((list) => {
       if (alive) setRecords(list)
     })
     // 新记录/状态更新按 id 合并（进行中 → 结论）

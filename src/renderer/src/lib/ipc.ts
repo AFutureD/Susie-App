@@ -2,7 +2,7 @@ import { invokeChannel } from '../../../shared/ipc/channel'
 import type { IpcClient } from '../../../shared/ipc/contract'
 import type { SusieBridge } from '../../../shared/ipc'
 
-/** 旧泛型桥（逐域迁移期间保留；迁移完成后删除） */
+/** 事件订阅桥（P3 类型化事件收官后由 onIpcEvent 取代） */
 export const susie: SusieBridge = window.susie
 
 const groupCache = new Map<string, unknown>()

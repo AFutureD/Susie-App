@@ -5,7 +5,7 @@ import type { ConfigState } from '../../../shared/config'
 import type { SenderInfo } from '../../../shared/messages'
 import { transferOwner } from '../../../shared/users'
 import { channelStatusesAtom } from '../lib/service-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 import { Button, ErrorText } from './form'
 import { useSenders } from './member-picker'
 

@@ -2,10 +2,12 @@
 // 且 IpcHandlers 的完整性检查本身就是「忘了注册」的编译期报警器）。
 
 import type { IpcHandlers } from '../router'
+import { agentsHandlers } from './agents'
 import { appHandlers, type AppHandlerDeps } from './app'
 import { channelsHandlers, chatHandlers, type ServiceHandlerDeps } from './channels'
 import { assistantsHandlers, configHandlers, type ConfigHandlerDeps } from './config'
-import { historyHandlers } from './history'
+import { autoReviewHandlers, historyHandlers } from './history'
+import { logsHandlers, updateHandlers } from './system'
 
 export type IpcHandlerDeps = AppHandlerDeps & ConfigHandlerDeps & ServiceHandlerDeps
 
@@ -17,5 +19,9 @@ export function buildIpcHandlers(deps: IpcHandlerDeps): IpcHandlers {
     channels: channelsHandlers(deps),
     chat: chatHandlers(deps),
     history: historyHandlers(deps),
+    agents: agentsHandlers(deps),
+    logs: logsHandlers(),
+    autoReview: autoReviewHandlers(deps),
+    update: updateHandlers(),
   } satisfies IpcHandlers
 }

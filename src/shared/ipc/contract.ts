@@ -15,7 +15,16 @@ import {
   type ConfigMutationResult,
   type ConfigState,
 } from '../config'
-import type { ChannelStatus, ChatInfo, SenderInfo, StoredMessage } from '../messages'
+import type {
+  AgentModelOption,
+  AgentsOverview,
+  AutoReviewRecord,
+  ChannelStatus,
+  ChatInfo,
+  SenderInfo,
+  StoredMessage,
+  UpdateState,
+} from '../messages'
 
 export interface AppInfo {
   name: string
@@ -131,6 +140,35 @@ export const ipcContract = {
       req: z.object({ q: z.string(), limit: z.number().int().positive().optional() }),
       res: res<StoredMessage[]>(),
     },
+  },
+
+  agents: {
+    overview: { req: z.void(), res: res<AgentsOverview>() },
+    /** 枚举指定 agent 的模型候选；agent 未安装或枚举失败返回 [] */
+    models: { req: z.object({ agentId: z.string() }), res: res<AgentModelOption[]>() },
+    install: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
+    uninstall: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
+  },
+
+  logs: {
+    tail: {
+      req: z.object({ lines: z.number().int().optional(), file: z.enum(['main', 'error']).optional() }),
+      res: res<{ path: string; lines: string[] }>(),
+    },
+  },
+
+  autoReview: {
+    /** 智能 · 自动审核的历史与进度（新 → 旧） */
+    list: { req: z.object({ limit: z.number().int().optional() }), res: res<AutoReviewRecord[]>() },
+  },
+
+  update: {
+    /** 手动触发检查更新（dev/未打包时返回 not-ok） */
+    check: { req: z.void(), res: res<ActionResult>() },
+    /** 立即重启并安装已下载的更新 */
+    install: { req: z.void(), res: res<ActionResult>() },
+    /** 拉取当前更新状态快照（新窗口订阅前回填） */
+    getState: { req: z.void(), res: res<UpdateState>() },
   },
 } as const satisfies ContractShape
 

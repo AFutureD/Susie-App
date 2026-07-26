@@ -3,7 +3,7 @@ import { useIntl } from 'react-intl'
 import type { AgentProgress, AgentsOverview } from '../../../shared/messages'
 import { Button } from '../components/form'
 import { Page } from '../components/page'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 
 export function AgentsPage() {
   const intl = useIntl()
@@ -12,7 +12,7 @@ export function AgentsPage() {
   const [progress, setProgress] = useState<Record<string, AgentProgress>>({})
 
   const refresh = () => {
-    void susie.invoke('agents:overview').then(setOverview)
+    void ipc.agents.overview().then(setOverview)
   }
 
   useEffect(() => {
@@ -34,7 +34,7 @@ export function AgentsPage() {
 
   const install = async (id: string) => {
     setBusyId(id)
-    const result = await susie.invoke('agents:install', { id })
+    const result = await ipc.agents.install({ id })
     setBusyId(null)
     if (!result.ok) {
       // 兜底：进度事件之前就失败（如 registry 拉取失败）也要在卡片上可见
@@ -44,7 +44,7 @@ export function AgentsPage() {
 
   const uninstall = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'agents.uninstallConfirm' }, { id }))) return
-    const result = await susie.invoke('agents:uninstall', { id })
+    const result = await ipc.agents.uninstall({ id })
     if (!result.ok) window.alert(result.message)
     refresh()
   }
@@ -66,7 +66,7 @@ export function AgentsPage() {
 
   const uninstallCodex = async () => {
     if (!window.confirm(intl.formatMessage({ id: 'agents.codex.uninstallConfirm' }))) return
-    const result = await susie.invoke('agents:uninstall', { id: 'codex' })
+    const result = await ipc.agents.uninstall({ id: 'codex' })
     if (!result.ok) window.alert(result.message)
     refresh()
   }

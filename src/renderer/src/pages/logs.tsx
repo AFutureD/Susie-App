@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Button, CheckboxField } from '../components/form'
 import { Page } from '../components/page'
-import { susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 
 type LogFile = 'main' | 'error'
 
@@ -15,7 +15,7 @@ export function LogsPage() {
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   const refresh = (target: LogFile = file) => {
-    void susie.invoke('logs:tail', { lines: 400, file: target }).then((result) => {
+    void ipc.logs.tail({ lines: 400, file: target }).then((result) => {
       setLogPath(result.path)
       setLines(result.lines)
     })

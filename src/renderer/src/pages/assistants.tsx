@@ -8,7 +8,7 @@ import { BindingsPanel } from '../components/bindings-panel/bindings-panel'
 import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -117,7 +117,7 @@ function AssistantForm({
 
   useEffect(() => {
     let cancelled = false
-    void susie.invoke('agents:overview').then((overview) => {
+    void ipc.agents.overview().then((overview) => {
       if (cancelled) return
       // 不支持 http MCP 的 agent（mcpHttp === false）拿不到 susie 工具（send_message 等），
       // 不进候选；null（探测失败/旧 manifest）视为未知，保守放行
@@ -135,7 +135,7 @@ function AssistantForm({
   useEffect(() => {
     let cancelled = false
     setModelOptions(null)
-    void susie.invoke('agents:models', { agentId }).then((options) => {
+    void ipc.agents.models({ agentId }).then((options) => {
       if (!cancelled) setModelOptions(options)
     })
     return () => {

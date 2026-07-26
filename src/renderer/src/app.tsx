@@ -41,7 +41,7 @@ function ConfigBootstrap() {
     void ipc.channels.statuses().then((statuses) => {
       if (alive) setStatuses(statuses)
     })
-    void susie.invoke('update:get-state').then((state) => {
+    void ipc.update.getState().then((state) => {
       if (alive) setUpdateState(state)
     })
     const offConfig = susie.on('config:state', setState)

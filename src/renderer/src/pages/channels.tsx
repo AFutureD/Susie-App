@@ -6,7 +6,7 @@ import { Button, CheckboxField, ErrorText, Field, TextInput } from '../component
 import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 import { channelStatusesAtom } from '../lib/service-atoms'
 
 const STATE_DOT: Record<string, string> = {

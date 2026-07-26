@@ -5,7 +5,7 @@ import { AppInfoCard } from '../components/app-info'
 import { Button, CheckboxField, ErrorText, TextArea } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { ipc, susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 
 function LoginItemToggle() {
   const intl = useIntl()

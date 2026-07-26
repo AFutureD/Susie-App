@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { AppInfo } from '../../../shared/ipc'
-import { ipc, susie } from '../lib/ipc'
+import { ipc } from '../lib/ipc'
 import { updateStateAtom } from '../lib/update-atoms'
 import { Button } from './form'
 
@@ -18,13 +18,13 @@ function UpdateSection() {
 
   const check = async () => {
     setBusy(true)
-    const result = await susie.invoke('update:check')
+    const result = await ipc.update.check()
     setBusy(false)
     if (!result.ok) window.alert(result.message)
   }
 
   const install = async () => {
-    const result = await susie.invoke('update:install')
+    const result = await ipc.update.install()
     if (!result.ok) window.alert(result.message)
   }
 

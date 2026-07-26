@@ -1,6 +1,12 @@
 import type { IpcHandlers } from '../router'
 import type { ServiceHandlerDeps } from './channels'
 
+export function autoReviewHandlers({ service }: ServiceHandlerDeps): IpcHandlers['autoReview'] {
+  return {
+    list: ({ limit }) => service.history.listAutoReviews(limit),
+  }
+}
+
 export function historyHandlers({ service }: ServiceHandlerDeps): IpcHandlers['history'] {
   return {
     chats: () => service.history.listChats(),

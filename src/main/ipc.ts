@@ -1,66 +1,12 @@
-import fs from 'node:fs'
-import { BrowserWindow, ipcMain } from 'electron'
-import log from 'electron-log/main'
-import type { IpcEventSchema, IpcInvokeSchema } from '../shared/ipc'
-import { errorLog } from './logging'
-import type { SusieService } from './service'
-import { checkForUpdates, getUpdateState, quitAndInstall } from './updater'
+import { BrowserWindow } from 'electron'
+import type { IpcEventSchema } from '../shared/ipc'
 
-type InvokeHandler<K extends keyof IpcInvokeSchema> = (
-  payload: IpcInvokeSchema[K]['req'],
-) => IpcInvokeSchema[K]['res'] | Promise<IpcInvokeSchema[K]['res']>
-
-function handle<K extends keyof IpcInvokeSchema>(channel: K, handler: InvokeHandler<K>): void {
-  ipcMain.handle(channel, (_event, payload) => handler(payload as IpcInvokeSchema[K]['req']))
-}
+// invoke 通道已全部迁移到契约路由（shared/ipc/contract.ts + main/ipc/router.ts + main/ipc/handlers/）。
+// 事件广播暂留此处，P3（类型化事件收官）迁入 WindowManager。
 
 /** 向所有窗口推送事件 */
 export function broadcast<K extends keyof IpcEventSchema>(channel: K, payload: IpcEventSchema[K]): void {
   for (const win of BrowserWindow.getAllWindows()) {
     win.webContents.send(channel, payload)
   }
-}
-
-export function registerIpcHandlers(service: SusieService): void {
-  // app / config / assistants / channels / chat / history 域已迁移到契约路由（main/ipc/handlers/）
-
-  handle('agents:overview', () => service.agentsOverview())
-  handle('agents:models', (payload) => service.listAgentModels(payload.agentId))
-  handle('agents:install', async (payload) => {
-    try {
-      await service.installAgent(payload.id)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
-  handle('agents:uninstall', (payload) => {
-    try {
-      service.uninstallAgent(payload.id)
-      return { ok: true }
-    } catch (error) {
-      return { ok: false, message: error instanceof Error ? error.message : String(error) }
-    }
-  })
-
-  handle('logs:tail', (payload) => {
-    const logger = payload.file === 'error' ? errorLog : log
-    const file = logger.transports.file.getFile().path
-    try {
-      const text = fs.readFileSync(file, 'utf-8')
-      const lines = text.split('\n')
-      const count = Math.min(Math.max(payload.lines ?? 300, 10), 2000)
-      return { path: file, lines: lines.slice(-count) }
-    } catch {
-      return { path: file, lines: [] }
-    }
-  })
-
-  handle('autoreview:list', (payload) => service.history.listAutoReviews(payload.limit))
-
-  // ---------- 自动更新 ----------
-
-  handle('update:check', () => checkForUpdates())
-  handle('update:install', () => quitAndInstall())
-  handle('update:get-state', () => getUpdateState())
 }
