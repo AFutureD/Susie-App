@@ -1,5 +1,5 @@
 import { ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron'
-import type { z } from 'zod'
+import { ZodError, type z } from 'zod'
 import { errorMessage } from '../../shared/errors'
 import { invokeChannel } from '../../shared/ipc/channel'
 import {
@@ -52,8 +52,11 @@ export function registerIpcRouter(handlers: IpcHandlers, log: Logger, contract: 
           const payload: unknown = def.req.parse(raw)
           return await handler(payload, { event, sender: event.sender })
         } catch (error) {
-          log.error(`ipc ${channel} 失败：${errorMessage(error)}`)
-          return toErrorEnvelope(error)
+          // ZodError.message 是 issues 的 JSON 串——取第一条 issue 作为可读文案
+          const normalized =
+            error instanceof ZodError ? new Error(error.issues[0]?.message ?? '入参不合法', { cause: error }) : error
+          log.error(`ipc ${channel} 失败：${errorMessage(normalized)}`)
+          return toErrorEnvelope(normalized)
         } finally {
           const elapsed = performance.now() - start
           if (elapsed > SLOW_INVOKE_MS) log.info(`ipc ${channel} 耗时 ${Math.round(elapsed)}ms`)

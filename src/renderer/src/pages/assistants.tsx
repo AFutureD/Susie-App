@@ -15,7 +15,7 @@ const CODEX_AGENT_ID = 'codex'
 
 /** 在 Finder 打开 assistant 的生效工作目录（目录由 main 侧解析并确保存在） */
 async function openWorkDir(id: string): Promise<void> {
-  const result = await susie.invoke('assistants:open-workdir', { id })
+  const result = await ipc.assistants.openWorkdir({ id })
   if (!result.ok) window.alert(result.message)
 }
 
@@ -30,7 +30,7 @@ export function AssistantsPage() {
 
   const deleteAssistant = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id }))) return
-    const result = await susie.invoke('config:delete-assistant', { id, expectedVersion: state.version })
+    const result = await ipc.config.deleteAssistant({ id, expectedVersion: state.version })
     if (!result.ok) window.alert(result.message)
   }
 
@@ -159,7 +159,7 @@ function AssistantForm({
       ...(model === '' ? {} : { model }),
       ...(thinkingLevel === '' ? {} : { thinking_level: thinkingLevel as ThinkingLevel }),
     }
-    const result = await susie.invoke('config:upsert-assistant', { assistant, expectedVersion: state.version })
+    const result = await ipc.config.upsertAssistant({ assistant, expectedVersion: state.version })
     setBusy(false)
     if (!result.ok) {
       setError(result.message)

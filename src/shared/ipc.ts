@@ -28,29 +28,6 @@ import type { ActionResult } from './ipc/contract'
 
 /** invoke（请求/响应）通道（逐域迁往 shared/ipc/contract.ts，迁完删除） */
 export interface IpcInvokeSchema {
-  'config:get': { req: undefined; res: ConfigState }
-  'config:get-raw': { req: undefined; res: { text: string; version: number } }
-  'config:save-raw': { req: { text: string; expectedVersion: number }; res: ConfigMutationResult }
-  'config:upsert-channel': {
-    req: { id: string; settings: ChannelSettings; expectedVersion: number }
-    res: ConfigMutationResult
-  }
-  'config:delete-channel': { req: { id: string; expectedVersion: number }; res: ConfigMutationResult }
-  'config:upsert-assistant': { req: { assistant: AssistantConfig; expectedVersion: number }; res: ConfigMutationResult }
-  'config:delete-assistant': { req: { id: string; expectedVersion: number }; res: ConfigMutationResult }
-  /** 整组替换 bindings（节点编辑器是全量状态编辑，index 式 API 不适配） */
-  'config:set-bindings': { req: { bindings: ChatBinding[]; expectedVersion: number }; res: ConfigMutationResult }
-  /** 整组替换用户名单（用户管理/引导都是全量状态编辑） */
-  'config:set-users': { req: { users: ChannelUser[]; expectedVersion: number }; res: ConfigMutationResult }
-  /** 整体替换「智能 · 自动审核」配置 */
-  'config:set-auto-review': {
-    req: { autoReview: AutoReviewConfig; expectedVersion: number }
-    res: ConfigMutationResult
-  }
-
-  /** 在 Finder 打开 assistant 的生效工作目录（缺省为 workspace/<id>，会自动创建） */
-  'assistants:open-workdir': { req: { id: string }; res: ActionResult }
-
   'channel:statuses': { req: undefined; res: ChannelStatus[] }
   /** 用 token 调 getMe 拿 bot username（频道 ID 留空时自动命名） */
   'channels:resolve-username': {
@@ -88,17 +65,6 @@ export interface IpcInvokeSchema {
 }
 
 export const IPC_INVOKE_CHANNELS = [
-  'config:get',
-  'config:get-raw',
-  'config:save-raw',
-  'config:upsert-channel',
-  'config:delete-channel',
-  'config:upsert-assistant',
-  'config:delete-assistant',
-  'config:set-bindings',
-  'config:set-users',
-  'config:set-auto-review',
-  'assistants:open-workdir',
   'channel:statuses',
   'channels:resolve-username',
   'history:chats',

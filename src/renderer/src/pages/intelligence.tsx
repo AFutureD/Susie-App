@@ -7,7 +7,7 @@ import type { AgentModelOption, AutoReviewRecord, AutoReviewStatus } from '../..
 import { Button, ErrorText, Field, Select, TextArea } from '../components/form'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -79,7 +79,7 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
       ...(model === '' ? {} : { model }),
       ...(thinkingLevel === '' ? {} : { thinking_level: thinkingLevel as ThinkingLevel }),
     }
-    const result = await susie.invoke('config:set-auto-review', { autoReview, expectedVersion: state.version })
+    const result = await ipc.config.setAutoReview({ autoReview, expectedVersion: state.version })
     setBusy(false)
     if (!result.ok) {
       setError(result.message)

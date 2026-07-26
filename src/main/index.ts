@@ -108,8 +108,8 @@ if (!app.requestSingleInstanceLock()) {
 
   void app.whenReady().then(async () => {
     await shellPathMerged
-    registerIpcHandlers(configStore, service)
-    registerIpcRouter(buildIpcHandlers({ getMcpUrl: () => service.mcp.url }), serviceLogger)
+    registerIpcHandlers(service)
+    registerIpcRouter(buildIpcHandlers({ getMcpUrl: () => service.mcp.url, config: configStore }), serviceLogger)
     initUpdater((state) => broadcast('update:state', state))
     createTray()
     watchConfigFile(configStore, serviceLogger)
@@ -163,7 +163,9 @@ async function runSmokeCheck(configStore: ConfigStore): Promise<void> {
       throw new Error(`react ui not mounted, nav items = ${navCount}`)
     }
 
-    const configState = (await win.webContents.executeJavaScript(`window.susie.invoke('config:get')`)) as ConfigState
+    const configState = (await win.webContents.executeJavaScript(
+      `window.susie.invoke('susie:config.get')`,
+    )) as ConfigState
     if (typeof configState?.version !== 'number' || configState.config === undefined) {
       throw new Error(`unexpected config state: ${JSON.stringify(configState)}`)
     }

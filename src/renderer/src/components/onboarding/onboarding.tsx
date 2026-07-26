@@ -150,7 +150,7 @@ function ChannelStep({
       setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))
       return
     }
-    const result = await susie.invoke('config:upsert-channel', {
+    const result = await ipc.config.upsertChannel({
       id: resolved.username,
       settings: { type: 'telegram_bot', token: trimmed, enabled: true, drop_pending_updates: false },
       expectedVersion: state.version,
@@ -263,7 +263,7 @@ function BindingStep({
       setBusy(true)
       const assignments = expandBindings(state.config.bindings)
       mutate(assignments)
-      const result = await susie.invoke('config:set-bindings', {
+      const result = await ipc.config.setBindings({
         bindings: canonicalizeBindings(assignments),
         expectedVersion: state.version,
       })

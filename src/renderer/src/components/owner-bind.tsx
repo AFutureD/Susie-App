@@ -36,7 +36,7 @@ export function OwnerBindPanel({
     if (busy) return
     setBusy(true)
     const users = transferOwner(state.config.users, channelId, sender.id, sender.name ?? undefined)
-    const result = await susie.invoke('config:set-users', { users, expectedVersion: state.version })
+    const result = await ipc.config.setUsers({ users, expectedVersion: state.version })
     setBusy(false)
     if (!result.ok) {
       setError(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)

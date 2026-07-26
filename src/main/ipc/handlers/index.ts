@@ -3,11 +3,14 @@
 
 import type { IpcHandlers } from '../router'
 import { appHandlers, type AppHandlerDeps } from './app'
+import { assistantsHandlers, configHandlers, type ConfigHandlerDeps } from './config'
 
-export type IpcHandlerDeps = AppHandlerDeps
+export type IpcHandlerDeps = AppHandlerDeps & ConfigHandlerDeps
 
 export function buildIpcHandlers(deps: IpcHandlerDeps): IpcHandlers {
   return {
     app: appHandlers(deps),
+    config: configHandlers(deps),
+    assistants: assistantsHandlers(deps),
   } satisfies IpcHandlers
 }

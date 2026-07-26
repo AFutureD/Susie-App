@@ -45,7 +45,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false)
 
   const loadRaw = () => {
-    void susie.invoke('config:get-raw').then((result) => {
+    void ipc.config.getRaw().then((result) => {
       setRaw(result)
       setError(null)
     })
@@ -57,7 +57,7 @@ export function SettingsPage() {
     if (!raw) return
     setBusy(true)
     setError(null)
-    const result = await susie.invoke('config:save-raw', { text: raw.text, expectedVersion: raw.version })
+    const result = await ipc.config.saveRaw({ text: raw.text, expectedVersion: raw.version })
     setBusy(false)
     if (!result.ok) {
       setError(result.message)

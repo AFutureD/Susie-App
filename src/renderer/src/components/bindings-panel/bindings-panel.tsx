@@ -8,7 +8,7 @@ import {
 } from '../../../../shared/bindings'
 import { CHAT_ALL, type ConfigState } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
-import { susie } from '../../lib/ipc'
+import { ipc, susie } from '../../lib/ipc'
 import { Button, CheckboxField, ErrorText, Field, Select, TextInput } from '../form'
 import { buildTree, type ChannelTree, type ChatRow, type DraftChat } from './model'
 
@@ -85,7 +85,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
       setBusy(true)
       const assignments = expandBindings(state.config.bindings)
       mutate(assignments)
-      const result = await susie.invoke('config:set-bindings', {
+      const result = await ipc.config.setBindings({
         bindings: canonicalizeBindings(assignments),
         expectedVersion: state.version,
       })

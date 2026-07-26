@@ -6,7 +6,7 @@ import { Button, CheckboxField, ErrorText, Field, TextInput } from '../component
 import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
-import { susie } from '../lib/ipc'
+import { ipc, susie } from '../lib/ipc'
 import { channelStatusesAtom } from '../lib/service-atoms'
 
 const STATE_DOT: Record<string, string> = {
@@ -38,14 +38,14 @@ export function ChannelsPage() {
 
   const deleteChannel = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'channels.deleteConfirm' }, { id }))) return
-    const result = await susie.invoke('config:delete-channel', { id, expectedVersion: state.version })
+    const result = await ipc.config.deleteChannel({ id, expectedVersion: state.version })
     if (!result.ok) window.alert(result.message)
   }
 
   const toggleEnabled = async (id: string) => {
     const settings = state.config.channels[id]
     if (settings === undefined) return
-    const result = await susie.invoke('config:upsert-channel', {
+    const result = await ipc.config.upsertChannel({
       id,
       settings: { ...settings, enabled: !settings.enabled },
       expectedVersion: state.version,
@@ -183,7 +183,7 @@ function ChannelForm({
       enabled: initial?.enabled ?? true,
       drop_pending_updates: dropPending,
     }
-    const result = await susie.invoke('config:upsert-channel', {
+    const result = await ipc.config.upsertChannel({
       id: finalId,
       settings,
       expectedVersion: state.version,
