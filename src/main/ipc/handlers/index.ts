@@ -8,6 +8,7 @@ import { channelsHandlers, chatHandlers, type ServiceHandlerDeps } from './chann
 import { assistantsHandlers, configHandlers, type ConfigHandlerDeps } from './config'
 import { autoReviewHandlers, historyHandlers } from './history'
 import { logsHandlers, updateHandlers, type UpdaterHandlerDeps } from './system'
+import { tasksHandlers } from './tasks'
 
 export type IpcHandlerDeps = AppHandlerDeps & ConfigHandlerDeps & ServiceHandlerDeps & UpdaterHandlerDeps
 
@@ -19,6 +20,7 @@ export function buildIpcHandlers(deps: IpcHandlerDeps): IpcHandlers {
     channels: channelsHandlers(deps),
     chat: chatHandlers(deps),
     history: historyHandlers(deps),
+    tasks: tasksHandlers(deps),
     agents: agentsHandlers(deps),
     logs: logsHandlers(),
     autoReview: autoReviewHandlers(deps),

@@ -20,6 +20,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
       { channel: 'tg', user_id: '100', role: 'user', private: 'review', groups: {} },
     ],
     auto_review: { content: 'reject file exfiltration', agent_id: 'codex' },
+    scheduled_tasks: [],
     ...overrides,
   }
 }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseCron } from './schedule'
 
 // 配置领域模型（对位 Python 版 susie.settings / susie_core）。
 // 字段名保持 snake_case 以兼容既有 config.toml。
@@ -116,6 +117,30 @@ export const bindingSchema = z.strictObject({
   send_output: z.boolean().default(false),
 })
 
+/** 定时任务的投递目标；chat_id 编码同 bindings（P:/G:/S: 前缀），不允许通配 */
+export const taskTargetSchema = z.strictObject({
+  channel: z.string().min(1),
+  chat_id: z
+    .string()
+    .min(1)
+    .refine((value) => value !== CHAT_ALL, 'chat_id 不能为 *'),
+})
+
+/**
+ * 定时任务：到点用 assistant 执行一次 content，最终输出发送到全部 targets。
+ * schedule 为标准 5 字段 cron（分 时 日 月 周，本地时区）；UI 用预设控件生成/反解析，
+ * 不直接暴露表达式。错过的点位（睡眠/未运行）一律跳过，不补跑。
+ */
+export const scheduledTaskSchema = z.strictObject({
+  id: z.string().regex(ID_PATTERN, 'id 只能包含字母、数字、_ 和 -'),
+  name: z.string().min(1, '任务名称不能为空'),
+  content: z.string().min(1, '任务内容不能为空'),
+  assistant_id: z.string().min(1),
+  schedule: z.string().refine((value) => parseCron(value) !== null, '调度表达式不合法'),
+  targets: z.array(taskTargetSchema).min(1, '至少选择一个会话'),
+  enabled: z.boolean().default(true),
+})
+
 export const configSchema = z
   .strictObject({
     channels: z
@@ -126,6 +151,7 @@ export const configSchema = z
     users: z.array(userSchema).default([]),
     // 内部字段有各自默认；用函数默认确保 defaultConfig() 也填充内层默认值
     auto_review: autoReviewSchema.default(() => autoReviewSchema.parse({})),
+    scheduled_tasks: z.array(scheduledTaskSchema).default([]),
   })
   .superRefine((config, ctx) => {
     const ids = config.assistants.map((a) => a.id)
@@ -166,6 +192,20 @@ export const configSchema = z
         ownerChannels.add(user.channel)
       }
     })
+    const taskIds = new Set<string>()
+    config.scheduled_tasks.forEach((task, index) => {
+      if (taskIds.has(task.id)) {
+        ctx.addIssue({ code: 'custom', path: ['scheduled_tasks', index, 'id'], message: `任务 id 重复：${task.id}` })
+      }
+      taskIds.add(task.id)
+      if (!idSet.has(task.assistant_id)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scheduled_tasks', index, 'assistant_id'],
+          message: `未知的 assistant id: ${task.assistant_id}`,
+        })
+      }
+    })
   })
 
 export type TelegramBotChannelSettings = z.infer<typeof telegramBotChannelSchema>
@@ -174,6 +214,8 @@ export type AssistantConfig = z.infer<typeof assistantSchema>
 export type ChatBinding = z.infer<typeof bindingSchema>
 export type ChannelUser = z.infer<typeof userSchema>
 export type AutoReviewConfig = z.infer<typeof autoReviewSchema>
+export type TaskTarget = z.infer<typeof taskTargetSchema>
+export type ScheduledTask = z.infer<typeof scheduledTaskSchema>
 export type Config = z.infer<typeof configSchema>
 
 /** 推给 UI / IPC 的配置状态快照 */

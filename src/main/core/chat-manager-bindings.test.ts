@@ -24,6 +24,7 @@ function makeHarness(initialBindings: ChatBinding[]) {
     bindings: initialBindings,
     users: [{ channel: 'tg', user_id: '1', role: 'owner', private: 'review', groups: {} }],
     auto_review: { content: 'x', agent_id: 'codex' },
+    scheduled_tasks: [],
   }
   const listeners = new Map<string, (next: unknown, prev: unknown) => void>()
   const store = {

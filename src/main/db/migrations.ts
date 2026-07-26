@@ -102,6 +102,27 @@ export const MIGRATIONS: readonly Migration[] = [
       db.exec('ALTER TABLE pending_approvals ADD COLUMN envelope_v INTEGER NOT NULL DEFAULT 1')
     },
   },
+  {
+    id: 5,
+    comment: 'task_runs：定时任务执行历史（trigger 为 SQLite 关键字，列名加引号）',
+    up(db) {
+      db.exec(`
+CREATE TABLE IF NOT EXISTS task_runs(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  task_id TEXT NOT NULL,
+  task_name TEXT NOT NULL,
+  "trigger" TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'running',
+  result TEXT,
+  error TEXT,
+  deliveries TEXT NOT NULL DEFAULT '[]',
+  started_ts INTEGER NOT NULL,
+  finished_ts INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_task_runs_task ON task_runs(task_id, id);
+`)
+    },
+  },
 ]
 
 export function runMigrations(db: DatabaseSync, migrations: readonly Migration[] = MIGRATIONS): void {

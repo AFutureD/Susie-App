@@ -16,6 +16,8 @@ import { HistoryPage } from './pages/history'
 import { IntelligencePage } from './pages/intelligence'
 import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
+import { TasksPage } from './pages/tasks'
+import { TaskHistoryPage } from './pages/tasks/history'
 import { UsersPage } from './pages/users'
 
 const NAV_ITEMS = NAV_ROUTES.map((name) => ({ to: `/${name}`, id: `nav.${name}` }))
@@ -101,6 +103,8 @@ export function App() {
             <Route path="/assistants" element={<AssistantsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/tasks" element={<TasksPage />} />
+            <Route path="/tasks/history" element={<TaskHistoryPage />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />

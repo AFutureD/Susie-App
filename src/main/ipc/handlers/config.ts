@@ -6,6 +6,7 @@ import {
   autoReviewSchema,
   bindingSchema,
   channelSettingsSchema,
+  scheduledTaskSchema,
   userSchema,
   type ConfigMutationResult,
 } from '../../../shared/config'
@@ -60,6 +61,13 @@ export function configHandlers({ config }: ConfigHandlerDeps): IpcHandlers['conf
       if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
       return config.setAutoReview(parsed.data, expectedVersion)
     },
+
+    upsertScheduledTask: ({ task, expectedVersion }) => {
+      const parsed = scheduledTaskSchema.safeParse(task)
+      if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
+      return config.upsertScheduledTask(parsed.data, expectedVersion)
+    },
+    deleteScheduledTask: ({ id, expectedVersion }) => config.deleteScheduledTask(id, expectedVersion),
   }
 }
 

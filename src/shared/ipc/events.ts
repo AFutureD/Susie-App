@@ -4,7 +4,14 @@
 // 新增事件 = 此处加一行，两端类型立即生效。
 
 import type { ConfigState } from '../config'
-import type { AgentProgress, AutoReviewRecord, ChannelStatus, StoredMessage, UpdateState } from '../messages'
+import type {
+  AgentProgress,
+  AutoReviewRecord,
+  ChannelStatus,
+  StoredMessage,
+  TaskRunRecord,
+  UpdateState,
+} from '../messages'
 
 export interface IpcEvents {
   'config.state': ConfigState
@@ -13,6 +20,8 @@ export interface IpcEvents {
   'agents.progress': AgentProgress
   /** 自动审核记录新增/状态更新（按 id 去重合并） */
   'autoReview.record': AutoReviewRecord
+  /** 定时任务执行记录新增/状态更新（按 id 去重合并） */
+  'tasks.run': TaskRunRecord
   /** 自动更新状态推送 */
   'update.state': UpdateState
 }

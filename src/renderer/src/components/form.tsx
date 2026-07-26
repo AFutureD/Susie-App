@@ -16,6 +16,20 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
   )
 }
 
+/**
+ * Field 的非 label 版：内容是含按钮的复合控件时用——label 会把首个可标控件
+ * （可能是个按钮）的可访问名替换成标签文本，且点击标签会代理触发它。
+ */
+export function FieldGroup({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <div>
+      <span className="mb-1 block text-xs font-medium text-ink-muted">{label}</span>
+      {children}
+      {hint ? <span className="mt-1 block text-xs text-ink-muted/70">{hint}</span> : null}
+    </div>
+  )
+}
+
 const controlClass =
   'w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent/60'
 

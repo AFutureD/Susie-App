@@ -12,6 +12,7 @@ import {
   type Config,
   type ConfigMutationResult,
   type ConfigState,
+  type ScheduledTask,
 } from '../../shared/config'
 import { deepEqual, defaultConfig, parseConfigText, serializeConfig } from './load'
 
@@ -219,6 +220,22 @@ export class ConfigStore {
     })
   }
 
+  upsertScheduledTask(task: ScheduledTask, expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      const index = draft.scheduled_tasks.findIndex((item) => item.id === task.id)
+      if (index >= 0) draft.scheduled_tasks[index] = task
+      else draft.scheduled_tasks.push(task)
+    })
+  }
+
+  deleteScheduledTask(id: string, expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      const index = draft.scheduled_tasks.findIndex((item) => item.id === id)
+      if (index < 0) throw new Error(`任务不存在：${id}`)
+      draft.scheduled_tasks.splice(index, 1)
+    })
+  }
+
   /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。 */
   saveRaw(text: string, expectedVersion: number): ConfigMutationResult {
     if (expectedVersion !== this.version) return conflict(this.version, expectedVersion)
@@ -330,13 +347,25 @@ export function diffConfigPaths(prev: Config, next: Config): string[] {
 
   if (!deepEqual(prev.auto_review, next.auto_review)) changed.push('auto_review')
 
+  const prevTasks = new Map(prev.scheduled_tasks.map((task) => [task.id, task]))
+  const nextTasks = new Map(next.scheduled_tasks.map((task) => [task.id, task]))
+  const taskIds = new Set([...prevTasks.keys(), ...nextTasks.keys()])
+  let tasksChanged = false
+  for (const id of taskIds) {
+    if (!deepEqual(prevTasks.get(id), nextTasks.get(id))) {
+      changed.push(`scheduled_tasks.${id}`)
+      tasksChanged = true
+    }
+  }
+  if (tasksChanged) changed.push('scheduled_tasks')
+
   if (changed.length > 0) changed.push('')
   return changed
 }
 
 /**
- * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users' | 'auto_review'。
- * id 由 schema 保证不含 '.'。
+ * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users'
+ * | 'auto_review' | 'scheduled_tasks' | 'scheduled_tasks.<id>'。id 由 schema 保证不含 '.'。
  */
 export function resolveConfigPath(config: Config, refPath: string): unknown {
   if (refPath === '') return config
@@ -359,6 +388,8 @@ export function resolveConfigPath(config: Config, refPath: string): unknown {
     case 'auto_review':
       if (rest !== null) throw new Error(`auto_review 不支持子路径：${refPath}`)
       return config.auto_review
+    case 'scheduled_tasks':
+      return rest === null ? config.scheduled_tasks : config.scheduled_tasks.find((task) => task.id === rest)
     default:
       throw new Error(`未知的配置 path：${refPath}`)
   }

@@ -11,6 +11,7 @@ import {
   autoReviewSchema,
   bindingSchema,
   channelSettingsSchema,
+  scheduledTaskSchema,
   userSchema,
   type ConfigMutationResult,
   type ConfigState,
@@ -23,6 +24,8 @@ import type {
   ChatInfo,
   SenderInfo,
   StoredMessage,
+  TaskRunRecord,
+  TaskStatus,
   UpdateState,
 } from '../messages'
 
@@ -97,6 +100,11 @@ export const ipcContract = {
       req: z.object({ autoReview: z.custom<z.input<typeof autoReviewSchema>>(), expectedVersion }),
       res: res<ConfigMutationResult>(),
     },
+    upsertScheduledTask: {
+      req: z.object({ task: z.custom<z.input<typeof scheduledTaskSchema>>(), expectedVersion }),
+      res: res<ConfigMutationResult>(),
+    },
+    deleteScheduledTask: { req: z.object({ id: z.string(), expectedVersion }), res: res<ConfigMutationResult>() },
   },
 
   assistants: {
@@ -140,6 +148,18 @@ export const ipcContract = {
       req: z.object({ q: z.string(), limit: z.number().int().positive().optional() }),
       res: res<StoredMessage[]>(),
     },
+  },
+
+  tasks: {
+    /** 全部任务的运行时状态（在跑/下次触发/最近一次执行） */
+    statuses: { req: z.void(), res: res<TaskStatus[]>() },
+    /** 执行历史（新 → 旧）；taskId 省略时跨全部任务 */
+    runs: {
+      req: z.object({ taskId: z.string().optional(), limit: z.number().int().positive().optional() }),
+      res: res<TaskRunRecord[]>(),
+    },
+    /** 立即执行一次（任务在跑时拒绝） */
+    run: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
   },
 
   agents: {

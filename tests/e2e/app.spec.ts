@@ -136,6 +136,46 @@ test('历史页：空态与会话列表骨架', async () => {
   await expect(win.getByPlaceholder('搜索全部历史（回车）')).toBeVisible()
 })
 
+test('任务页：新建定时任务（默认调度 + 弹窗选会话）并落盘', async () => {
+  await win.getByRole('link', { name: '任务' }).click()
+  await expect(win.getByText('还没有定时任务。')).toBeVisible()
+
+  await win.getByRole('button', { name: '新建任务' }).click()
+  await win.getByLabel('名称').fill('E2E 日报')
+  await win.getByLabel('任务内容').fill('输出一句 e2e 测试结果')
+  await expect(win.getByLabel('名称')).toHaveValue('E2E 日报')
+  await expect(win.getByLabel('任务内容')).toHaveValue('输出一句 e2e 测试结果')
+
+  // 调度默认预设的预览态（不出现 cron 表达式）
+  await expect(win.getByText('每天 09:00')).toBeVisible()
+
+  // 「添加会话」弹窗（复用会话绑定的选择器）；无历史会话 → 手动输入兜底
+  await win.getByRole('button', { name: '添加会话' }).click()
+  await expect(win.getByText(/添加会话到/)).toBeVisible()
+  await win.getByPlaceholder('P:123456').fill('P:42')
+  await expect(win.getByPlaceholder('P:123456')).toHaveValue('P:42')
+  await win.getByRole('button', { name: '添加', exact: true }).click()
+  await expect(win.getByText(/添加会话到/)).toHaveCount(0)
+  await win.getByRole('button', { name: '保存', exact: true }).click()
+
+  // 卡片出现
+  await expect(win.getByText('E2E 日报')).toBeVisible()
+  await expect(win.getByText('→ P:42')).toBeVisible()
+  await expect(win.getByText('尚未执行过')).toBeVisible()
+
+  // 执行历史在子页面
+  await win.getByRole('link', { name: '执行历史' }).click()
+  await expect(win.getByText('还没有执行记录。')).toBeVisible()
+  await win.getByRole('link', { name: '← 返回定时任务' }).click()
+  await expect(win.getByText('E2E 日报')).toBeVisible()
+
+  const text = readFileSync(configPath, 'utf-8')
+  expect(text).toContain('[[scheduled_tasks]]')
+  expect(text).toContain('name = "E2E 日报"')
+  expect(text).toContain('schedule = "0 9 * * *"')
+  expect(text).toContain('chat_id = "P:42"')
+})
+
 test('Raw 编辑器：外部变更后提示版本冲突', async () => {
   await win.getByRole('link', { name: '设置' }).click()
   await win.getByRole('button', { name: '重新载入' }).click()

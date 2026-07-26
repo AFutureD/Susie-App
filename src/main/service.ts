@@ -22,6 +22,8 @@ import { MessageRepo } from './history/message-repo'
 import { ApprovalRepo } from './core/approval-repo'
 import { AutoReviewRepo } from './core/auto-review-repo'
 import { SusieMcpServer } from './mcp/server'
+import { TaskRunRepo } from './tasks/task-run-repo'
+import { TaskScheduler } from './tasks/scheduler'
 import { withTimeout } from './util/async'
 import type { Logger } from './util/logger'
 
@@ -46,10 +48,12 @@ export class SusieService {
   readonly messages: MessageRepo
   readonly approvalRepo: ApprovalRepo
   readonly autoReviewRepo: AutoReviewRepo
+  readonly taskRuns: TaskRunRepo
   readonly hub: ChannelHub
   readonly chatManager: ChatManager
   readonly approvals: ApprovalManager
   readonly autoReviewer: AutoReviewer
+  readonly scheduler: TaskScheduler
   readonly mcp: SusieMcpServer
   readonly agents: AgentManager
 
@@ -96,6 +100,17 @@ export class SusieService {
       reviews: this.autoReviewRepo,
       createRuntime: (config) => this.createReviewRuntime(config),
       emit: (record) => broadcast('autoReview.record', record),
+      log,
+    })
+
+    this.taskRuns = new TaskRunRepo(this.db)
+    this.scheduler = new TaskScheduler({
+      store,
+      runs: this.taskRuns,
+      createRuntime: (assistant) => this.createTaskRuntime(assistant),
+      // 延迟闭包：chatManager 在下方构造（与 approvals 同款解环手法）
+      sendMessage: (input) => this.chatManager.sendMessage(input),
+      emit: (record) => broadcast('tasks.run', record),
       log,
     })
 
@@ -159,10 +174,14 @@ export class SusieService {
     })
 
     this.hub.start()
+    this.scheduler.start()
   }
 
   async stop(): Promise<void> {
     this.unsubUsers()
+    // 先停调度器：不再产生新执行，且在跑任务的投递/落库依赖 hub 与 db
+    this.log.info('service stopping: scheduler')
+    await this.scheduler.stop()
     this.log.info('service stopping: chats')
     // 各段自带预算（index.ts 的 5s 总闸只作最后兜底）：
     // 会话销毁要等 agent 子进程限时收尸；mcp.stop 不允许挂住退出
@@ -187,6 +206,21 @@ export class SusieService {
       models: assistant.models ?? [],
       cwd,
       mcpUrl: this.mcp.url,
+      mcpName: SUSIE_MCP_NAME,
+    })
+  }
+
+  /** 定时任务运行时：工作目录同会话运行时；不注入 susie MCP（结果由调度器统一投递） */
+  private createTaskRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
+    const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
+    fs.mkdirSync(cwd, { recursive: true })
+    return this.agents.createRuntime({
+      agentId: assistant.agent_id,
+      model: assistant.model ?? null,
+      thinkingLevel: assistant.thinking_level ?? null,
+      models: [],
+      cwd,
+      mcpUrl: null,
       mcpName: SUSIE_MCP_NAME,
     })
   }

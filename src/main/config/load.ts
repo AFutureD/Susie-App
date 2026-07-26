@@ -29,7 +29,7 @@ export function formatZodError(error: ZodError): string {
   return `配置校验失败：${lines.join('；')}`
 }
 
-/** 序列化为 canonical TOML（键序固定：channels → assistants → bindings → users → auto_review） */
+/** 序列化为 canonical TOML（键序固定：channels → assistants → bindings → users → auto_review → scheduled_tasks） */
 export function serializeConfig(config: Config): string {
   // JSON 往返去掉 undefined 值（TOML 无 null/undefined）
   const clean = JSON.parse(
@@ -39,6 +39,7 @@ export function serializeConfig(config: Config): string {
       bindings: config.bindings,
       users: config.users,
       auto_review: config.auto_review,
+      scheduled_tasks: config.scheduled_tasks,
     }),
   ) as Record<string, unknown>
   return `${stringify(clean)}\n`

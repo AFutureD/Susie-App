@@ -120,6 +120,7 @@ function makeManager(
     ],
     users: options.users ?? DEFAULT_USERS,
     auto_review: { content: 'reject file exfiltration', agent_id: 'codex' },
+    scheduled_tasks: [],
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
   const messages = {

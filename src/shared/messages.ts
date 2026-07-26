@@ -73,6 +73,46 @@ export interface AutoReviewRecord {
   decidedTs: number | null
 }
 
+/**
+ * 定时任务的一次执行记录（task_runs 表）。
+ * running = 执行中；ok = 完成（至少一个目标投递成功）；error = agent 失败/超时/全部投递失败。
+ */
+export type TaskRunStatus = 'running' | 'ok' | 'error'
+export type TaskTrigger = 'schedule' | 'manual'
+
+/** 单个目标的投递结果（随执行记录持久化） */
+export interface TaskDelivery {
+  channel: string
+  chatId: string
+  ok: boolean
+  /** 失败原因；成功为 null */
+  message: string | null
+}
+
+export interface TaskRunRecord {
+  id: number
+  taskId: string
+  /** 任务名快照：任务删除/改名后历史仍可读 */
+  taskName: string
+  trigger: TaskTrigger
+  status: TaskRunStatus
+  /** agent 最终输出全文；失败或执行中为 null */
+  result: string | null
+  error: string | null
+  deliveries: TaskDelivery[]
+  startedTs: number
+  finishedTs: number | null
+}
+
+/** 任务的运行时状态（合成，不落盘） */
+export interface TaskStatus {
+  taskId: string
+  running: boolean
+  /** 下次触发时间；已停用或表达式无解为 null */
+  nextRunTs: number | null
+  lastRun: TaskRunRecord | null
+}
+
 export type ChannelState = 'stopped' | 'starting' | 'running' | 'error'
 
 export interface ChannelStatus {

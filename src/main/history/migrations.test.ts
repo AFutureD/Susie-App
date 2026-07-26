@@ -8,6 +8,7 @@ import { AppDatabase } from '../db/database'
 import { MIGRATIONS, runMigrations, type Migration } from '../db/migrations'
 import { ApprovalRepo } from '../core/approval-repo'
 import { AutoReviewRepo } from '../core/auto-review-repo'
+import { TaskRunRepo } from '../tasks/task-run-repo'
 import { MessageRepo } from './message-repo'
 
 // 迁移框架（PRAGMA user_version + 有序 Migration[]）的行为测试：
@@ -147,7 +148,7 @@ describe('HistoryStore 遗留库迁移', () => {
     }
   })
 
-  it('补齐缺失表：auto_reviews 在旧库上直接可用', () => {
+  it('补齐缺失表：auto_reviews / task_runs 在旧库上直接可用', () => {
     const dbPath = tempDbPath()
     createLegacyDb(dbPath)
 
@@ -163,6 +164,12 @@ describe('HistoryStore 遗留库迁移', () => {
         createdTs: 1000,
       })
       expect(reviews.finish(record.id, 'passed', null, 2000)?.status).toBe('passed')
+
+      const runs = new TaskRunRepo(db)
+      const run = runs.create({ taskId: 't1', taskName: '晨报', trigger: 'schedule', startedTs: 1000 })
+      expect(
+        runs.finish(run.id, { status: 'ok', result: 'r', error: null, deliveries: [], finishedTs: 2000 })?.status,
+      ).toBe('ok')
     } finally {
       db.close()
     }
@@ -190,6 +197,7 @@ describe('HistoryStore 遗留库迁移', () => {
       expect(new MessageRepo(db).listChats()).toEqual([])
       expect(new ApprovalRepo(db).listPending()).toEqual([])
       expect(new AutoReviewRepo(db).list()).toEqual([])
+      expect(new TaskRunRepo(db).list()).toEqual([])
     } finally {
       db.close()
     }

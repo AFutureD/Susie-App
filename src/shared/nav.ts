@@ -8,6 +8,7 @@ export const NAV_ROUTES = [
   'assistants',
   'users',
   'intelligence',
+  'tasks',
   'history',
   'logs',
   'settings',
