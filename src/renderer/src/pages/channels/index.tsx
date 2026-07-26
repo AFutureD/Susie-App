@@ -1,24 +1,29 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
-import type { ChannelSettings, ConfigState, TelegramBotChannelSettings } from '../../../shared/config'
-import { Button, CheckboxField, ErrorText, Field, TextInput } from '../components/form'
-import { OwnerBindModal } from '../components/owner-bind'
-import { Page } from '../components/page'
-import { configStateAtom } from '../lib/config-atoms'
-import { ipc } from '../lib/ipc'
-import { channelStatusesAtom } from '../lib/service-atoms'
+import type { ChannelSettings } from '../../../../shared/config'
+import { Button } from '../../components/form'
+import { OwnerBindModal } from '../../components/owner-bind'
+import { Page } from '../../components/page'
+import { configStateAtom } from '../../lib/config-atoms'
+import { ipc } from '../../lib/ipc'
+import { channelStatusesAtom } from '../../lib/service-atoms'
+import type { ChannelTypeUi } from './form-types'
+import { TelegramChannelForm, TelegramChannelSummary } from './telegram-form'
+
+/** per-type UI 注册表：新增通道类型 = 加一个 <type>-form.tsx + 此处登记一项 */
+const CHANNEL_UI: Record<ChannelSettings['type'], ChannelTypeUi> = {
+  telegram_bot: { Form: TelegramChannelForm, Summary: TelegramChannelSummary },
+}
+
+/** 新建入口默认的通道类型（有第二种类型时换成类型选择器） */
+const NEW_CHANNEL_TYPE: ChannelSettings['type'] = 'telegram_bot'
 
 const STATE_DOT: Record<string, string> = {
   running: 'bg-emerald-500',
   starting: 'bg-amber-500',
   error: 'bg-red-500',
   stopped: 'bg-neutral-400',
-}
-
-function maskToken(token: string): string {
-  if (token.length <= 8) return '••••••'
-  return `${token.slice(0, 4)}••••${token.slice(-4)}`
 }
 
 export function ChannelsPage() {
@@ -35,6 +40,7 @@ export function ChannelsPage() {
 
   const channels = Object.entries(state.config.channels)
   const statusById = new Map(statuses.map((status) => [status.id, status]))
+  const NewChannelForm = CHANNEL_UI[NEW_CHANNEL_TYPE].Form
 
   const deleteChannel = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'channels.deleteConfirm' }, { id }))) return
@@ -64,6 +70,7 @@ export function ChannelsPage() {
 
         {channels.map(([id, settings]) => {
           const status = statusById.get(id)
+          const typeUi = CHANNEL_UI[settings.type]
           return (
             <div key={id} className="rounded-xl border border-line bg-raised p-4">
               <div className="flex items-center gap-3">
@@ -86,7 +93,7 @@ export function ChannelsPage() {
                     )}
                   </div>
                   <div className="mt-1 flex gap-4 font-mono text-xs text-ink-muted">
-                    <span>token {maskToken(settings.token)}</span>
+                    <typeUi.Summary settings={settings} />
                   </div>
                 </div>
                 <Button onClick={() => void toggleEnabled(id)}>
@@ -101,7 +108,7 @@ export function ChannelsPage() {
               </div>
 
               {editing === id && (
-                <ChannelForm
+                <typeUi.Form
                   key={`${id}@${state.version}`}
                   channelId={id}
                   initial={settings}
@@ -115,7 +122,7 @@ export function ChannelsPage() {
 
         {editing === 'new' ? (
           <div className="rounded-xl border border-line bg-raised p-4">
-            <ChannelForm state={state} onDone={() => setEditing(null)} onCreated={setOwnerBindChannel} />
+            <NewChannelForm state={state} onDone={() => setEditing(null)} onCreated={setOwnerBindChannel} />
           </div>
         ) : (
           <div>
@@ -130,106 +137,5 @@ export function ChannelsPage() {
         <OwnerBindModal state={state} channelId={ownerBindChannel} onClose={() => setOwnerBindChannel(null)} />
       )}
     </Page>
-  )
-}
-
-function ChannelForm({
-  channelId,
-  initial,
-  state,
-  onDone,
-  onCreated,
-}: {
-  channelId?: string
-  initial?: TelegramBotChannelSettings
-  state: ConfigState
-  onDone: () => void
-  /** 仅新建成功时回调（进入 owner 绑定） */
-  onCreated?: (id: string) => void
-}) {
-  const intl = useIntl()
-
-  const [id, setId] = useState(channelId ?? '')
-  const [token, setToken] = useState(initial?.token ?? '')
-  const [dropPending, setDropPending] = useState(initial?.drop_pending_updates ?? false)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const submit = async () => {
-    setBusy(true)
-    setError(null)
-
-    // 频道 ID 留空 → 用 token 问 getMe 拿 bot username
-    let finalId = id.trim()
-    if (finalId === '') {
-      const resolved = await ipc.channels.resolveUsername({ token: token.trim() })
-      if (!resolved.ok) {
-        setBusy(false)
-        setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))
-        return
-      }
-      finalId = resolved.username
-    }
-    if (channelId === undefined && finalId in state.config.channels) {
-      setBusy(false)
-      setError(intl.formatMessage({ id: 'channels.duplicate' }, { id: finalId }))
-      return
-    }
-
-    // 准入统一由「会话绑定」控制：channel 只剩连接与运行参数
-    const settings: ChannelSettings = {
-      type: 'telegram_bot',
-      token: token.trim(),
-      enabled: initial?.enabled ?? true,
-      drop_pending_updates: dropPending,
-    }
-    const result = await ipc.config.upsertChannel({
-      id: finalId,
-      settings,
-      expectedVersion: state.version,
-    })
-    setBusy(false)
-    if (!result.ok) {
-      setError(result.message)
-      return
-    }
-    onDone()
-    if (channelId === undefined) onCreated?.(finalId)
-  }
-
-  return (
-    <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'channels.field.id' })}
-          hint={channelId === undefined ? intl.formatMessage({ id: 'channels.field.id.hint' }) : undefined}
-        >
-          <TextInput
-            value={id}
-            onChange={(event) => setId(event.target.value)}
-            disabled={channelId !== undefined}
-            placeholder="my_bot"
-          />
-        </Field>
-        <Field label={intl.formatMessage({ id: 'channels.field.token' })}>
-          <TextInput value={token} onChange={(event) => setToken(event.target.value)} placeholder="123456:bot-token" />
-        </Field>
-      </div>
-
-      <div className="flex gap-6">
-        <CheckboxField
-          label={intl.formatMessage({ id: 'channels.field.dropPending' })}
-          checked={dropPending}
-          onChange={setDropPending}
-        />
-      </div>
-      <ErrorText message={error} />
-      <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
-          {intl.formatMessage({ id: 'common.save' })}
-        </Button>
-        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-      </div>
-    </div>
   )
 }
