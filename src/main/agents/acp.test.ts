@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AcpRuntime } from './acp'
 import type { Logger } from '../util/logger'
 
@@ -10,16 +10,20 @@ const silentLog: Logger = { info: () => {}, error: () => {} }
 /**
  * 假 ACP agent：走 ndjson JSON-RPC，session/new 回报默认模型 agent-default，
  * 收到的 session/set_config_option 参数逐行落 CALL_LOG 文件（测试断言用）；
- * FAIL_SET=1 时 set 请求回 JSON-RPC error（模拟 agent 拒绝切换）。
+ * FAIL_SET=1 时 set 请求回 JSON-RPC error（模拟 agent 拒绝切换）；
+ * PID_FILE 写入自身 pid（dispose 收尸断言用）；IGNORE_SIGTERM=1 时忽略 SIGTERM（模拟卡死 agent）。
  */
-function fakeAgent(): { cmd: string; args: string[]; callLog: string; dir: string } {
+function fakeAgent(): { cmd: string; args: string[]; callLog: string; pidFile: string; dir: string } {
   const dir = mkdtempSync(path.join(tmpdir(), 'susie-acp-test-'))
   const file = path.join(dir, 'agent.mjs')
   const callLog = path.join(dir, 'set-calls.ndjson')
+  const pidFile = path.join(dir, 'agent.pid')
   writeFileSync(
     file,
     `import fs from 'node:fs'
 import readline from 'node:readline'
+if (process.env.PID_FILE) fs.writeFileSync(process.env.PID_FILE, String(process.pid))
+if (process.env.IGNORE_SIGTERM === '1') process.on('SIGTERM', () => {})
 const rl = readline.createInterface({ input: process.stdin })
 const send = (obj) => process.stdout.write(JSON.stringify(obj) + '\\n')
 rl.on('line', (line) => {
@@ -50,7 +54,7 @@ rl.on('line', (line) => {
 `,
     'utf-8',
   )
-  return { cmd: process.execPath, args: [file], callLog, dir }
+  return { cmd: process.execPath, args: [file], callLog, pidFile, dir }
 }
 
 function setCalls(callLog: string): { configId: string; value: string }[] {
@@ -67,14 +71,23 @@ function makeRuntime(model: string | null, extraEnv: Record<string, string> = {}
   const runtime = new AcpRuntime({
     cmd: agent.cmd,
     args: agent.args,
-    env: { CALL_LOG: agent.callLog, ...extraEnv },
+    env: { CALL_LOG: agent.callLog, PID_FILE: agent.pidFile, ...extraEnv },
     cwd: agent.dir,
     mcpUrl: null,
     mcpName: 'susie',
     model,
     log: silentLog,
   })
-  return { runtime, callLog: agent.callLog }
+  return { runtime, callLog: agent.callLog, pidFile: agent.pidFile }
+}
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 describe('AcpRuntime 默认模型应用', () => {
@@ -113,5 +126,37 @@ describe('AcpRuntime 默认模型应用', () => {
     dispose = () => runtime.dispose()
     await expect(runtime.newSession(null)).resolves.toBe('sess-1')
     expect(await runtime.currentModel()).toBe('agent-default')
+  })
+})
+
+describe('AcpRuntime.dispose 子进程回收', () => {
+  it('正常 agent：dispose 后进程退出', async () => {
+    const { runtime, pidFile } = makeRuntime(null)
+    await runtime.newSession(null)
+    const pid = Number(readFileSync(pidFile, 'utf-8'))
+    expect(processAlive(pid)).toBe(true)
+
+    await runtime.dispose()
+
+    // SIGTERM 生效的 agent 应在短时间内退出
+    await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 3000 })
+  })
+
+  it('表征已知债务：忽略 SIGTERM 的 agent 在 dispose 后成为孤儿（P6 停机加固改为限时 SIGKILL 收尸）', async () => {
+    const { runtime, pidFile } = makeRuntime(null, { IGNORE_SIGTERM: '1' })
+    await runtime.newSession(null)
+    const pid = Number(readFileSync(pidFile, 'utf-8'))
+    expect(processAlive(pid)).toBe(true)
+
+    await runtime.dispose()
+
+    // 现状：child.kill() 发出 SIGTERM 即返回，不等退出也不升级 SIGKILL —— 进程泄漏。
+    // P6 修复后本用例的断言翻转为「限时内被 SIGKILL 收尸」。
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(processAlive(pid)).toBe(true)
+
+    // 测试自清理，防止孤儿进程泄漏出测试运行
+    process.kill(pid, 'SIGKILL')
+    await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 3000 })
   })
 })

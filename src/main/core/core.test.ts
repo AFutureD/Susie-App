@@ -284,6 +284,25 @@ describe('ChatManager commands', () => {
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('P:1')
   })
+
+  it('falls through unregistered commands to the assistant turn', async () => {
+    const prompts: string[] = []
+    const runtime = stubRuntime({
+      async *prompt(text: string) {
+        prompts.push(text)
+        yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime), { sendOutput: true })
+
+    manager.handleInbound(inbound('/deploy now'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    // 未注册命令按普通消息转交 assistant（原文含命令行本身）
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain('/deploy now')
+  })
 })
 
 describe('ChatManager agent output gating', () => {
@@ -462,6 +481,30 @@ describe('ChatManager permission gate', () => {
     expect(settledVerdicts).toHaveLength(0)
   })
 
+  it('auto-level passes even without an owner: review runs, message goes through (no card, no manual approval)', async () => {
+    const noOwnerAuto: ChannelUser[] = [user('5', { private: 'auto' })]
+    const runtime = () =>
+      stubRuntime({
+        async *prompt() {
+          yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+        },
+      })
+    const { manager, sent, approvalRequests, autoReviews, autoReviewCards, settledVerdicts } = makeManager(
+      () => Promise.resolve(runtime()),
+      { users: noOwnerAuto, sendOutput: true, autoReviewPass: true, autoReviewCard: false },
+    )
+
+    manager.handleInbound(inbound('hello', { senderId: '5', chatId: 'P:5' }))
+
+    // 无 owner 检查只挡「转人工」路径：auto 通过的消息照常放行
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+    expect(autoReviewCards).toHaveLength(1)
+    expect(autoReviews).toHaveLength(1)
+    expect(settledVerdicts).toHaveLength(0)
+    expect(approvalRequests).toHaveLength(0)
+  })
+
   it('splits permissions between private chat and specific groups for one user', async () => {
     const runtime = () =>
       stubRuntime({
@@ -583,6 +626,70 @@ describe('ChatManager permission gate', () => {
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
     expect(approvalRequests).toHaveLength(0) // 重放不再进身份门
+  })
+})
+
+describe('ChatManager do-not-disturb window', () => {
+  it('mutes the chat after a self reply, cancels the active turn, and lets approvals through', async () => {
+    let cancels = 0
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+      },
+      cancel: () => {
+        cancels += 1
+        return Promise.resolve()
+      },
+    })
+    const { manager, sent, infos } = makeManager(() => Promise.resolve(runtime), { sendOutput: true })
+
+    // 建立会话并完成一轮
+    manager.handleInbound(inbound('first'))
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+
+    // 本人亲自回复（out）：同步取消进行中的 turn，进入免打扰窗
+    manager.handleInbound(inbound('me myself', { out: true }))
+    expect(cancels).toBe(1)
+    expect(infos.some((line) => line.includes('本人亲自回复'))).toBe(true)
+
+    // 窗口内的普通消息被丢弃（不触发新 turn）
+    manager.handleInbound(inbound('second'))
+    await vi.waitFor(() => expect(infos.some((line) => line.includes('免打扰窗口'))).toBe(true))
+    expect(sent).toHaveLength(1)
+
+    // owner 显式批准穿透免打扰窗（preapproved 重放）
+    manager.handleApproved({
+      id: 9,
+      channelId: 'tg',
+      chatId: 'P:1',
+      senderId: '1',
+      sender: 'user',
+      envelope: inbound('approved text'),
+      status: 'approved',
+      cardChatId: 'P:900',
+      cardMsgId: '1',
+      autoReviewReason: null,
+      createdTs: 1,
+      decidedTs: 2,
+    })
+    await vi.waitFor(() => expect(sent.length).toBe(2))
+    expect(partsToPlainText(sent[1]!.parts)).toBe('ok')
+  })
+
+  it('ignores out messages for chats without an active session (no crash, no window)', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime), { sendOutput: true })
+
+    // 会话尚不存在：out 消息只落库，不建窗（ignoreUntil 挂在 ChatEntry 上）
+    manager.handleInbound(inbound('me first', { out: true }))
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
   })
 })
 

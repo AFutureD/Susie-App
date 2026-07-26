@@ -172,6 +172,38 @@ describe('ApprovalManager.request', () => {
   })
 })
 
+describe('approval card buttons', () => {
+  it('carry the apv:<pendingId>:<action> callback protocol', async () => {
+    const { manager, history, sent, edited } = makeHarness()
+
+    // 人工审核卡片：允许/拒绝
+    await manager.request(envelope('求帮忙'))
+    const pending = history.listPendingApprovals('tg')[0]
+    expect(pending).toBeDefined()
+    expect(sent[0]?.buttons?.flat().map((b) => b.id)).toEqual([`apv:${pending?.id}:allow`, `apv:${pending?.id}:deny`])
+
+    // 自动审核通过后的急停卡片：终止
+    const card = await manager.beginAutoReview(envelope('自动审核', '200'))
+    await manager.settleAutoReview(card as PendingApproval, { passed: true, reason: null })
+    expect(
+      edited
+        .at(-1)
+        ?.buttons?.flat()
+        .map((b) => b.id),
+    ).toEqual([`apv:${card?.id}:stop`])
+
+    // 拒绝转人工：同一张卡换回 允许/拒绝
+    const card2 = await manager.beginAutoReview(envelope('再审一次', '300'))
+    await manager.settleAutoReview(card2 as PendingApproval, { passed: false, reason: '拿不准' })
+    expect(
+      edited
+        .at(-1)
+        ?.buttons?.flat()
+        .map((b) => b.id),
+    ).toEqual([`apv:${card2?.id}:allow`, `apv:${card2?.id}:deny`])
+  })
+})
+
 describe('ApprovalManager.handleCallback', () => {
   async function parked(harness = makeHarness()) {
     await harness.manager.request(envelope('求帮忙'))
