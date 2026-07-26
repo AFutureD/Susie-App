@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AssistantConfig, ChannelUser, Config } from '../../shared/config'
 import { partsToPlainText, type ChatMessage, type InboundEnvelope, type StoredMessage } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
-import type { TelegramBotChannel } from '../channels/telegram-bot'
+import type { Channel } from '../channels/types'
 import type { ConfigStore } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { PendingApproval } from './approval-repo'
@@ -133,7 +133,7 @@ function makeManager(
       return Promise.resolve({ ...message, id: '1' })
     },
     beginTyping: () => () => {},
-  } as unknown as TelegramBotChannel
+  } as unknown as Channel
 
   const errors: string[] = []
   const infos: string[] = []

@@ -11,7 +11,7 @@ import {
   type StoredMessage,
 } from '../../shared/messages'
 import type { AgentRuntime } from '../agents/types'
-import type { TelegramBotChannel } from '../channels/telegram-bot'
+import type { Channel } from '../channels/types'
 import type { ConfigStore, Unsubscribe } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { PendingApproval } from './approval-repo'
@@ -43,7 +43,7 @@ export interface ChatManagerDeps {
   store: ConfigStore
   messages: MessageRepo
   mcpName: string
-  getChannel: (id: string) => TelegramBotChannel | undefined
+  getChannel: (id: string) => Channel | undefined
   createRuntime: (assistant: AssistantConfig) => Promise<AgentRuntime>
   onHistoryMessage: (message: StoredMessage) => void
   /**

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ChannelUser, Config } from '../../shared/config'
 import type { ChatMessage, InboundEnvelope, MessagePart } from '../../shared/messages'
-import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
+import type { Channel, ChannelCallbackEvent, InlineButton } from '../channels/types'
 import type { ConfigStore } from '../config/store'
 import { AppDatabase } from '../db/database'
 import { MessageRepo } from '../history/message-repo'
@@ -73,6 +73,7 @@ function makeHarness(
   let sendSeq = 0
 
   const channel = {
+    directChatId: (userId: string) => `P:${userId}`,
     sendMessage: (message: ChatMessage, opts?: { buttons?: InlineButton[][] }) => {
       if (options.failCardSend === true && message.chatId === `P:${OWNER_ID}`) {
         return Promise.reject(new Error('403 Forbidden: bot was blocked'))
@@ -89,7 +90,7 @@ function makeHarness(
       edited.push({ chatId, messageId, parts, buttons })
       return Promise.resolve()
     },
-  } as unknown as TelegramBotChannel
+  } as unknown as Channel
 
   const dispatched: PendingApproval[] = []
   const terminated: PendingApproval[] = []

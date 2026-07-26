@@ -17,30 +17,11 @@ import { withDeadline, withTimeout } from '../util/async'
 import type { Logger } from '../util/logger'
 import { decodeChatId, encodeChatId } from '../../shared/chat-id'
 import { renderMessageHtml, renderMessagePlain } from './telegram-render'
+import type { Channel, ChannelCallbackEvent, InlineButton } from './types'
 
 type SendMessageForm = NonNullable<Parameters<TelegramBot['sendMessage']>[2]>
 type SendDocumentForm = NonNullable<Parameters<TelegramBot['sendDocument']>[2]>
 type SendChatActionForm = NonNullable<Parameters<TelegramBot['sendChatAction']>[2]>
-
-/** inline 按钮：id 直接作为 callback_data（Bot API 限 ≤64 字节，由调用方保证） */
-export interface InlineButton {
-  id: string
-  label: string
-}
-
-/** inline 按钮点击事件（bot.on('callback_query') 的领域化投影） */
-export interface ChannelCallbackEvent {
-  channelId: string
-  /** answerCallbackQuery 的凭据（不应答则点按者客户端一直转圈） */
-  callbackQueryId: string
-  /** 点按者的 telegram user id（字符串形式，与 ChatMessage.senderId 同域） */
-  fromId: string
-  /** callback_data；缺失时为 '' */
-  data: string
-  /** 按钮所在会话/消息（inline 模式无 message 时为 null） */
-  chatId: string | null
-  messageId: string | null
-}
 
 export interface TelegramBotChannelDeps {
   id: string
@@ -95,7 +76,7 @@ export function toInlineKeyboard(buttons: InlineButton[][]): InlineKeyboardMarku
   }
 }
 
-export class TelegramBotChannel {
+export class TelegramBotChannel implements Channel {
   readonly id: string
   private readonly deps: TelegramBotChannelDeps
   private bot: TelegramBot | null = null
@@ -270,6 +251,11 @@ export class TelegramBotChannel {
   }
 
   /** 处理期间维持“正在输入”提示；返回停止函数 */
+  /** Telegram 私聊 chat.id == user id（onboarding 从私聊发送者选 owner，保证该私聊存在） */
+  directChatId(userId: string): string | null {
+    return encodeChatId('private', userId)
+  }
+
   beginTyping(chatId: string): () => void {
     const bot = this.bot
     const decoded = decodeChatId(chatId)

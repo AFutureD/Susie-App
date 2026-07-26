@@ -1,5 +1,4 @@
 import { resolveBinding } from '../../shared/bindings'
-import { encodeChatId } from '../../shared/chat-id'
 import {
   partsToPlainText,
   type ChatMessage,
@@ -8,7 +7,7 @@ import {
   type StoredMessage,
 } from '../../shared/messages'
 import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
-import type { ChannelCallbackEvent, InlineButton, TelegramBotChannel } from '../channels/telegram-bot'
+import type { Channel, ChannelCallbackEvent, InlineButton } from '../channels/types'
 import type { ConfigStore } from '../config/store'
 import type { MessageRepo } from '../history/message-repo'
 import type { Logger } from '../util/logger'
@@ -47,7 +46,7 @@ export interface ApprovalManagerDeps {
   store: ConfigStore
   approvals: ApprovalRepo
   messages: MessageRepo
-  getChannel: (id: string) => TelegramBotChannel | undefined
+  getChannel: (id: string) => Channel | undefined
   /** owner 批准后的重放（ChatManager.handleApproved，经每会话串行队列） */
   dispatchApproved: (pending: PendingApproval) => void
   /** owner 急停（终止按钮）：取消该会话当前活跃 agent turn；返回是否命中活跃会话 */
@@ -209,9 +208,14 @@ export class ApprovalManager {
       return false
     }
 
-    // owner 私聊 chat id 可直接由 user id 构造（telegram 私聊 chat.id == user id）；
+    // owner 私聊会话 id 由通道构造（Telegram：私聊 chat.id == user id）；
     // onboarding 从私聊发送者里选 owner，保证该私聊存在、卡片可送达
-    const ownerChatId = encodeChatId('private', ownerUserId)
+    const ownerChatId = channel.directChatId(ownerUserId)
+    if (ownerChatId === null) {
+      this.deps.approvals.claim(pending.id, 'failed', Date.now(), pending.status)
+      this.deps.log.error(`approval#${pending.id}: 通道 ${pending.channelId} 无法构造 owner 私聊会话，审核卡片无法发送`)
+      return false
+    }
     try {
       const sent = await channel.sendMessage(
         {
@@ -339,7 +343,7 @@ export class ApprovalManager {
 
   /** 更新卡片（按状态重建文案，可追加裁决行）；buttons 缺省 null = 撤按钮；失败不致命 */
   private async editCard(
-    channel: TelegramBotChannel,
+    channel: Channel,
     pending: PendingApproval,
     decision?: string,
     buttons: InlineButton[][] | null = null,

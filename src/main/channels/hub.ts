@@ -3,7 +3,8 @@ import type { ChannelStatus, InboundEnvelope } from '../../shared/messages'
 import type { ConfigRef, ConfigStore, Unsubscribe } from '../config/store'
 import type { CommandSpec } from '../core/commands'
 import type { Logger } from '../util/logger'
-import { TelegramBotChannel, type ChannelCallbackEvent } from './telegram-bot'
+import { TelegramBotChannel } from './telegram-bot'
+import type { Channel, ChannelCallbackEvent } from './types'
 
 export interface ChannelHubDeps {
   store: ConfigStore
@@ -29,7 +30,7 @@ function restartRequired(prev: ChannelSettings, next: ChannelSettings): boolean 
  */
 export class ChannelHub {
   private readonly deps: ChannelHubDeps
-  private readonly channels = new Map<string, TelegramBotChannel>()
+  private readonly channels = new Map<string, Channel>()
   private readonly runningSettings = new Map<string, ChannelSettings>()
   private unsubscribe: Unsubscribe | null = null
 
@@ -44,7 +45,7 @@ export class ChannelHub {
     })
   }
 
-  get(id: string): TelegramBotChannel | undefined {
+  get(id: string): Channel | undefined {
     return this.channels.get(id)
   }
 
