@@ -1,8 +1,12 @@
 import fs from 'node:fs'
 import log from 'electron-log/main'
 import { errorLog } from '../../logging'
-import { checkForUpdates, getUpdateState, quitAndInstall } from '../../updater'
+import type { UpdaterManager } from '../../updater-manager'
 import type { IpcHandlers } from '../router'
+
+export interface UpdaterHandlerDeps {
+  updater: UpdaterManager
+}
 
 export function logsHandlers(): IpcHandlers['logs'] {
   return {
@@ -21,10 +25,10 @@ export function logsHandlers(): IpcHandlers['logs'] {
   }
 }
 
-export function updateHandlers(): IpcHandlers['update'] {
+export function updateHandlers({ updater }: UpdaterHandlerDeps): IpcHandlers['update'] {
   return {
-    check: () => checkForUpdates(),
-    install: () => quitAndInstall(),
-    getState: () => getUpdateState(),
+    check: () => updater.check(),
+    install: () => updater.quitAndInstall(),
+    getState: () => updater.getState(),
   }
 }

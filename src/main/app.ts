@@ -7,12 +7,11 @@ import { watchConfigFile } from './config/watcher'
 import { appFlags, isDev } from './env'
 import { buildIpcHandlers } from './ipc/handlers'
 import { registerIpcRouter } from './ipc/router'
-import { lifecycle } from './lifecycle'
 import { serviceLogger, setupLogging } from './logging'
 import { SusieService } from './service'
 import { runSmokeCheck } from './smoke'
 import { TrayManager } from './tray-manager'
-import { initUpdater } from './updater'
+import { UpdaterManager } from './updater-manager'
 import { withTimeout } from './util/async'
 import { mergeLoginShellPath } from './util/shell-path'
 import { WindowManager } from './windows/window-manager'
@@ -25,7 +24,11 @@ export class App {
   readonly configStore: ConfigStore
   readonly windows: WindowManager
   readonly tray: TrayManager
+  readonly updater: UpdaterManager
   readonly service: SusieService
+
+  /** 真退出标记（close→hide 拦截据此放行）；原 lifecycle.quitting */
+  isQuitting = false
 
   private serviceStopped = false
   private readonly shellPathMerged: Promise<unknown>
@@ -38,14 +41,20 @@ export class App {
     // 尽早并行解析 login shell PATH，whenReady 后合并完成再注册 IPC/启动 service
     this.shellPathMerged = mergeLoginShellPath(serviceLogger)
 
-    this.windows = new WindowManager({ isQuitting: () => lifecycle.quitting })
+    this.windows = new WindowManager({ isQuitting: () => this.isQuitting })
     this.tray = new TrayManager({
       showMainWindow: () => {
         this.windows.showMainWindow()
       },
       quit: () => {
-        lifecycle.quitting = true
+        this.isQuitting = true
         app.quit()
+      },
+    })
+    this.updater = new UpdaterManager({
+      onState: (state) => this.windows.broadcast('update:state', state),
+      setQuitting: (quitting) => {
+        this.isQuitting = quitting
       },
     })
 
@@ -95,7 +104,7 @@ export class App {
     })
 
     app.on('before-quit', () => {
-      lifecycle.quitting = true
+      this.isQuitting = true
     })
 
     app.on('quit', () => {
@@ -106,6 +115,7 @@ export class App {
       log.info(`will-quit (serviceStopped=${this.serviceStopped})`)
       if (this.serviceStopped) return
       event.preventDefault()
+      this.updater.dispose()
       // 退出必须有硬上限：网络/子进程都不允许阻塞 quit
       void withTimeout(
         this.service.stop().catch(() => {}),
@@ -122,10 +132,15 @@ export class App {
     void app.whenReady().then(async () => {
       await this.shellPathMerged
       registerIpcRouter(
-        buildIpcHandlers({ getMcpUrl: () => this.service.mcp.url, config: this.configStore, service: this.service }),
+        buildIpcHandlers({
+          getMcpUrl: () => this.service.mcp.url,
+          config: this.configStore,
+          service: this.service,
+          updater: this.updater,
+        }),
         serviceLogger,
       )
-      initUpdater((state) => this.windows.broadcast('update:state', state))
+      this.updater.init()
       this.tray.create()
       watchConfigFile(this.configStore, serviceLogger)
 
@@ -146,7 +161,7 @@ export class App {
         void runSmokeCheck(this.configStore, {
           showMainWindow: (options) => this.windows.showMainWindow(options),
           markQuitting: () => {
-            lifecycle.quitting = true
+            this.isQuitting = true
           },
         })
       }
