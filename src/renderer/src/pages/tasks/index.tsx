@@ -11,7 +11,6 @@ import { ipc } from '../../lib/ipc'
 import { useConfigMutation } from '../../lib/ipc-mutation'
 import { useChatsQuery, useIpcQuery } from '../../lib/ipc-query'
 import { toast } from '../../lib/toast'
-import { decodeSkillOption, encodeSkillOption } from '../skills/model'
 import { RunStatusBadge } from './history'
 import { DEFAULT_CRON, describeSchedule, newTaskId } from './model'
 import { ScheduleEditor } from './schedule-editor'
@@ -86,7 +85,7 @@ export function TasksPage() {
                     </span>
                     {task.skill !== undefined && (
                       <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                        {intl.formatMessage({ id: 'tasks.skill.badge' }, { name: task.skill.name })}
+                        {intl.formatMessage({ id: 'tasks.skill.badge' }, { name: task.skill })}
                       </span>
                     )}
                     {status?.running === true && (
@@ -204,12 +203,14 @@ function TaskForm({
 }) {
   const intl = useIntl()
   const assistants = state.config.assistants.map((assistant) => assistant.id)
+  const initialMode: 'custom' | 'skill' = initial?.skill !== undefined ? 'skill' : 'custom'
   const [name, setName] = useState(initial?.name ?? '')
-  const [content, setContent] = useState(initial?.content ?? '')
-  const [mode, setMode] = useState<'custom' | 'skill'>(initial?.skill !== undefined ? 'skill' : 'custom')
-  const [skillValue, setSkillValue] = useState(
-    initial?.skill !== undefined ? encodeSkillOption(initial.skill.scope, initial.skill.dir, initial.skill.name) : '',
-  )
+  const [mode, setMode] = useState<'custom' | 'skill'>(initialMode)
+  // 模型里 content 是单字段（无 skill = 任务全文；有 skill = 补充输入），表单侧按模式
+  // 拆成两份草稿：切换模式互不带入，保存只取当前模式那份。
+  const [content, setContent] = useState(initialMode === 'custom' ? (initial?.content ?? '') : '')
+  const [extra, setExtra] = useState(initialMode === 'skill' ? (initial?.content ?? '') : '')
+  const [skillValue, setSkillValue] = useState(initial?.skill ?? '')
   const [assistantId, setAssistantId] = useState(initial?.assistant_id ?? assistants[0] ?? '')
   const [schedule, setSchedule] = useState(initial?.schedule ?? DEFAULT_CRON)
   const [targets, setTargets] = useState(initial?.targets ?? [])
@@ -226,11 +227,11 @@ function TaskForm({
   const submit = async () => {
     setBusy(true)
     setError(null)
-    const skill = mode === 'skill' ? decodeSkillOption(skillValue) : null
+    const skill = mode === 'skill' && skillValue !== '' ? skillValue : null
     const task: ScheduledTask = {
       id: initial?.id ?? newTaskId(),
       name: name.trim(),
-      content: content.trim(),
+      content: (mode === 'skill' ? extra : content).trim(),
       ...(skill !== null ? { skill } : {}),
       assistant_id: assistantId,
       schedule,
@@ -250,22 +251,23 @@ function TaskForm({
   const assistantOptions =
     assistantId !== '' && !assistants.includes(assistantId) ? [assistantId, ...assistants] : assistants
 
+  // option 值 = 技能目录名（与配置存储一致）；执行解析工作目录优先于全局，同名全局项隐藏
   const workspaceOptions = (assistantSkills.data?.workspace ?? []).map((entry) => ({
-    value: encodeSkillOption('assistant', entry.dir, entry.dirName),
+    value: entry.dirName,
     label: `${entry.name}（${entry.dir}）`,
   }))
-  const globalOptions = (assistantSkills.data?.global ?? []).map((entry) => ({
-    value: encodeSkillOption('global', entry.dir, entry.dirName),
-    label: `${entry.name}（${entry.dir}）`,
-  }))
+  const globalOptions = (assistantSkills.data?.global ?? [])
+    .filter((entry) => !workspaceOptions.some((option) => option.value === entry.dirName))
+    .map((entry) => ({
+      value: entry.dirName,
+      label: `${entry.name}（${entry.dir}）`,
+    }))
   const skillOptionCount = workspaceOptions.length + globalOptions.length
-  // 编辑既有任务时引用的技能可能已不在候选（被删/换助手）：保留为额外选项防误改
+  // 编辑既有任务时引用的技能可能已不在候选（被删/换助手）：保留为额外选项防误改，并提示执行将报错
   const skillMissing =
     skillValue !== '' &&
     !workspaceOptions.some((option) => option.value === skillValue) &&
     !globalOptions.some((option) => option.value === skillValue)
-  const missingSkill = skillMissing ? decodeSkillOption(skillValue) : null
-  const missingSkillLabel = missingSkill !== null ? `${missingSkill.name}（${missingSkill.dir}）` : skillValue
 
   return (
     <div className="mt-4 flex flex-col gap-4 border-t border-line pt-4">
@@ -329,44 +331,51 @@ function TaskForm({
             onChange={(event) => setContent(event.target.value)}
           />
         ) : (
-          <div className="flex flex-col gap-2">
-            <Select value={skillValue} onChange={(event) => setSkillValue(event.target.value)}>
-              <option value="">
-                {intl.formatMessage({
-                  id:
-                    assistantSkills.data === null
-                      ? 'tasks.skill.loading'
-                      : skillOptionCount === 0
-                        ? 'tasks.skill.none'
-                        : 'tasks.skill.placeholder',
-                })}
-              </option>
-              {skillMissing && <option value={skillValue}>{missingSkillLabel}</option>}
-              {workspaceOptions.length > 0 && (
-                <optgroup label={intl.formatMessage({ id: 'tasks.skill.optgroup.workspace' })}>
-                  {workspaceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {globalOptions.length > 0 && (
-                <optgroup label={intl.formatMessage({ id: 'tasks.skill.optgroup.global' })}>
-                  {globalOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </Select>
-            <TextArea
-              rows={3}
-              placeholder={intl.formatMessage({ id: 'tasks.field.skill.extra' })}
-              value={content}
-              onChange={(event) => setContent(event.target.value)}
-            />
+          <div className="flex flex-col gap-3">
+            <Field label={intl.formatMessage({ id: 'tasks.field.skill' })}>
+              <Select value={skillValue} onChange={(event) => setSkillValue(event.target.value)}>
+                <option value="">
+                  {intl.formatMessage({
+                    id:
+                      assistantSkills.data === null
+                        ? 'tasks.skill.loading'
+                        : skillOptionCount === 0
+                          ? 'tasks.skill.none'
+                          : 'tasks.skill.placeholder',
+                  })}
+                </option>
+                {skillMissing && <option value={skillValue}>{skillValue}</option>}
+                {workspaceOptions.length > 0 && (
+                  <optgroup label={intl.formatMessage({ id: 'tasks.skill.optgroup.workspace' })}>
+                    {workspaceOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {globalOptions.length > 0 && (
+                  <optgroup label={intl.formatMessage({ id: 'tasks.skill.optgroup.global' })}>
+                    {globalOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </Select>
+            </Field>
+            {skillMissing && (
+              <p className="text-xs text-red-500">
+                {intl.formatMessage({ id: 'tasks.skill.missing' }, { name: skillValue })}
+              </p>
+            )}
+            <Field
+              label={intl.formatMessage({ id: 'tasks.field.skill.extra' })}
+              hint={intl.formatMessage({ id: 'tasks.field.skill.extra.hint' })}
+            >
+              <TextArea rows={3} value={extra} onChange={(event) => setExtra(event.target.value)} />
+            </Field>
           </div>
         )}
       </FieldGroup>
@@ -379,7 +388,7 @@ function TaskForm({
             name.trim() === '' ||
             assistantId === '' ||
             targets.length === 0 ||
-            (mode === 'custom' ? content.trim() === '' : decodeSkillOption(skillValue) === null)
+            (mode === 'custom' ? content.trim() === '' : skillValue === '')
           }
           onClick={() => void submit()}
         >

@@ -357,21 +357,14 @@ members = ["7"]
     expect(rejected.ok).toBe(false)
     if (!rejected.ok) expect(rejected.message).toContain('任务内容不能为空')
 
-    const withSkill = store.upsertScheduledTask(
-      { ...base, skill: { name: 'daily', dir: '.agents/skills', scope: 'global' } },
-      store.currentVersion,
-    )
+    const withSkill = store.upsertScheduledTask({ ...base, skill: 'daily' }, store.currentVersion)
     expect(withSkill.ok).toBe(true)
     const text = readFileSync(configPath, 'utf-8')
     expect(text).toContain('[[scheduled_tasks]]')
-    expect(text).toContain('.agents/skills')
+    expect(text).toContain('skill = "daily"')
 
     const reloaded = ConfigStore.init(configPath)
     expect(reloaded.state().lastError).toBeNull()
-    expect(reloaded.current.scheduled_tasks[0]?.skill).toEqual({
-      name: 'daily',
-      dir: '.agents/skills',
-      scope: 'global',
-    })
+    expect(reloaded.current.scheduled_tasks[0]?.skill).toBe('daily')
   })
 })

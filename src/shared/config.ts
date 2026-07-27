@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import { parseCron } from './schedule'
-import { SKILL_DIRS, SKILL_SCOPES } from './skills'
 
 // 配置领域模型（对位 Python 版 susie.settings / susie_core）。
 // 字段名保持 snake_case 以兼容既有 config.toml。
@@ -128,14 +127,11 @@ export const taskTargetSchema = z.strictObject({
 })
 
 /**
- * 定时任务引用的技能：name = 技能目录名，执行时按 assistant 的支持目录现场解析
- * （工作目录/全局 × 容器目录），缺失记 error 执行记录——与 assistant 缺失同型，不做 schema 级校验。
+ * 定时任务引用的技能：值 = 技能目录名，执行时按 assistant 的支持目录现场解析
+ * （工作目录优先于全局 × agent 支持的容器目录），缺失记 error 执行记录——
+ * 与 assistant 缺失同型，不做 schema 级校验。
  */
-export const taskSkillSchema = z.strictObject({
-  name: z.string().min(1, 'skill 名称不能为空'),
-  dir: z.enum(SKILL_DIRS),
-  scope: z.enum(SKILL_SCOPES),
-})
+export const taskSkillSchema = z.string().min(1, 'skill 名称不能为空')
 
 /**
  * 定时任务：到点用 assistant 执行一次 content，最终输出发送到全部 targets。
@@ -235,7 +231,6 @@ export type ChatBinding = z.infer<typeof bindingSchema>
 export type ChannelUser = z.infer<typeof userSchema>
 export type AutoReviewConfig = z.infer<typeof autoReviewSchema>
 export type TaskTarget = z.infer<typeof taskTargetSchema>
-export type TaskSkillRef = z.infer<typeof taskSkillSchema>
 export type ScheduledTask = z.infer<typeof scheduledTaskSchema>
 export type Config = z.infer<typeof configSchema>
 

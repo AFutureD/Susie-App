@@ -239,7 +239,7 @@ describe('技能任务（skill 引用）', () => {
 
     const prompts: string[] = []
     const h = makeHarness({
-      tasks: [makeTask({ content: '只看要点', skill: { name: 'daily', dir: '.agents/skills', scope: 'assistant' } })],
+      tasks: [makeTask({ content: '只看要点', skill: 'daily' })],
       assistants: [{ id: 'default', agent_id: 'codex', work_dir: workDir }],
       runtime: { text: '完成', onPrompt: (text) => prompts.push(text) },
     })
@@ -256,7 +256,7 @@ describe('技能任务（skill 引用）', () => {
   it('skill 缺失：记 error 执行记录（与 assistant 缺失同型）', async () => {
     const workDir = fs.mkdtempSync(path.join(os.tmpdir(), 'susie-sched-skill-'))
     const h = makeHarness({
-      tasks: [makeTask({ content: '', skill: { name: 'ghost', dir: '.agents/skills', scope: 'assistant' } })],
+      tasks: [makeTask({ content: '', skill: 'ghost' })],
       assistants: [{ id: 'default', agent_id: 'codex', work_dir: workDir }],
     })
     h.scheduler.tick()
