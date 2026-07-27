@@ -29,7 +29,7 @@ export function ChatPickerModal({
   return (
     <Modal
       title={intl.formatMessage({ id: 'bindings.picker.chat.title' }, { id: channelId })}
-      panelClassName="w-96 overflow-y-auto p-4"
+      panelClassName="max-h-[70vh] w-96 overflow-y-auto p-4"
       onClose={onClose}
     >
       <div className="flex flex-col gap-1">

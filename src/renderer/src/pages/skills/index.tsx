@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
-import { Link } from 'react-router'
 import { filterSkills, type SkillEntry, type SkillScope } from '../../../../shared/skills'
 import { Button, ErrorText, Select, TextInput } from '../../components/form'
 import { Page, PlaceholderCard } from '../../components/page'
@@ -9,6 +8,7 @@ import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { useIpcQuery } from '../../lib/ipc-query'
 import { toast } from '../../lib/toast'
+import { SkillsAcquireModal } from './remote'
 
 // 技能页（本地管理）：一级维度 全局/助手，二级列表 + 客户端搜索。
 // 每行必显所在容器目录徽标；不展示 symlink 等文件系统细节（用户拍板）。
@@ -19,6 +19,7 @@ export function SkillsPage() {
   const [scope, setScope] = useState<SkillScope>('global')
   const [assistantId, setAssistantId] = useState('')
   const [query, setQuery] = useState('')
+  const [acquireOpen, setAcquireOpen] = useState(false)
 
   // 助手维度默认取第一个助手；选中的助手被删除后同样回落
   const assistants = state?.config.assistants ?? []
@@ -68,12 +69,7 @@ export function SkillsPage() {
       titleId="page.skills.title"
       actions={
         <div className="flex gap-2">
-          <Link
-            to="/skills/remote"
-            className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-raised"
-          >
-            {intl.formatMessage({ id: 'skills.remote.open' })}
-          </Link>
+          <Button onClick={() => setAcquireOpen(true)}>{intl.formatMessage({ id: 'skills.remote.open' })}</Button>
           <Button onClick={() => local.refetch()}>{intl.formatMessage({ id: 'skills.refresh' })}</Button>
         </div>
       }
@@ -160,6 +156,8 @@ export function SkillsPage() {
           )}
         </>
       )}
+
+      {acquireOpen && <SkillsAcquireModal onClose={() => setAcquireOpen(false)} onInstalled={() => local.refetch()} />}
     </Page>
   )
 }

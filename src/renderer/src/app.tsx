@@ -14,10 +14,10 @@ import { AssistantsPage } from './pages/assistants'
 import { ChannelsPage } from './pages/channels'
 import { HistoryPage } from './pages/history'
 import { IntelligencePage } from './pages/intelligence'
+import { AutoReviewHistoryPage } from './pages/intelligence/history'
 import { LogsPage } from './pages/logs'
 import { SettingsPage } from './pages/settings'
 import { SkillsPage } from './pages/skills'
-import { SkillsRemotePage } from './pages/skills/remote'
 import { TasksPage } from './pages/tasks'
 import { TaskHistoryPage } from './pages/tasks/history'
 import { UsersPage } from './pages/users'
@@ -99,14 +99,14 @@ export function App() {
         <ConfigErrorBanner />
         <main className="min-h-0 flex-1 overflow-y-auto px-8 pb-8">
           <Routes>
-            <Route path="/" element={<Navigate to="/channels" replace />} />
+            <Route path="/" element={<Navigate to={`/${NAV_ROUTES[0]}`} replace />} />
             <Route path="/channels" element={<ChannelsPage />} />
             <Route path="/agents" element={<AgentsPage />} />
             <Route path="/skills" element={<SkillsPage />} />
-            <Route path="/skills/remote" element={<SkillsRemotePage />} />
             <Route path="/assistants" element={<AssistantsPage />} />
             <Route path="/users" element={<UsersPage />} />
             <Route path="/intelligence" element={<IntelligencePage />} />
+            <Route path="/intelligence/history" element={<AutoReviewHistoryPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/tasks/history" element={<TaskHistoryPage />} />
             <Route path="/history" element={<HistoryPage />} />

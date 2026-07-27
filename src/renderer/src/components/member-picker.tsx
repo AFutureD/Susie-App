@@ -61,7 +61,7 @@ export function MemberPickerModal({
   return (
     <Modal
       title={intl.formatMessage({ id: 'members.addMember' })}
-      panelClassName="flex w-96 flex-col p-4"
+      panelClassName="flex max-h-[70vh] w-96 flex-col p-4"
       onClose={onClose}
     >
       <TextInput

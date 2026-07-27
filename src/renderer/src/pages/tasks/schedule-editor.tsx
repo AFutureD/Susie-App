@@ -72,7 +72,7 @@ function ScheduleModal({
   return (
     <Modal
       title={intl.formatMessage({ id: 'tasks.schedule.modal.title' })}
-      panelClassName="w-[26rem] overflow-y-auto p-5"
+      panelClassName="max-h-[70vh] w-[26rem] overflow-y-auto p-5"
       onClose={onCancel}
     >
       <div className="mt-4 grid grid-cols-2 gap-4">

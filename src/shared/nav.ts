@@ -3,14 +3,14 @@
  * 加/删页面只改这里（i18n key 为 `nav.<name>`，路由为 `/<name>`）。
  */
 export const NAV_ROUTES = [
+  'assistants',
   'channels',
+  'users',
+  'history',
   'agents',
   'skills',
-  'assistants',
-  'users',
-  'intelligence',
   'tasks',
-  'history',
+  'intelligence',
   'logs',
   'settings',
 ] as const

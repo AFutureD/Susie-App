@@ -46,12 +46,13 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await win.getByRole('button', { name: /跳过引导/ }).click()
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
 
-  // 主界面：侧边栏挂载，频道页为空态（导航清单同源 shared/nav.ts）
+  // 主界面：侧边栏挂载，首页为 NAV_ROUTES[0]（助手页，导航清单同源 shared/nav.ts）
   await expect(win.locator('nav a')).toHaveCount(NAV_ROUTES.length)
   await expect(win.getByText('还没有配置任何频道')).toBeVisible()
 })
 
 test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async () => {
+  await win.getByRole('link', { name: '频道' }).click()
   await win.getByRole('button', { name: '新增频道' }).click()
   await win.getByPlaceholder('my_bot').fill('e2e_bot')
   await win.getByPlaceholder('123456:bot-token').fill('10001:e2e-token')
@@ -138,13 +139,14 @@ test('技能页：维度切换、搜索与获取入口', async () => {
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
   await expect(win.getByText(/^目录 /)).toBeVisible()
 
-  // 获取子页：GitHub 与 skillhubs 两个来源
-  await win.getByRole('link', { name: '获取技能' }).click()
+  // 获取技能弹窗：GitHub 与 skillhubs 两个来源
+  await win.getByRole('button', { name: '获取技能' }).click()
   await expect(win.getByText('从 GitHub 仓库')).toBeVisible()
   await expect(win.getByPlaceholder('owner/repo 或 https://github.com/...')).toBeVisible()
   await expect(win.getByText('从 skillhubs registry')).toBeVisible()
   await expect(win.getByRole('button', { name: '搜索', exact: true })).toBeVisible()
-  await win.getByRole('link', { name: '← 返回技能' }).click()
+  await win.getByRole('button', { name: '关闭' }).click()
+  await expect(win.getByText('从 GitHub 仓库')).not.toBeVisible()
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
 })
 

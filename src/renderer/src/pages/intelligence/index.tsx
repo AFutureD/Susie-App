@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
-import type { AutoReviewConfig, ConfigState, ThinkingLevel } from '../../../shared/config'
-import { RECOMMENDED_AUTO_REVIEW, THINKING_LEVELS } from '../../../shared/config'
-import type { AgentModelOption, AutoReviewRecord, AutoReviewStatus } from '../../../shared/messages'
-import { Button, ErrorText, Field, Select, TextArea } from '../components/form'
-import { Page } from '../components/page'
-import { configStateAtom } from '../lib/config-atoms'
-import { ipc, onIpcEvent } from '../lib/ipc'
+import { Link } from 'react-router'
+import type { AutoReviewConfig, ConfigState, ThinkingLevel } from '../../../../shared/config'
+import { RECOMMENDED_AUTO_REVIEW, THINKING_LEVELS } from '../../../../shared/config'
+import type { AgentModelOption } from '../../../../shared/messages'
+import { Button, ErrorText, Field, Select, TextArea } from '../../components/form'
+import { Page } from '../../components/page'
+import { configStateAtom } from '../../lib/config-atoms'
+import { ipc } from '../../lib/ipc'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -24,7 +25,6 @@ export function IntelligencePage() {
     <Page titleId="page.intelligence.title">
       <div className="flex flex-col gap-6">
         <AutoReviewCard key={`auto-review@${state.version}`} state={state} />
-        <AutoReviewHistory />
       </div>
     </Page>
   )
@@ -98,7 +98,15 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
 
   return (
     <section className="rounded-xl border border-line bg-raised p-5">
-      <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'intelligence.autoReview.title' })}</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'intelligence.autoReview.title' })}</h2>
+        <Link
+          to="/intelligence/history"
+          className="shrink-0 rounded-md border border-line px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:bg-surface"
+        >
+          {intl.formatMessage({ id: 'intelligence.history.open' })}
+        </Link>
+      </div>
       <p className="mt-1 text-xs leading-5 text-ink-muted">
         {intl.formatMessage({ id: 'intelligence.autoReview.desc' })}
       </p>
@@ -209,80 +217,5 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
         </div>
       </div>
     </section>
-  )
-}
-
-/** 自动审核记录状态 → 徽章样式 */
-const STATUS_BADGE: Record<AutoReviewStatus, string> = {
-  running: 'bg-accent/10 text-accent',
-  passed: 'bg-emerald-500/10 text-emerald-600',
-  rejected: 'bg-amber-500/10 text-amber-600',
-  error: 'bg-red-500/10 text-red-500',
-}
-
-function AutoReviewHistory() {
-  const intl = useIntl()
-  const [records, setRecords] = useState<AutoReviewRecord[] | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    void ipc.autoReview.list({ limit: 100 }).then((list) => {
-      if (alive) setRecords(list)
-    })
-    // 新记录/状态更新按 id 合并（进行中 → 结论）
-    const off = onIpcEvent('autoReview.record', (record) => {
-      setRecords((prev) => {
-        const base = prev ?? []
-        const rest = base.filter((item) => item.id !== record.id)
-        return [record, ...rest].toSorted((a, b) => b.id - a.id)
-      })
-    })
-    return () => {
-      alive = false
-      off()
-    }
-  }, [])
-
-  return (
-    <section className="rounded-xl border border-line bg-raised p-5">
-      <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'intelligence.history.title' })}</h2>
-      <p className="mt-1 text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'intelligence.history.hint' })}</p>
-
-      {records !== null && records.length === 0 && (
-        <p className="mt-3 text-sm text-ink-muted">{intl.formatMessage({ id: 'intelligence.history.empty' })}</p>
-      )}
-
-      {records !== null && records.length > 0 && (
-        <div className="mt-3 divide-y divide-line/60">
-          {records.map((record) => (
-            <AutoReviewRow key={record.id} record={record} />
-          ))}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function AutoReviewRow({ record }: { record: AutoReviewRecord }) {
-  const intl = useIntl()
-  const when = new Date(record.decidedTs ?? record.createdTs).toLocaleString()
-
-  return (
-    <div className="flex items-start gap-3 py-2.5">
-      <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${STATUS_BADGE[record.status]}`}>
-        {intl.formatMessage({ id: `intelligence.history.status.${record.status}` })}
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 text-xs text-ink-muted">
-          <span className="truncate">{record.sender ?? record.senderId ?? '未知用户'}</span>
-          <span className="font-mono">{record.chatId}</span>
-          <span className="shrink-0">{when}</span>
-        </div>
-        <p className="mt-0.5 truncate text-sm">{record.text}</p>
-        {record.reason !== null && record.status !== 'running' && (
-          <p className="mt-0.5 text-xs text-ink-muted/80">→ {record.reason}</p>
-        )}
-      </div>
-    </div>
   )
 }

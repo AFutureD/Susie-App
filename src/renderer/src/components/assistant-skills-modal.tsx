@@ -26,7 +26,7 @@ export function AssistantSkillsModal({ assistantId, onClose }: { assistantId: st
   return (
     <Modal
       title={intl.formatMessage({ id: 'assistants.skills.title' }, { id: assistantId })}
-      panelClassName="flex w-[30rem] flex-col p-5"
+      panelClassName="flex max-h-[70vh] w-[30rem] flex-col p-5"
       onClose={onClose}
     >
       {data !== null && (
