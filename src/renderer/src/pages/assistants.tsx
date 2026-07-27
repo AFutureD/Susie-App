@@ -27,12 +27,11 @@ export function AssistantsPage() {
   const state = useAtomValue(configStateAtom)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
+  const mutation = useConfigMutation()
 
   if (!state) {
     return <Page titleId="page.assistants.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
   }
-
-  const mutation = useConfigMutation()
 
   const deleteAssistant = async (id: string) => {
     if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id }))) return
