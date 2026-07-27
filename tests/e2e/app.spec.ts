@@ -38,7 +38,7 @@ test.afterAll(async () => {
 })
 
 test('首次启动：出现 onboarding 引导，跳过后进入主界面', async () => {
-  // 空配置 + 无完成标记 → 引导第 1 步（添加频道）
+  // 启动时 config.toml 不存在（firstRun）→ 引导第 1 步（添加频道）
   await expect(win.getByText('欢迎使用 Susie')).toBeVisible()
   await expect(win.getByText('第 1 步 · 添加 Telegram Bot')).toBeVisible()
   await expect(win.getByText(/BotFather 创建 Bot/)).toBeVisible()

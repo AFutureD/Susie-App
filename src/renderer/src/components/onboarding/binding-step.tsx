@@ -16,13 +16,11 @@ export function BindingStep({
   state,
   channelId,
   botUsername,
-  linkError,
   onFinish,
 }: {
   state: ConfigState
   channelId: string
   botUsername: string | null
-  linkError: string | null
   onFinish: () => void
 }) {
   const intl = useIntl()
@@ -99,7 +97,6 @@ export function BindingStep({
           state={state}
           channelId={channelId}
           botUsername={botUsername}
-          linkError={linkError}
           busy={busy}
           error={error}
           onBind={bindChat}
@@ -150,7 +147,6 @@ function ListenPanel({
   state,
   channelId,
   botUsername,
-  linkError,
   busy,
   error,
   onBind,
@@ -160,7 +156,6 @@ function ListenPanel({
   state: ConfigState
   channelId: string
   botUsername: string | null
-  linkError: string | null
   busy: boolean
   error: string | null
   onBind: (chatId: string) => void
@@ -193,11 +188,6 @@ function ListenPanel({
             <span className="font-mono text-xs text-ink-muted select-text">t.me/{botUsername}</span>
           )}
         </div>
-        {linkError !== null && botUsername === null && (
-          <p className="mt-2 text-xs text-red-500">
-            {intl.formatMessage({ id: 'onboarding.listen.linkFailed' }, { detail: linkError })}
-          </p>
-        )}
         {status?.state === 'error' && status.detail !== null && (
           <p className="mt-2 text-xs text-red-500">
             {intl.formatMessage({ id: 'onboarding.listen.channelError' }, { detail: status.detail })}

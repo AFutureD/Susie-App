@@ -33,7 +33,7 @@ export function codexTarballUrl(version: string, suffix: string): string {
 }
 
 export interface CodexResolved {
-  source: 'installed' | 'dev' | 'path'
+  source: 'installed' | 'path'
   version: string
   /** spawn 用；'codex' 表示交给 PATH 解析 */
   executablePath: string
@@ -50,7 +50,7 @@ interface CodexManifest {
 /**
  * codex 二进制按需下载器。二进制不随应用分发（~300MB），
  * 从 npm registry 拉取 @openai/codex 锁定的版本到 <dataDir>/<version>/。
- * 解析顺序：已下载 → 开发环境 node_modules → PATH。
+ * 解析顺序：已下载 → PATH。开发环境体验与正式版一致。
  */
 export class CodexInstaller {
   private readonly dataDir: string
@@ -83,30 +83,6 @@ export class CodexInstaller {
     }
   }
 
-  /** 开发环境：node_modules 里装了平台包时直接用，无需下载 */
-  devVendor(): CodexResolved | null {
-    const target = platformTarget()
-    if (target === null) return null
-    try {
-      const pkgJsonPath = require.resolve(`@openai/codex-${target.suffix}/package.json`)
-      const vendorDir = path.join(path.dirname(pkgJsonPath), 'vendor', target.vendorTriple)
-      const executablePath = path.join(vendorDir, 'bin', 'codex')
-      if (!fs.existsSync(executablePath)) return null
-      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8')) as { version?: string }
-      const raw = pkg.version ?? ''
-      const version = raw.includes('-') ? raw.slice(0, raw.indexOf('-')) : raw
-      const pathDirCandidate = path.join(vendorDir, 'codex-path')
-      return {
-        source: 'dev',
-        version,
-        executablePath,
-        pathDir: fs.existsSync(pathDirCandidate) ? pathDirCandidate : null,
-      }
-    } catch {
-      return null
-    }
-  }
-
   pathProbe(): CodexResolved | null {
     const probe = spawnSync('codex', ['--version'], { encoding: 'utf-8' })
     if (probe.status !== 0) return null
@@ -114,7 +90,7 @@ export class CodexInstaller {
   }
 
   resolve(): CodexResolved | null {
-    return this.installed() ?? this.devVendor() ?? this.pathProbe()
+    return this.installed() ?? this.pathProbe()
   }
 
   async install(): Promise<CodexResolved> {

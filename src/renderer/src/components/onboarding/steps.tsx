@@ -5,7 +5,7 @@ import { ipc } from '../../lib/ipc'
 import { Button, ErrorText, Field, TextInput } from '../form'
 import { OwnerBindPanel } from '../owner-bind'
 
-// 向导第 1/2 步与完成页（第 3 步会话绑定在 binding-step.tsx）。
+// 向导第 1/2 步与完成页（第 3 步会话绑定在 binding-step.tsx，第 4 步准备 agent 在 agent-step.tsx）。
 
 export function ChannelStep({
   state,
@@ -82,13 +82,11 @@ export function OwnerStep({
   state,
   channelId,
   botUsername,
-  linkError,
   onBound,
 }: {
   state: ConfigState
   channelId: string
   botUsername: string | null
-  linkError: string | null
   onBound: () => void
 }) {
   const intl = useIntl()
@@ -99,11 +97,12 @@ export function OwnerStep({
         <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'ownerBind.subtitle' })}</p>
       </div>
       <div className="rounded-xl border border-line bg-raised p-4">
+        {/* 向导路径的 botUsername 恒来自 ChannelStep 的成功解析，不存在深链失败态 */}
         <OwnerBindPanel
           state={state}
           channelId={channelId}
           botUsername={botUsername}
-          linkError={linkError}
+          linkError={null}
           onBound={onBound}
         />
       </div>
@@ -111,7 +110,7 @@ export function OwnerStep({
   )
 }
 
-// ---------- 第 3 步：会话绑定 ----------
+// ---------- 完成页 ----------
 
 export function DoneStep({ onClose }: { onClose: () => void }) {
   const intl = useIntl()

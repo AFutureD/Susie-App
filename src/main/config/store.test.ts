@@ -24,13 +24,17 @@ assistant_id = "default"
 `
 
 describe('ConfigStore.init', () => {
-  it('creates a default config file when missing', () => {
+  it('creates a default config file when missing, and flags firstRun', () => {
     const configPath = tempConfigPath()
     const store = ConfigStore.init(configPath)
 
     expect(existsSync(configPath)).toBe(true)
     expect(store.state().lastError).toBeNull()
+    expect(store.state().firstRun).toBe(true)
     expect(store.current.assistants.map((a) => a.id)).toContain('default')
+
+    // 缺失事实在写入默认文件前采样：同一路径再 init 就不再是首启
+    expect(ConfigStore.init(configPath).state().firstRun).toBe(false)
   })
 
   it('rejects legacy Python-era configs outright (no compatibility): default + lastError', () => {
@@ -48,6 +52,7 @@ whitelist = ["1"]
     )
     const store = ConfigStore.init(configPath)
     expect(store.state().lastError).toContain('配置校验失败')
+    expect(store.state().firstRun).toBe(false)
     // 退化为内存默认配置；文件保持原样
     expect(Object.keys(store.current.channels)).toEqual([])
     expect(readFileSync(configPath, 'utf-8')).toContain('api_id')

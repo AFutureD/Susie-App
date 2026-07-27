@@ -40,8 +40,9 @@ export const zhHans: Record<string, string> = {
 
   // 首启引导
   'onboarding.welcome.title': '欢迎使用 Susie',
-  'onboarding.welcome.subtitle': '三步完成初始设置：连接 Telegram Bot，绑定 Owner，并选择由助手响应的会话。',
-  'onboarding.skip': '跳过引导（之后可在「频道」「用户」与「助手」页手动配置）',
+  'onboarding.welcome.subtitle':
+    '四步完成初始设置：连接 Telegram Bot，绑定 Owner，选择由助手响应的会话，并准备 Agent。',
+  'onboarding.skip': '跳过引导（之后可在「Agent」「频道」「用户」与「助手」页手动配置）',
   'onboarding.step.channel': '第 1 步 · 添加 Telegram Bot',
   'onboarding.channel.guide.step1': '在 Telegram 中找 @BotFather 创建 Bot，获取 token。',
   'onboarding.channel.guide.step2':
@@ -59,7 +60,6 @@ export const zhHans: Record<string, string> = {
   'onboarding.listen.hint':
     '在 Telegram 中打开与 Bot 的对话，点击「Start」或发送一条消息，新会话会自动出现在下方列表。',
   'onboarding.listen.open': '在 Telegram 中打开',
-  'onboarding.listen.linkFailed': '获取 bot 链接失败：{detail}',
   'onboarding.listen.channelError': '频道状态异常：{detail}',
   'onboarding.listen.waiting': '正在监听新会话…',
   'onboarding.listen.group.hint': '群聊绑定可选：把 Bot 拉进群并在群里发一条消息，该群同样会出现在列表中。',
@@ -67,6 +67,16 @@ export const zhHans: Record<string, string> = {
   'onboarding.listen.bound': '已绑定',
   'onboarding.listen.back': '返回',
   'onboarding.listen.finish': '完成',
+  'onboarding.step.agent': '第 4 步 · 准备 Agent',
+  'onboarding.agent.subtitle':
+    '助手由本机 agent 驱动回复。Susie 会检测已安装的 codex / claude CLI 并推荐对应 agent；安装由你手动触发，也可以稍后在「Agent」页进行。',
+  'onboarding.agent.cli.found': '检测到本机 {cli} CLI——推荐安装此 agent，安装后可复用其登录。',
+  'onboarding.agent.cli.missing': '未检测到本机 {cli} CLI。',
+  'onboarding.agent.recommended': '推荐',
+  'onboarding.agent.unavailable': '安装源暂不可用，可稍后在「Agent」页重试。',
+  'onboarding.agent.hint': '不安装 agent 也能完成引导，但助手将无法回复。',
+  'onboarding.agent.next': '下一步',
+  'onboarding.agent.skip': '跳过此步（之后可在「Agent」页安装）',
   'onboarding.done.title': '设置完成',
   'onboarding.done.desc':
     '现在可以在 Telegram 里给 Bot 发消息了。频道、用户与会话绑定可随时在「频道」「用户」和「助手」页调整。',
@@ -87,7 +97,6 @@ export const zhHans: Record<string, string> = {
 
   'page.agents.title': 'Agent',
   'agents.status.installed': '可用（v{version}，已安装）。',
-  'agents.status.dev': '可用（v{version}，开发环境 node_modules）。',
   'agents.status.path': '可用（{version}，来自 PATH）。',
   'agents.status.missing': '未安装。',
   'agents.acp.empty': 'registry 拉取失败或为空。检查网络后点「刷新」。',

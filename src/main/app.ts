@@ -14,6 +14,7 @@ import { TrayManager } from './tray-manager'
 import { UpdaterManager } from './updater-manager'
 import { withTimeout } from './util/async'
 import { mergeLoginShellPath } from './util/shell-path'
+import { installAppMenu } from './windows/app-menu'
 import { WindowManager } from './windows/window-manager'
 
 /**
@@ -135,6 +136,7 @@ export class App {
         }),
         serviceLogger,
       )
+      installAppMenu()
       this.updater.init()
       this.tray.create()
       watchConfigFile(this.configStore, serviceLogger)

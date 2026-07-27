@@ -17,6 +17,7 @@ import {
   type ConfigState,
 } from '../config'
 import type {
+  AgentCliDetection,
   AgentModelOption,
   AgentsOverview,
   AutoReviewRecord,
@@ -179,6 +180,8 @@ export const ipcContract = {
 
   agents: {
     overview: { req: z.void(), res: res<AgentsOverview>() },
+    /** 检测本机 PATH 上的 codex/claude CLI（onboarding「准备 Agent」步推荐用） */
+    detectCli: { req: z.void(), res: res<AgentCliDetection>() },
     /** 枚举指定 agent 的模型候选；agent 未安装或枚举失败返回 [] */
     models: { req: z.object({ agentId: z.string() }), res: res<AgentModelOption[]>() },
     install: { req: z.object({ id: z.string() }), res: res<ActionResult>() },

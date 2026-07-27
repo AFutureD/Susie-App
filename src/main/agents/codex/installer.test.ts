@@ -35,14 +35,6 @@ describe('CodexInstaller', () => {
     expect(installer.targetVersion()).toMatch(/^\d+\.\d+\.\d+/)
   })
 
-  it('resolves the dev vendor binary from node_modules', () => {
-    const installer = new CodexInstaller(tempDataDir())
-    const dev = installer.devVendor()
-    expect(dev).not.toBeNull()
-    expect(dev?.source).toBe('dev')
-    expect(existsSync(dev?.executablePath ?? '')).toBe(true)
-  })
-
   it('returns null for installed() when manifest is missing or stale', () => {
     const dataDir = tempDataDir()
     const installer = new CodexInstaller(dataDir)
@@ -57,7 +49,7 @@ describe('CodexInstaller', () => {
     expect(installer.installed()).toBeNull()
   })
 
-  it('prefers installed over dev vendor', () => {
+  it('prefers installed over PATH probe', () => {
     const dataDir = tempDataDir()
     mkdirSync(dataDir, { recursive: true })
     const fakeBin = path.join(dataDir, 'codex')

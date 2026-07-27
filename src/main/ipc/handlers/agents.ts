@@ -1,10 +1,12 @@
 import { errorMessage } from '../../../shared/errors'
+import { detectAgentClis } from '../../agents/cli-detect'
 import type { IpcHandlers } from '../router'
 import type { ServiceHandlerDeps } from './channels'
 
 export function agentsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['agents'] {
   return {
     overview: () => service.agents.overview(),
+    detectCli: () => detectAgentClis(),
     models: ({ agentId }) => service.agents.listModels(agentId),
 
     install: async ({ id }) => {

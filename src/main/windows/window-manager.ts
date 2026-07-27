@@ -25,15 +25,22 @@ export class WindowManager {
     }
   }
 
+  /**
+   * dock.hide() 把应用切成 Accessory 激活策略——Dock 图标和顶部菜单栏一并收走。
+   * 恢复时 dock.show() 必须在 win.show()/focus() 之前完成，否则 macOS 不把菜单栏
+   * 归还给本应用（窗口有焦点但顶栏无菜单）。
+   */
+  private async showWithDock(win: BrowserWindow): Promise<void> {
+    await app.dock?.show()
+    win.show()
+    win.focus()
+  }
+
   showMainWindow(options: { visible?: boolean } = {}): BrowserWindow {
     const { visible = true } = options
 
     if (this.win && !this.win.isDestroyed()) {
-      if (visible) {
-        this.win.show()
-        this.win.focus()
-        this.updateDockVisibility()
-      }
+      if (visible) void this.showWithDock(this.win)
       return this.win
     }
 
@@ -55,8 +62,7 @@ export class WindowManager {
 
     win.on('ready-to-show', () => {
       if (!visible) return
-      win.show()
-      this.updateDockVisibility()
+      void this.showWithDock(win)
     })
 
     win.on('close', (event) => {

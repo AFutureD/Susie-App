@@ -45,33 +45,41 @@ export class ConfigStore {
   private snapshot: Config
   private version = 1
   private lastError: string | null = null
+  /** 本次启动时 config.toml 不存在（整个进程生命周期内不变） */
+  private readonly firstRun: boolean
 
   private readonly pathListeners = new Map<string, Set<PathListener>>()
   private readonly stateListeners = new Set<(state: ConfigState) => void>()
   private readonly pendingSelfHashes = new Set<string>()
 
-  private constructor(configPath: string, snapshot: Config, lastError: string | null) {
+  private constructor(configPath: string, snapshot: Config, lastError: string | null, firstRun: boolean) {
     this.configPath = configPath
     this.snapshot = snapshot
     this.lastError = lastError
+    this.firstRun = firstRun
   }
 
-  /** 加载配置；文件缺失时写入默认配置。任何失败都退化为内存默认配置 + lastError，不抛异常。 */
+  /**
+   * 加载配置；文件缺失时写入默认配置（缺失事实在写入前采样为 firstRun，首启引导据此进入）。
+   * 任何失败都退化为内存默认配置 + lastError，不抛异常。
+   */
   static init(configPath: string): ConfigStore {
+    let firstRun = false
     try {
       if (!fs.existsSync(configPath)) {
+        firstRun = true
         fs.mkdirSync(path.dirname(configPath), { recursive: true })
         atomicWrite(configPath, serializeConfig(defaultConfig()))
       }
       const text = fs.readFileSync(configPath, 'utf-8')
       const result = parseConfigText(text)
       if (result.ok) {
-        return new ConfigStore(configPath, result.config, null)
+        return new ConfigStore(configPath, result.config, null, firstRun)
       }
-      return new ConfigStore(configPath, defaultConfig(), result.error)
+      return new ConfigStore(configPath, defaultConfig(), result.error, firstRun)
     } catch (error) {
       const message = `读取配置失败：${error instanceof Error ? error.message : String(error)}`
-      return new ConfigStore(configPath, defaultConfig(), message)
+      return new ConfigStore(configPath, defaultConfig(), message, firstRun)
     }
   }
 
@@ -89,6 +97,7 @@ export class ConfigStore {
       configPath: this.configPath,
       config: this.snapshot,
       lastError: this.lastError,
+      firstRun: this.firstRun,
     }
   }
 

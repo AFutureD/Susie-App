@@ -1,17 +1,18 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { configStateAtom } from '../../lib/config-atoms'
-import { ipc } from '../../lib/ipc'
-import { ONBOARDING_DONE_KEY, onboardingStepFor } from './model'
+import { shouldOnboard } from './model'
+import { AgentStep } from './agent-step'
 import { BindingStep } from './binding-step'
 import { ChannelStep, DoneStep, OwnerStep } from './steps'
 
-// 首启引导：三步（添加频道 → 绑定 owner → 会话绑定），把「频道页 + 用户管理 + 会话绑定面板」
-// 的最小路径串起来。config 仍是唯一事实源：向导所有写操作走既有 IPC，界面随 config:state 广播重派生。
-// 完成/跳过后写 localStorage 标记，之后不再出现。
+// 首启引导：四步（添加频道 → 绑定 owner → 会话绑定 → 准备 agent），把「频道页 + 用户管理 +
+// 会话绑定面板 + Agent 页」的最小路径串起来。进入只看 config.toml 是否存在（shouldOnboard），
+// 无 localStorage 标记；步骤推进全在向导内部。config 仍是唯一事实源：向导所有写操作走既有 IPC，
+// 界面随 config:state 广播重派生。「跳过引导」在前三步关闭整个向导；agent 步只跳过该步（进完成页）。
 
-type WizardStep = 'pending' | 'channel' | 'owner' | 'binding' | 'done' | 'closed'
+type WizardStep = 'pending' | 'channel' | 'owner' | 'binding' | 'agent' | 'done' | 'closed'
 
 export function OnboardingOverlay() {
   const intl = useIntl()
@@ -19,43 +20,12 @@ export function OnboardingOverlay() {
   const [step, setStep] = useState<WizardStep>('pending')
   const [channelId, setChannelId] = useState<string | null>(null)
   const [botUsername, setBotUsername] = useState<string | null>(null)
-  const [linkError, setLinkError] = useState<string | null>(null)
 
   // 首次拿到配置时决定是否进入向导；此后步骤只由向导内部推进
   useEffect(() => {
     if (step !== 'pending' || state === null) return
-    const done = localStorage.getItem(ONBOARDING_DONE_KEY) !== null
-    const next = onboardingStepFor(state, done)
-    if (next === null) {
-      // 配置已成形（如手写 config.toml）→ 补标记，避免以后清空绑定时误弹
-      if (!done && state.lastError === null) localStorage.setItem(ONBOARDING_DONE_KEY, '1')
-      setStep('closed')
-      return
-    }
-    if (next !== 'channel') setChannelId(Object.keys(state.config.channels)[0] ?? null)
-    setStep(next)
+    setStep(shouldOnboard(state) ? 'channel' : 'closed')
   }, [step, state])
-
-  // owner/绑定步需要 bot 深链；引导中途退出后恢复时，用已存 token 反查 username
-  useEffect(() => {
-    if ((step !== 'owner' && step !== 'binding') || botUsername !== null || channelId === null || state === null) return
-    const settings = state.config.channels[channelId]
-    if (settings === undefined) return
-    let alive = true
-    void ipc.channels.resolveUsername({ token: settings.token }).then((result) => {
-      if (!alive) return
-      if (result.ok) setBotUsername(result.username)
-      else setLinkError(result.message)
-    })
-    return () => {
-      alive = false
-    }
-  }, [step, botUsername, channelId, state])
-
-  const finish = useCallback((): void => {
-    localStorage.setItem(ONBOARDING_DONE_KEY, '1')
-    setStep('closed')
-  }, [])
 
   if (step === 'pending' || step === 'closed' || state === null) return null
 
@@ -88,7 +58,6 @@ export function OnboardingOverlay() {
               state={state}
               channelId={channelId}
               botUsername={botUsername}
-              linkError={linkError}
               onBound={() => setStep('binding')}
             />
           )}
@@ -97,21 +66,32 @@ export function OnboardingOverlay() {
               state={state}
               channelId={channelId}
               botUsername={botUsername}
-              linkError={linkError}
-              onFinish={() => setStep('done')}
+              onFinish={() => setStep('agent')}
             />
           )}
-          {effectiveStep === 'done' && <DoneStep onClose={finish} />}
+          {effectiveStep === 'agent' && <AgentStep onNext={() => setStep('done')} />}
+          {effectiveStep === 'done' && <DoneStep onClose={() => setStep('closed')} />}
 
           {effectiveStep !== 'done' && (
             <div className="mt-8">
-              <button
-                type="button"
-                onClick={finish}
-                className="text-xs text-ink-muted underline-offset-2 hover:underline"
-              >
-                {intl.formatMessage({ id: 'onboarding.skip' })}
-              </button>
+              {effectiveStep === 'agent' ? (
+                // agent 步是最后一步：这里只跳过本步（进完成页），不关闭整个向导
+                <button
+                  type="button"
+                  onClick={() => setStep('done')}
+                  className="text-xs text-ink-muted underline-offset-2 hover:underline"
+                >
+                  {intl.formatMessage({ id: 'onboarding.agent.skip' })}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setStep('closed')}
+                  className="text-xs text-ink-muted underline-offset-2 hover:underline"
+                >
+                  {intl.formatMessage({ id: 'onboarding.skip' })}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -119,5 +99,3 @@ export function OnboardingOverlay() {
     </div>
   )
 }
-
-// ---------- 第 1 步：添加频道（只填 token） ----------

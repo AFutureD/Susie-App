@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0 · 2026-07-27
+
+首启引导重做 + Agent 准备 + 菜单栏修复：
+
+- 引导新增第 4 步「准备 Agent」（会话绑定之后）：检测本机 codex / claude CLI，检测到即推荐对应 agent（内置 Codex / ACP registry 的 Claude Agent），可复用其登录；安装由用户手动点击触发（复用 Agent 页的安装与进度流），「跳过此步」只跳过本步不关闭向导。
+- 引导进入条件改为「启动时 config.toml 是否存在」（`ConfigState.firstRun`，缺失事实在写入默认文件前采样）：文件已存在（无论内容多不完整）或损坏（错误横幅负责）都不弹引导；localStorage 完成标记与按配置内容恢复步骤的逻辑一并移除。删除 config.toml 重启即可重新触发引导。
+- codex agent 不再从仓库 node_modules 的 vendor 二进制解析（解析顺序收敛为 已下载 → PATH），开发环境体验与正式版一致。
+- 修复 macOS 顶部菜单栏丢失：菜单栏常驻应用经 dock.hide()（Accessory）后重新打开窗口时，先 `dock.show()` 恢复激活策略再显示窗口；并显式设置应用菜单（App / Edit / Window，dev 附 View），保证 Cmd+C/V 等快捷键始终可用。
+
+杂项：
+
+- 新增 `agents.detectCli` IPC（PATH 扫描，不起子进程）；agent 安装进度条与事件订阅抽成共享件，Agent 页与引导共用。
+
 ## v0.4.0 · 2026-07-27
 
 新增「技能」模块：

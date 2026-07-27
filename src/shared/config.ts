@@ -242,6 +242,11 @@ export interface ConfigState {
   config: Config
   /** 最近一次加载失败的原因（此时 config 为 last-good），null 表示健康 */
   lastError: string | null
+  /**
+   * 本次启动时 config.toml 不存在（init 在采样后随即写入默认文件）。
+   * 首启引导据此进入——删除 config.toml 重启即可重新触发。
+   */
+  firstRun: boolean
 }
 
 export type ConfigMutationResult = { ok: true; state: ConfigState } | { ok: false; message: string; conflict: boolean }
