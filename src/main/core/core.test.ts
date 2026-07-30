@@ -184,7 +184,11 @@ function makeManager(
   return { manager, sent, errors, infos, approvalRequests, autoReviews, autoReviewCards, settledVerdicts }
 }
 
-function inbound(text: string, overrides: Partial<ChatMessage> = {}): InboundEnvelope {
+function inbound(
+  text: string,
+  overrides: Partial<ChatMessage> = {},
+  envelopeOverrides: Partial<InboundEnvelope> = {},
+): InboundEnvelope {
   return {
     message: {
       id: '10',
@@ -201,6 +205,7 @@ function inbound(text: string, overrides: Partial<ChatMessage> = {}): InboundEnv
     },
     chatName: null,
     mentioned: false,
+    ...envelopeOverrides,
   }
 }
 
@@ -692,6 +697,91 @@ describe('ChatManager do-not-disturb window', () => {
 
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toBe('ok')
+  })
+})
+
+describe('ChatManager turn anchor (Telegram 普通线程 fallback)', () => {
+  // 群会话需 @ 提及命中触发条件；default binding.only_mention=true
+  const groupInbound = (
+    text: string,
+    overrides: Partial<ChatMessage> = {},
+    envelopeOverrides: Partial<InboundEnvelope> = {},
+  ) => ({ ...inbound(text, { chatId: 'S:-1', id: '77', ...overrides }, envelopeOverrides), mentioned: true })
+
+  it('直接输出的 sendMessage 使用入站 anchor 作为 replyTo（agent turn 内自动带回复位）', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime), { sendOutput: true })
+
+    manager.handleInbound(groupInbound('hello', {}, { threadAnchorMessageId: '77' }))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(sent[0]?.replyTo).toBe('77')
+  })
+
+  it('turn 失败反馈也带 anchor（Error: xxx 回到普通线程）', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'failed' as const, parts: [], error: 'boom' }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(groupInbound('hello', {}, { threadAnchorMessageId: '77' }))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(partsToPlainText(sent[0]!.parts)).toContain('Error: boom')
+    expect(sent[0]?.replyTo).toBe('77')
+  })
+
+  it('MCP send_message 缺省时通过 currentTurnAnchor 命中入站 anchor', async () => {
+    let resolvedDuringTurn: string | null = 'not-yet'
+    let mgr: ChatManager
+    const runtime = stubRuntime({
+      async *prompt() {
+        // 模拟 agent 在 turn 内查询锚点：service.ts 的 mcpBridge.sendMessage 会走这个流程
+        resolvedDuringTurn = mgr.currentTurnAnchor('tg', 'S:-1')
+        yield { status: 'completed' as const, parts: [], error: null }
+      },
+    })
+    const { manager } = makeManager(() => Promise.resolve(runtime))
+    mgr = manager
+
+    manager.handleInbound(groupInbound('hello', {}, { threadAnchorMessageId: '77' }))
+
+    await vi.waitFor(() => expect(resolvedDuringTurn).toBe('77'))
+  })
+
+  it('turn 结束后 anchor 自动清理（避免 UI/定时任务误命中）', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'completed' as const, parts: [], error: null }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime))
+
+    manager.handleInbound(groupInbound('hello', {}, { threadAnchorMessageId: '77' }))
+
+    // turn 是 fire-and-forget，等 sendMessage 观察不到消息且 anchor 已清（consume 完成信号）
+    await vi.waitFor(() => expect(manager.currentTurnAnchor('tg', 'S:-1')).toBeNull())
+    expect(sent).toHaveLength(0)
+  })
+
+  it('无 threadAnchor 的入站：turn 输出不带 replyTo', async () => {
+    const runtime = stubRuntime({
+      async *prompt() {
+        yield { status: 'completed' as const, parts: [{ kind: 'text' as const, text: 'ok' }], error: null }
+      },
+    })
+    const { manager, sent } = makeManager(() => Promise.resolve(runtime), { sendOutput: true })
+
+    manager.handleInbound(inbound('hello'))
+
+    await vi.waitFor(() => expect(sent.length).toBe(1))
+    expect(sent[0]?.replyTo).toBeNull()
   })
 })
 

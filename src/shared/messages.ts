@@ -35,6 +35,12 @@ export interface InboundEnvelope {
   chatName: string | null
   /** 群内消息是否 @ 了 bot 或回复了 bot（准入判定在 ChatManager 按绑定进行） */
   mentioned: boolean
+  /**
+   * 回复锚点：入站消息带 thread 但 canonical chat_id 未保留第三段时，
+   * 该 turn 的默认回复使用 reply_parameters.message_id 指向此消息，
+   * 保留普通线程的回复体验。合法 Topic / 无 thread 时为 null。
+   */
+  threadAnchorMessageId?: string | null
 }
 
 export interface ChatInfo {

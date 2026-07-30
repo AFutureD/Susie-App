@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { useIntl } from 'react-intl'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useIntl, type IntlShape } from 'react-intl'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { MessagePart, StoredMessage } from '../../../shared/messages'
 import { Button, TextInput } from '../components/form'
 import { ipc, onIpcEvent } from '../lib/ipc'
 import { useChatsQuery } from '../lib/ipc-query'
+
+const REPLY_PREVIEW_MAX = 90
 
 function chatKey(channelId: string, chatId: string): string {
   return `${channelId}/${chatId}`
@@ -14,6 +16,26 @@ function chatKey(channelId: string, chatId: string): string {
 function formatTime(ts: number): string {
   const date = new Date(ts)
   return date.toLocaleString('zh-Hans-CN', { hour12: false })
+}
+
+/** 回复引用块的一行摘要（对位 Telegram：被回复消息的第一段可读内容） */
+function messagePreview(parts: MessagePart[], intl: IntlShape): string {
+  for (const part of parts) {
+    if (part.kind === 'text' && part.text.trim() !== '') {
+      const line = part.text.trim().split('\n')[0] ?? ''
+      return line.length > REPLY_PREVIEW_MAX ? `${line.slice(0, REPLY_PREVIEW_MAX)}…` : line
+    }
+    if (part.kind === 'quote' && part.title !== '') return part.title
+    if (part.kind === 'file') {
+      const name = part.path.split('/').at(-1) ?? intl.formatMessage({ id: 'history.reply.file' })
+      return `📎 ${name}`
+    }
+  }
+  return ''
+}
+
+function replyDomId(rowid: number): string {
+  return `history-msg-${rowid}`
 }
 
 function PartView({ part }: { part: MessagePart }) {
@@ -38,10 +60,50 @@ function PartView({ part }: { part: MessagePart }) {
   }
 }
 
-function MessageRow({ message }: { message: StoredMessage }) {
-  const mine = message.out
+/**
+ * 被回复消息的引用块（对位 Telegram：左侧竖条 + 发送者 + 摘要）。
+ * 目标不在当前视图（超出加载窗口）时降级为占位，避免误导为"没有回复"。
+ */
+function ReplyPreview({ target, replyToId }: { target: StoredMessage | null; replyToId: string }) {
+  const intl = useIntl()
+  const name =
+    target === null
+      ? intl.formatMessage({ id: 'history.reply.missing' })
+      : target.out
+        ? 'Susie'
+        : (target.sender ?? '?')
+  const preview =
+    target === null
+      ? intl.formatMessage({ id: 'history.reply.missingDetail' }, { id: replyToId })
+      : messagePreview(target.parts, intl)
+  const scrollTo = () => {
+    if (target === null) return
+    document.getElementById(replyDomId(target.rowid))?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   return (
-    <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+    <button
+      type="button"
+      onClick={scrollTo}
+      disabled={target === null}
+      className="mb-1.5 flex w-full flex-col gap-0.5 rounded-sm border-l-2 border-accent/60 bg-accent/5 py-0.5 pr-2 pl-2 text-left transition-colors hover:bg-accent/10 disabled:cursor-default disabled:opacity-70"
+    >
+      <span className="truncate text-[11px] font-medium text-accent">{name}</span>
+      <span className="line-clamp-2 text-xs break-words whitespace-pre-wrap text-ink-muted">{preview}</span>
+    </button>
+  )
+}
+
+function MessageRow({
+  message,
+  resolveReplyTarget,
+}: {
+  message: StoredMessage
+  resolveReplyTarget: (id: string) => StoredMessage | null
+}) {
+  const mine = message.out
+  const replyTarget = message.replyTo === null ? null : resolveReplyTarget(message.replyTo)
+  return (
+    <div id={replyDomId(message.rowid)} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
       <div
         className={`max-w-[78%] rounded-xl px-3.5 py-2.5 ${
           mine ? 'bg-accent/12 border border-accent/20' : 'border border-line bg-raised'
@@ -51,6 +113,7 @@ function MessageRow({ message }: { message: StoredMessage }) {
           <span className="font-medium">{mine ? 'Susie' : (message.sender ?? '?')}</span>
           <span>{formatTime(message.timestamp)}</span>
         </div>
+        {message.replyTo !== null && <ReplyPreview target={replyTarget} replyToId={message.replyTo} />}
         <div className="flex flex-col gap-1.5">
           {message.parts.map((part, index) => (
             <PartView key={index} part={part} />
@@ -75,6 +138,21 @@ export function HistoryPage() {
 
   const { data: chatsData } = useChatsQuery()
   const chats = chatsData ?? []
+
+  // 引用块的目标解析：当前视图内 (id → message) 的 lookup；超出加载窗口时降级为"未加载"占位
+  const messageById = useMemo(() => {
+    const map = new Map<string, StoredMessage>()
+    for (const message of messages) if (message.id !== null) map.set(message.id, message)
+    return map
+  }, [messages])
+  const searchById = useMemo(() => {
+    if (searchResults === null) return null
+    const map = new Map<string, StoredMessage>()
+    for (const message of searchResults) if (message.id !== null) map.set(message.id, message)
+    return map
+  }, [searchResults])
+  const resolveInMessages = (id: string) => messageById.get(id) ?? null
+  const resolveInSearch = (id: string) => searchById?.get(id) ?? null
 
   useEffect(() => {
     const off = onIpcEvent('history.message', (message) => {
@@ -171,7 +249,7 @@ export function HistoryPage() {
             </div>
             <div className="flex flex-col gap-2">
               {searchResults.map((message) => (
-                <MessageRow key={message.rowid} message={message} />
+                <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInSearch} />
               ))}
             </div>
           </div>
@@ -184,7 +262,7 @@ export function HistoryPage() {
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               <div className="flex flex-col gap-2.5">
                 {messages.map((message) => (
-                  <MessageRow key={message.rowid} message={message} />
+                  <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInMessages} />
                 ))}
                 <div ref={bottomRef} />
               </div>

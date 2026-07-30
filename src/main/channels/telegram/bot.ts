@@ -15,7 +15,8 @@ import type { ConfigRef } from '../../config/store'
 import type { CommandSpec } from '../../core/commands'
 import { withDeadline, withTimeout } from '../../util/async'
 import type { Logger } from '../../util/logger'
-import { decodeChatId, encodeChatId } from '../../../shared/chat-id'
+import { decodeChatId, encodeChatId, type DecodedChatId } from '../../../shared/chat-id'
+import { resolveTelegramChatId, signalsFromCallbackSource, signalsFromMessage } from './chat-id'
 import { renderMessageHtml, renderMessagePlain } from './render'
 import type { Channel, ChannelCallbackEvent, InlineButton } from '../types'
 
@@ -157,16 +158,17 @@ export class TelegramBotChannel implements Channel {
     bot.on('callback_query', (query) => {
       try {
         if (this.deps.settingsRef.current === undefined) return
-        // 卡片超过 48h 后回调里的 message 退化为 InaccessibleMessage（无 thread id 等字段）
+        // 卡片超过 48h 后回调里的 message 退化为 InaccessibleMessage（缺 is_topic_message / thread id）→
+        // resolver 一律回退基础会话；Forum Topic 内的旧按钮可能因此进入不同 Susie 会话。
         const source = query.message
-        const threadId =
-          source !== undefined && 'message_thread_id' in source ? (source.message_thread_id ?? null) : null
+        const signals = signalsFromCallbackSource(source)
+        const resolved = signals === null ? null : resolveTelegramChatId(signals)
         this.deps.onCallback({
           channelId: this.id,
           callbackQueryId: query.id,
           fromId: String(query.from.id),
           data: query.data ?? '',
-          chatId: source === undefined ? null : encodeChatId(source.chat.type, source.chat.id, threadId),
+          chatId: resolved === null || resolved.chatId === '' ? null : resolved.chatId,
           messageId: source === undefined ? null : String(source.message_id),
         })
       } catch (error) {
@@ -283,7 +285,10 @@ export class TelegramBotChannel implements Channel {
 
     const base: SendMessageForm = {}
     if (target.threadId !== null) base.message_thread_id = target.threadId
-    if (replyToId !== null) base.reply_parameters = { message_id: replyToId }
+    // reply_parameters 允许原消息删除时投递到基础会话（普通线程 fallback 也不会因原消息消失而失败）
+    if (replyToId !== null) {
+      base.reply_parameters = { message_id: replyToId, allow_sending_without_reply: true }
+    }
     if (options.buttons !== undefined && options.buttons.length > 0) {
       base.reply_markup = toInlineKeyboard(options.buttons)
     }
@@ -291,17 +296,19 @@ export class TelegramBotChannel implements Channel {
     let sentId: string | null = null
     const html = renderMessageHtml(message.parts)
     if (html !== '') {
+      let sent: Message
       try {
-        const sent = await bot.sendMessage(target.rawChatId, html, { ...base, parse_mode: 'HTML' })
-        sentId = String(sent.message_id)
+        sent = await bot.sendMessage(target.rawChatId, html, { ...base, parse_mode: 'HTML' })
       } catch (error) {
-        // HTML 实体问题降级为纯文本（base 已含 reply_markup，按钮不丢）
+        // 只对可判定的 HTML 实体/解析错误做纯文本重试；Topic、权限、未知错误一律直接失败
+        if (!isHtmlEntityError(error)) throw error
         this.deps.log.info(
           `channel ${this.id}: HTML 渲染被 Telegram 拒绝，降级纯文本重发：${error instanceof Error ? error.message : String(error)}`,
         )
-        const sent = await bot.sendMessage(target.rawChatId, renderMessagePlain(message.parts), base)
-        sentId = String(sent.message_id)
+        sent = await bot.sendMessage(target.rawChatId, renderMessagePlain(message.parts), base)
       }
+      this.verifyOutboundThread(target, sent)
+      sentId = String(sent.message_id)
     }
 
     for (const part of message.parts) {
@@ -311,10 +318,31 @@ export class TelegramBotChannel implements Channel {
       if (target.threadId !== null) form.message_thread_id = target.threadId
       // oxlint-disable-next-line no-await-in-loop -- 附件按序发送，保持消息顺序
       const sent = await bot.sendDocument(target.rawChatId, part.path, form)
+      this.verifyOutboundThread(target, sent)
       sentId = sentId ?? String(sent.message_id)
     }
 
     return { ...message, id: sentId, timestamp: Date.now() }
+  }
+
+  /**
+   * Topic 出站回执校验：
+   * - supergroup + 目标 threadId：sent.message_thread_id 明确不匹配（含缺失）一律抛错，绝不静默降级；
+   * - 私聊：Bot API 9.3 起可能带 direct_messages_topic 语义，回执字段形状待冒烟确认——只告警，不失败。
+   */
+  private verifyOutboundThread(target: DecodedChatId, sent: Message): void {
+    if (target.threadId === null) return
+    const gotThread = sent.message_thread_id ?? null
+    if (gotThread === target.threadId) return
+    if (target.chatType === 'private') {
+      this.deps.log.info(
+        `channel ${this.id}: 私聊 Topic 出站回执 thread 缺失（期望 ${target.threadId}，收到 ${gotThread === null ? 'null' : gotThread}）——暂告警，待真实冒烟确认`,
+      )
+      return
+    }
+    throw new Error(
+      `Topic 出站失败：期望 message_thread_id=${target.threadId}，收到 ${gotThread === null ? 'null' : gotThread}`,
+    )
   }
 
   /** 应答 inline 按钮点击（Telegram 要求必须应答，否则点按者客户端转圈 ~30s）；失败仅留日志 */
@@ -388,20 +416,24 @@ export class TelegramBotChannel implements Channel {
       return
     }
 
-    const chatId = encodeChatId(message.chat.type, message.chat.id, message.message_thread_id ?? null)
-    if (chatId === '') {
+    const signals = signalsFromMessage(message)
+    const resolved = resolveTelegramChatId(signals)
+    if (resolved.chatId === '') {
       this.deps.log.info(
         `channel ${this.id}: 不支持的 chat 类型 "${message.chat.type}"（chat=${message.chat.id}），消息忽略`,
       )
       return
     }
+    // 普通线程（有 thread 但 canonical 未保留第三段）→ 记录锚点，后续回复走 reply_parameters 保回复位
+    const threadAnchorMessageId = signals.threadId !== null && !resolved.isTopic ? String(message.message_id) : null
 
-    void this.buildChatMessage(message, chatId)
+    void this.buildChatMessage(message, resolved.chatId)
       .then((chatMessage) => {
         this.deps.onMessage({
           message: chatMessage,
           chatName: chatTitle(message.chat),
           mentioned: this.isMentioned(message),
+          threadAnchorMessageId,
         })
       })
       .catch((error: unknown) => {
@@ -498,6 +530,20 @@ export class TelegramBotChannel implements Channel {
 function describeTelegramError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/**
+ * HTML → 纯文本重试白名单。仅 Telegram 明确报告的实体/解析错误才降级重试；
+ * Topic 权限（TOPIC_CLOSED / MESSAGE_THREAD_INVALID）、发送权限（Forbidden / ChatWriteForbidden）
+ * 及未知错误一律直接失败——绝不静默去掉 message_thread_id 重发。
+ */
+export function isHtmlEntityError(error: unknown): boolean {
+  const text = (error instanceof Error ? error.message : String(error)).toLowerCase()
+  return (
+    text.includes("can't parse entities") ||
+    text.includes('unsupported start tag') ||
+    text.includes("can't find end tag")
+  )
 }
 
 /** 系统 ffmpeg 存在时把 OGG/Opus 转 wav（不捆绑 ffmpeg，保持包体轻） */

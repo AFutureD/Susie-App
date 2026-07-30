@@ -164,12 +164,13 @@ export class SusieService {
     }
 
     this.mcp.setBridge({
-      sendMessage: async ({ channelId, chatId, content, files }) => {
+      sendMessage: async ({ channelId, chatId, content, files, replyTo }) => {
         const parts: MessagePart[] = []
         if (content !== '') parts.push({ kind: 'text', text: content })
         for (const file of files) parts.push({ kind: 'file', path: file })
+        // MCP 走的路径必须能落到 turn 锚点上（普通线程 fallback 保回复位）；replyTo 语义在 chatManager 处理
         // 失败会被 SusieMcpServer 的 tool 层统一记 error 日志并回给 agent
-        return this.chatManager.sendMessage({ channelId, chatId, parts })
+        return this.chatManager.sendMessage({ channelId, chatId, parts, replyTo, useTurnAnchor: true })
       },
       listMessages: ({ channelId, chatId, num, dateStart, dateEnd }) =>
         this.messages.listMessages(channelId, chatId, { limit: num, dateStart, dateEnd }),

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { decodeChatId, encodeChatId } from '../../../shared/chat-id'
-import { toBotCommands, toInlineKeyboard } from './bot'
+import { isHtmlEntityError, toBotCommands, toInlineKeyboard } from './bot'
 import { markdownToTelegramHtml } from './markdown'
 import { escapeHtml, renderMessageHtml, renderMessagePlain } from './render'
 
@@ -97,6 +97,35 @@ describe('outbound rendering', () => {
       { kind: 'quote', title: 't', body: 'b' },
     ])
     expect(plain).toBe('a\n\n[t]\nb')
+  })
+})
+
+describe('isHtmlEntityError (HTML → 纯文本重试白名单)', () => {
+  // 白名单：Telegram 明确的 entity/parser 错误才允许降级为纯文本
+  it.each([
+    "Bad Request: can't parse entities: Unexpected end tag",
+    'Bad Request: unsupported start tag "foo"',
+    'Bad Request: can\'t find end tag corresponding to start tag "b"',
+    "CAN'T PARSE ENTITIES", // 大小写不敏感
+  ])('降级重试：%s', (message) => {
+    expect(isHtmlEntityError(new Error(message))).toBe(true)
+  })
+
+  // 黑名单：Topic、权限、未知错误一律直接失败（绝不静默降级）
+  it.each([
+    'Bad Request: message thread not found',
+    'Bad Request: TOPIC_CLOSED',
+    'Forbidden: bot was blocked by the user',
+    'Bad Request: chat write forbidden',
+    'ECONNRESET',
+  ])('直接失败：%s', (message) => {
+    expect(isHtmlEntityError(new Error(message))).toBe(false)
+  })
+
+  it('non-Error 值也能安全归为不降级', () => {
+    expect(isHtmlEntityError('some string')).toBe(false)
+    expect(isHtmlEntityError(undefined)).toBe(false)
+    expect(isHtmlEntityError({ message: "can't parse entities" })).toBe(false)
   })
 })
 

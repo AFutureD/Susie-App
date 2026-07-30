@@ -3,7 +3,27 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { StoredMessage } from '../../shared/messages'
 import { resolveDateRange } from './dates'
-import { SusieMcpServer, type McpBridge } from './server'
+import { parseReplyTo, SusieMcpServer, type McpBridge } from './server'
+
+describe('parseReplyTo (send_message.reply_to 三态)', () => {
+  it('缺省 → undefined（走 turn 锚点）', () => {
+    expect(parseReplyTo(undefined)).toBeUndefined()
+  })
+  it('显式 null → null（跳出锚点）', () => {
+    expect(parseReplyTo(null)).toBeNull()
+  })
+  it('正整数（number 或数字字符串）→ 字符串覆盖', () => {
+    expect(parseReplyTo(42)).toBe('42')
+    expect(parseReplyTo('42')).toBe('42')
+  })
+  it('非正整数 / 非数字字符串 → undefined 兜底', () => {
+    expect(parseReplyTo(0)).toBeUndefined()
+    expect(parseReplyTo(-1)).toBeUndefined()
+    expect(parseReplyTo(1.5)).toBeUndefined()
+    expect(parseReplyTo('abc')).toBeUndefined()
+    expect(parseReplyTo(false)).toBeUndefined()
+  })
+})
 
 describe('resolveDateRange', () => {
   const now = new Date('2026-07-22T15:00:00')

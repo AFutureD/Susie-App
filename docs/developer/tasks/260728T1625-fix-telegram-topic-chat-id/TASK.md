@@ -2,7 +2,7 @@
 
 * Task: 260728T1625-fix-telegram-topic-chat-id
 * Author: [Huanan](https://github.com/AFutureD)
-* Status: DRAFT
+* Status: DONE
 * Type: BUG
 * Related: [260722T1917-migrate-macos-desktop-app](../260722T1917-migrate-macos-desktop-app)
 

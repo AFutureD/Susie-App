@@ -70,6 +70,16 @@ export interface ChatManagerDeps {
   log: Logger
 }
 
+/**
+ * 当前 turn 的默认回复锚点（Telegram 普通线程 fallback）。generation 令牌用于
+ * 区分并发 process/consume：只有创建它的 turn 才能清除自己的条目，防止后到的
+ * turn 覆盖后被前一个 consume 的 finally 误删。
+ */
+interface TurnAnchor {
+  gen: number
+  messageId: string | null
+}
+
 export class ChatManager {
   private readonly deps: ChatManagerDeps
   private readonly chats = new Map<string, ChatEntry>()
@@ -77,6 +87,8 @@ export class ChatManager {
   private readonly globalRegistry = new CommandRegistry()
   private readonly unsubs: Unsubscribe[] = []
   private readonly gate: PermissionGate
+  private readonly activeTurnAnchors = new Map<string, TurnAnchor>()
+  private turnAnchorGen = 0
 
   constructor(deps: ChatManagerDeps) {
     this.deps = deps
@@ -174,23 +186,33 @@ export class ChatManager {
     return true
   }
 
-  /** UI composer / MCP send_message 出站入口 */
+  /**
+   * UI composer / MCP send_message 出站入口。
+   * replyTo 语义：
+   * - undefined + useTurnAnchor=true → 用当前 turn 的锚点（若无则 null）
+   * - null → 显式跳出锚点（普通线程 fallback 用作 opt-out）
+   * - 字符串 → 显式覆盖
+   * UI / 定时任务不设 useTurnAnchor，行为不变。
+   */
   async sendMessage(input: {
     channelId: string
     chatId: string
     parts: MessagePart[]
     receiver?: string | null
     replyTo?: string | null
+    useTurnAnchor?: boolean
   }): Promise<StoredMessage> {
     const channel = this.deps.getChannel(input.channelId)
     if (channel === undefined) throw new Error(`通道未运行：${input.channelId}`)
+
+    const replyTo = this.resolveReplyTo(input.channelId, input.chatId, input.replyTo, input.useTurnAnchor === true)
 
     const message: ChatMessage = {
       id: null,
       channelId: input.channelId,
       chatId: input.chatId,
       receiver: input.receiver ?? null,
-      replyTo: input.replyTo ?? null,
+      replyTo,
       out: true,
       sender: 'susie',
       senderId: null,
@@ -201,6 +223,22 @@ export class ChatManager {
     const stored = this.deps.messages.record(sent)
     this.deps.onHistoryMessage(stored)
     return stored
+  }
+
+  /** 当前 turn 的默认回复锚点（普通线程 fallback）；MCP bridge 用它把 undefined 归零到具体值 */
+  currentTurnAnchor(channelId: string, chatId: string): string | null {
+    return this.activeTurnAnchors.get(chatKey(channelId, chatId))?.messageId ?? null
+  }
+
+  private resolveReplyTo(
+    channelId: string,
+    chatId: string,
+    explicit: string | null | undefined,
+    useTurnAnchor: boolean,
+  ): string | null {
+    if (explicit !== undefined) return explicit
+    if (!useTurnAnchor) return null
+    return this.currentTurnAnchor(channelId, chatId)
   }
 
   onChannelRemoved(channelId: string): void {
@@ -229,18 +267,37 @@ export class ChatManager {
    * 入站处理管线（每会话串行队列内执行）：
    * ① 路由 → ② 命令解析 → ③ 身份门 → ④ 会话确保 → ⑤ 免打扰窗 → ⑥ 命令分发 → ⑦ agent turn。
    * 不是通用 middleware 框架——命名阶段方法 + 线性 driver 就是终态。
+   * process 生命周期覆盖回复锚点：全部早退分支都会清；进入 turn 时把清理权移交给 consume。
    */
   private async process(envelope: InboundEnvelope, opts: { preapproved?: boolean } = {}): Promise<void> {
     const ctx = this.createContext(envelope, opts)
-    if (!this.resolveRoute(ctx)) return
-    this.parseCommand(ctx)
-    ctx.gate = ctx.preapproved ? { kind: 'pass' } : await this.gate.evaluate(ctx)
-    if (ctx.gate.kind === 'handled') return
-    const entry = await this.ensureChatOrReply(ctx)
-    if (entry === null) return
-    if (this.inDoNotDisturbWindow(ctx, entry)) return
-    if (await this.dispatchCommand(ctx, entry)) return
-    this.runAssistantTurn(entry, ctx.message)
+    const anchorGen = this.setTurnAnchor(ctx.key, envelope.threadAnchorMessageId ?? null)
+    let handedOffToTurn = false
+    try {
+      if (!this.resolveRoute(ctx)) return
+      this.parseCommand(ctx)
+      ctx.gate = ctx.preapproved ? { kind: 'pass' } : await this.gate.evaluate(ctx)
+      if (ctx.gate.kind === 'handled') return
+      const entry = await this.ensureChatOrReply(ctx)
+      if (entry === null) return
+      if (this.inDoNotDisturbWindow(ctx, entry)) return
+      if (await this.dispatchCommand(ctx, entry)) return
+      handedOffToTurn = true
+      this.runAssistantTurn(entry, ctx.message, anchorGen)
+    } finally {
+      if (!handedOffToTurn) this.clearTurnAnchor(ctx.key, anchorGen)
+    }
+  }
+
+  private setTurnAnchor(key: string, messageId: string | null): number {
+    const gen = ++this.turnAnchorGen
+    this.activeTurnAnchors.set(key, { gen, messageId })
+    return gen
+  }
+
+  private clearTurnAnchor(key: string, gen: number): void {
+    const current = this.activeTurnAnchors.get(key)
+    if (current !== undefined && current.gen === gen) this.activeTurnAnchors.delete(key)
   }
 
   private createContext(envelope: InboundEnvelope, opts: { preapproved?: boolean }): InboundContext {
@@ -317,7 +374,7 @@ export class ChatManager {
     return entry.registry.execute(commandCtx, ctx.command.name, ctx.command.args)
   }
 
-  private runAssistantTurn(entry: ChatEntry, message: ChatMessage): void {
+  private runAssistantTurn(entry: ChatEntry, message: ChatMessage, anchorGen: number): void {
     const promptText = partsToPromptText(message.parts)
     if (promptText === '') {
       this.deps.log.info(`chat ${entry.key} 消息无可用内容（文本/附件均为空），跳过 agent`)
@@ -374,6 +431,7 @@ export class ChatManager {
             chatId: message.chatId,
             parts,
             receiver: forwardTo !== undefined && forwardTo !== '' ? forwardTo : null,
+            useTurnAnchor: true,
           })
         }
       } catch (error) {
@@ -382,6 +440,7 @@ export class ChatManager {
         await this.replyText(message, `Error: ${detail}`)
       } finally {
         stopTyping()
+        this.clearTurnAnchor(entry.key, anchorGen)
       }
     }
     void consume()
@@ -439,6 +498,7 @@ export class ChatManager {
         channelId: source.channelId,
         chatId: source.chatId,
         parts: [{ kind: 'text', text }],
+        useTurnAnchor: true,
       })
     } catch (error) {
       this.deps.log.error(

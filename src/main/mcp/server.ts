@@ -8,7 +8,19 @@ import { resolveDateRange } from './dates'
 
 /** ChatManager/HistoryStore 的窄接口（便于测试注入假实现） */
 export interface McpBridge {
-  sendMessage(input: { channelId: string; chatId: string; content: string; files: string[] }): Promise<StoredMessage>
+  sendMessage(input: {
+    channelId: string
+    chatId: string
+    content: string
+    files: string[]
+    /**
+     * reply_to 语义（agent 侧覆盖当前 turn 的默认锚点）：
+     * - undefined = 使用 turn 锚点（普通线程 fallback 时保回复位；其他场景 = null）
+     * - null = 显式跳出普通线程（发送到基础会话，不 reply）
+     * - 字符串（纯数字）= 显式覆盖到指定 message id
+     */
+    replyTo?: string | null
+  }): Promise<StoredMessage>
   listMessages(input: {
     channelId: string
     chatId: string
@@ -24,7 +36,7 @@ const TOOLS = [
   {
     name: 'send_message',
     description:
-      'Send a message to a chat by channel_id and chat_id. `file` is an optional local file path (string) or list of paths.',
+      'Send a message to a chat by channel_id and chat_id. `file` is an optional local file path (string) or list of paths. `reply_to` overrides the default reply anchor: omit to reuse the current turn anchor (used when the inbound thread was folded into the base chat), pass a numeric message id to explicitly reply, or pass null to break out of the reply thread.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -34,6 +46,11 @@ const TOOLS = [
         file: {
           anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
           description: 'Optional local file path(s) to attach.',
+        },
+        reply_to: {
+          anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'null' }],
+          description:
+            'Optional. Omit to use the turn anchor; pass a numeric message id to override; pass null to skip the anchor entirely.',
         },
       },
       required: ['channel_id', 'chat_id', 'content'],
@@ -72,6 +89,21 @@ const TOOLS = [
 function asString(value: unknown, field: string): string {
   if (typeof value !== 'string' || value === '') throw new Error(`invalid ${field}`)
   return value
+}
+
+/**
+ * 解析 send_message 的 reply_to 输入为 McpBridge 三态：
+ * - 参数缺省（属性未出现） → undefined（走 turn 锚点）
+ * - 显式 null → null（跳出锚点）
+ * - 正整数或纯数字字符串 → string（显式覆盖）
+ * - 其他类型（false/负数/非数字字符串等） → undefined 兜底（不覆盖锚点）
+ */
+export function parseReplyTo(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined
+  if (value === null) return null
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) return String(value)
+  if (typeof value === 'string' && /^\d+$/.test(value)) return value
+  return undefined
 }
 
 /**
@@ -158,6 +190,7 @@ export class SusieMcpServer {
               chatId: asString(args['chat_id'], 'chat_id'),
               content: typeof args['content'] === 'string' ? args['content'] : '',
               files,
+              replyTo: parseReplyTo(args['reply_to']),
             })
             return toolResult(sent)
           }

@@ -38,6 +38,9 @@ Message ID: {{message_id}}
 {% if reply_to %}Reply message ID: {{reply_to}}
 {% endif %}</CONTEXT>
 
+REPLY ANCHOR:
+When you call \`send_message\`, omit \`reply_to\` to use the current turn's default anchor (this keeps普通线程 replies inline). Pass a numeric message id to explicitly override, or \`null\` to send to the base chat without threading.
+
 User Content:
 {{content}}`
 

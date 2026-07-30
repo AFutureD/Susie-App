@@ -249,6 +249,9 @@ export const zhHans: Record<string, string> = {
   'history.search.results': '{count} 条结果',
   'history.composer.placeholder': '以 bot 身份发送消息…',
   'history.composer.send': '发送',
+  'history.reply.file': '附件',
+  'history.reply.missing': '被回复消息未加载',
+  'history.reply.missingDetail': '（消息 ID: {id}）',
 
   'page.logs.title': '日志',
   'logs.follow': '自动刷新',
