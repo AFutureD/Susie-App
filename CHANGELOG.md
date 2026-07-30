@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.5.1 · 2026-07-30
+
+- 定时任务单次执行超时从 10 分钟放宽到 1 小时。
+- Telegram channel 贴文入历史列表；bot 不参与 channel 会话循环（避免自答）。
+- 修正 Telegram Topic 会话的 chat_id 判定。
+
 ## v0.5.0 · 2026-07-27
 
 首启引导重做 + Agent 准备 + 菜单栏修复：
