@@ -25,7 +25,7 @@ import type { TaskRunRepo } from './task-run-repo'
 /** 建会话超时 */
 const SESSION_DEADLINE_MS = 60_000
 /** 单次任务执行（agent turn）超时 */
-const RUN_DEADLINE_MS = 600_000
+const RUN_DEADLINE_MS = 3_600_000
 /** 停机时等待在跑任务收尾的预算 */
 const STOP_BUDGET_MS = 2_000
 
