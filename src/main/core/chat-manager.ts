@@ -152,6 +152,10 @@ export class ChatManager {
 
     const key = chatKey(message.channelId, message.chatId)
 
+    // broadcast channel（C:*）：只做历史归档，不做绑定/命令/权限/回复。
+    // 定位：channel 是"消息来源"而非"对话对象"——bot 不参与 channel 的会话循环。
+    if (decodeChatId(message.chatId)?.chatType === 'channel') return
+
     if (message.out) {
       // 自己亲自回复了：闭嘴两分钟并取消进行中的 turn
       const entry = this.chats.get(key)

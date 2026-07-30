@@ -153,6 +153,19 @@ export class TelegramBotChannel implements Channel {
       }
     })
 
+    // broadcast channel 的贴文走独立事件（library 层与 'message' 互斥分发）。
+    // 只把 channel 消息喂进历史与 UI，不参与命令响应/绑定/权限——由 ChatManager 侧短路
+    // （chatType==='channel' 只 record + 广播）。
+    bot.on('channel_post', (message) => {
+      try {
+        this.handleInbound(message)
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error)
+        this.deps.log.error(`channel ${this.id}: 频道贴文处理异常，消息被丢弃：${detail}`)
+        this.setStatus('running', `频道贴文处理异常：${detail}`)
+      }
+    })
+
     // inline 按钮点击（审核卡片等）。注意：drop_pending_updates 开启时，
     // 应用离线期间的点击会随积压更新一并丢弃——卡片按钮仍在，点按者重按即可。
     bot.on('callback_query', (query) => {
@@ -162,6 +175,11 @@ export class TelegramBotChannel implements Channel {
         // resolver 一律回退基础会话；Forum Topic 内的旧按钮可能因此进入不同 Susie 会话。
         const source = query.message
         const signals = signalsFromCallbackSource(source)
+        // channel 里的按钮点击不参与 bot 会话循环（审核卡片只发到私聊/群，channel 场景本无来源）
+        if (signals?.chatType === 'channel') {
+          this.deps.log.info(`channel ${this.id}: 忽略 channel 内的按钮回调（chat=${signals.rawChatId}）`)
+          return
+        }
         const resolved = signals === null ? null : resolveTelegramChatId(signals)
         this.deps.onCallback({
           channelId: this.id,
@@ -409,9 +427,12 @@ export class TelegramBotChannel implements Channel {
       return
     }
 
-    // 硬性规则：bot / 匿名发送者不触发（准入策略本身由 ChatManager 按会话绑定判定）
+    // 硬性规则：bot / 匿名发送者不触发（准入策略本身由 ChatManager 按会话绑定判定）。
+    // broadcast channel 的贴文 message.from 天然 undefined（只有 sender_chat），
+    // 这类消息仍应进历史；ChatManager 会按 chatType 短路，绝不进入命令/绑定/权限流。
     const from = message.from
-    if (from === undefined || from.is_bot) {
+    const isChannelPost = message.chat.type === 'channel'
+    if (!isChannelPost && (from === undefined || from.is_bot)) {
       this.deps.log.info(`channel ${this.id}: 忽略 bot/匿名发送者的消息（chat=${message.chat.id}）`)
       return
     }
@@ -475,6 +496,8 @@ export class TelegramBotChannel implements Channel {
       if (filePath !== null) parts.push({ kind: 'file', path: filePath })
     }
 
+    // channel 贴文没有 message.from，用 sender_chat / chat.title 兜底展示；senderId 保持 null
+    // （历史/权限侧靠 senderId 是否为 user id 做判定）。
     return {
       id: String(message.message_id),
       channelId: this.id,
@@ -482,7 +505,7 @@ export class TelegramBotChannel implements Channel {
       receiver: null,
       replyTo: message.reply_to_message === undefined ? null : String(message.reply_to_message.message_id),
       out: this.meId !== null && message.from?.id === this.meId,
-      sender: displayName(message.from),
+      sender: displayName(message.from) ?? chatTitle(message.sender_chat ?? message.chat),
       senderId: message.from === undefined ? null : String(message.from.id),
       timestamp: message.date * 1000,
       parts,

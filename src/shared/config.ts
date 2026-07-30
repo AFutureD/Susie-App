@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { decodeChatId } from './chat-id'
 import { parseCron } from './schedule'
 
 // 配置领域模型（对位 Python 版 susie.settings / susie_core）。
@@ -105,8 +106,12 @@ export const autoReviewSchema = z.strictObject({
  */
 export const bindingSchema = z.strictObject({
   channel: z.string().min(1),
-  /** 缺省 '*' = 该通道默认（手写 TOML 的省写） */
-  chat_id: z.string().min(1).default(CHAT_ALL),
+  /** 缺省 '*' = 该通道默认（手写 TOML 的省写）；channel（C:*）不允许作为绑定目标——bot 不参与 channel 的会话循环 */
+  chat_id: z
+    .string()
+    .min(1)
+    .default(CHAT_ALL)
+    .refine((value) => decodeChatId(value)?.chatType !== 'channel', 'channel 不能作为绑定目标'),
   assistant_id: z.string().min(1),
   /** 群会话生效：仅响应 @ 提及 */
   only_mention: z.boolean().default(true),

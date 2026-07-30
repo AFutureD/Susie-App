@@ -123,8 +123,12 @@ function makeManager(
     scheduled_tasks: [],
   }
   const store = { current: config, subscribePath: () => () => {} } as unknown as ConfigStore
+  const recorded: ChatMessage[] = []
   const messages = {
-    record: (message: ChatMessage) => ({ ...message, rowid: 1 }) as StoredMessage,
+    record: (message: ChatMessage) => {
+      recorded.push(message)
+      return { ...message, rowid: recorded.length } as StoredMessage
+    },
   } as unknown as MessageRepo
 
   const sent: ChatMessage[] = []
@@ -181,7 +185,7 @@ function makeManager(
     },
     log: { info: (message) => infos.push(message), error: (message) => errors.push(message) },
   })
-  return { manager, sent, errors, infos, approvalRequests, autoReviews, autoReviewCards, settledVerdicts }
+  return { manager, sent, errors, infos, approvalRequests, autoReviews, autoReviewCards, settledVerdicts, recorded }
 }
 
 function inbound(
@@ -825,5 +829,37 @@ describe('ChatManager failure feedback', () => {
     await vi.waitFor(() => expect(sent.length).toBe(1))
     expect(partsToPlainText(sent[0]!.parts)).toContain('agent process died')
     expect(errors.some((line) => line.includes('处理异常') && line.includes('agent process died'))).toBe(true)
+  })
+})
+
+describe('ChatManager channel short-circuit', () => {
+  // broadcast channel（C:*）只做历史归档：进 record + onHistoryMessage，不建 runtime、不发消息、不请求审核
+  it('records channel_post to history but skips runtime/reply/approval pipeline', async () => {
+    let runtimeCreated = 0
+    const { manager, sent, recorded, approvalRequests, autoReviews } = makeManager(
+      () => {
+        runtimeCreated += 1
+        return Promise.resolve(stubRuntime({}))
+      },
+    )
+
+    manager.handleInbound(
+      inbound('channel post text', {
+        chatId: 'C:-1004399427787',
+        senderId: null,
+        sender: 'Some Channel',
+      }),
+    )
+
+    // 直落库
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]!.chatId).toBe('C:-1004399427787')
+
+    // 短路：无 runtime、无出站、无审核请求
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(runtimeCreated).toBe(0)
+    expect(sent).toHaveLength(0)
+    expect(approvalRequests).toHaveLength(0)
+    expect(autoReviews).toHaveLength(0)
   })
 })

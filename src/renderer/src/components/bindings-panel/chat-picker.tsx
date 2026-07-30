@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
+import { decodeChatId } from '../../../../shared/chat-id'
 import { CHAT_ALL } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { Button, Field, TextInput } from '../form'
@@ -10,21 +11,32 @@ export function ChatPickerModal({
   channelId,
   chats,
   existingChatIds,
+  excludeChatTypes,
   onPick,
   onClose,
 }: {
   channelId: string
   chats: ChatInfo[]
   existingChatIds: Set<string>
+  /** 屏蔽的 chat 类型（如 bindings 侧屏蔽 'channel'；定时任务不设，允许全部类型） */
+  excludeChatTypes?: readonly string[]
   onPick: (chatId: string, name: string | null) => void
   onClose: () => void
 }) {
   const intl = useIntl()
   const [manual, setManual] = useState('')
 
-  const candidates = chats.filter((chat) => chat.channelId === channelId && !existingChatIds.has(chat.chatId))
+  const isExcluded = (chatId: string): boolean => {
+    if (excludeChatTypes === undefined || excludeChatTypes.length === 0) return false
+    const kind = decodeChatId(chatId)?.chatType
+    return kind !== undefined && excludeChatTypes.includes(kind)
+  }
+  const candidates = chats.filter(
+    (chat) => chat.channelId === channelId && !existingChatIds.has(chat.chatId) && !isExcluded(chat.chatId),
+  )
   // '*' 是数据层保留字（通道默认由「默认」行表达），空白会破坏 chat key 编码
-  const manualValid = /^\S+$/.test(manual) && manual !== CHAT_ALL && !existingChatIds.has(manual)
+  const manualValid =
+    /^\S+$/.test(manual) && manual !== CHAT_ALL && !existingChatIds.has(manual) && !isExcluded(manual)
 
   return (
     <Modal

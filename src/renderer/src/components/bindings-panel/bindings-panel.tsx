@@ -77,6 +77,8 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
           existingChatIds={
             new Set(tree.find((entry) => entry.channelId === panel.pickerChannel)?.rows.map((row) => row.chatId) ?? [])
           }
+          // 频道（C:*）不允许作为绑定目标——bot 不参与 channel 会话循环，schema 层也会二次拒绝
+          excludeChatTypes={['channel']}
           onPick={(chatId, name) => panel.addChat(panel.pickerChannel ?? '', chatId, name)}
           onClose={() => panel.setPickerChannel(null)}
         />
