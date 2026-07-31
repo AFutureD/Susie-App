@@ -1,4 +1,5 @@
-import type { ConfigState } from '../../../../shared/config'
+import { DEFAULT_ASSISTANT_ID, type AssistantConfig, type ConfigState } from '../../../../shared/config'
+import type { AgentInfo } from '../../../../shared/messages'
 
 // 首启引导的判定逻辑（纯函数，便于单测）。UI 见 onboarding.tsx。
 
@@ -9,4 +10,23 @@ import type { ConfigState } from '../../../../shared/config'
  */
 export function shouldOnboard(state: Pick<ConfigState, 'firstRun' | 'lastError'>): boolean {
   return state.firstRun && state.lastError === null
+}
+
+/**
+ * agent 步收尾时校正 default 助手的 agent 指向：schema 默认 agent_id 是 codex，
+ * 但用户在向导里可能只准备了其他 agent（如 claude-acp）——指向不可用且存在可用
+ * 候选时返回改写后的 assistant（调用方负责 upsert），否则 null 表示无需改动。
+ * 候选口径与 assistants 页一致：source 非空，且支持 http MCP（mcpHttp === false 排除，
+ * null 视为未知保守放行）。
+ */
+export function reconcileDefaultAssistant(
+  assistants: readonly AssistantConfig[],
+  overview: readonly AgentInfo[],
+): AssistantConfig | null {
+  const assistant = assistants.find((item) => item.id === DEFAULT_ASSISTANT_ID) ?? assistants[0]
+  if (assistant === undefined) return null
+  if (overview.some((agent) => agent.id === assistant.agent_id && agent.source !== null)) return null
+  const fallback = overview.find((agent) => agent.source !== null && agent.mcpHttp !== false)
+  if (fallback === undefined) return null
+  return { ...assistant, agent_id: fallback.id }
 }

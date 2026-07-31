@@ -1,8 +1,10 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
+import type { ConfigState } from '../../../../shared/config'
+import { ipc } from '../../lib/ipc'
 import { configStateAtom } from '../../lib/config-atoms'
-import { shouldOnboard } from './model'
+import { reconcileDefaultAssistant, shouldOnboard } from './model'
 import { AgentStep } from './agent-step'
 import { BindingStep } from './binding-step'
 import { BotStep, DoneStep, ManagerStep, OwnerStep } from './steps'
@@ -45,6 +47,13 @@ export function OnboardingOverlay() {
 
   const stepIndex =
     effectiveStep === 'done' ? STEP_ORDER.length : STEP_ORDER.indexOf(effectiveStep as (typeof STEP_ORDER)[number])
+
+  // agent 步收尾（「下一步」/「跳过此步」共用）：default 助手 schema 默认指向 codex，
+  // 用户可能只准备了其他 agent——离开该步时把不可用的指向改到首个可用候选
+  const finishAgentStep = () => {
+    void fixDefaultAssistantAgent(state)
+    setStep('done')
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-surface">
@@ -96,7 +105,7 @@ export function OnboardingOverlay() {
               onFinish={() => setStep('agent')}
             />
           )}
-          {effectiveStep === 'agent' && <AgentStep onNext={() => setStep('done')} />}
+          {effectiveStep === 'agent' && <AgentStep onNext={finishAgentStep} />}
           {effectiveStep === 'done' && <DoneStep onClose={() => setStep('closed')} />}
 
           {effectiveStep !== 'done' && (
@@ -105,7 +114,7 @@ export function OnboardingOverlay() {
                 // agent 步是最后一步：这里只跳过本步（进完成页），不关闭整个向导
                 <button
                   type="button"
-                  onClick={() => setStep('done')}
+                  onClick={finishAgentStep}
                   className="text-xs text-ink-muted underline-offset-2 hover:underline"
                 >
                   {intl.formatMessage({ id: 'onboarding.agent.skip' })}
@@ -125,6 +134,18 @@ export function OnboardingOverlay() {
       </div>
     </div>
   )
+}
+
+/** default 助手指向不可用 agent 时改指首个可用候选（决策在 reconcileDefaultAssistant）；失败静默保持原配置 */
+async function fixDefaultAssistantAgent(state: ConfigState): Promise<void> {
+  try {
+    const overview = await ipc.agents.overview()
+    const patched = reconcileDefaultAssistant(state.config.assistants, overview)
+    if (patched === null) return
+    await ipc.config.upsertAssistant({ assistant: patched, expectedVersion: state.version })
+  } catch {
+    // overview 依赖 ACP registry（网络）——拿不到就不动配置
+  }
 }
 
 /** 顶部步骤指示器：已完成打勾、当前高亮、未到的置灰 */
