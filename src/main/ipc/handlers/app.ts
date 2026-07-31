@@ -38,7 +38,10 @@ export function appHandlers(deps: AppHandlerDeps): IpcHandlers['app'] {
       } catch {
         return { ok: false, message: `非法 URL：${payload.url}` }
       }
-      if (url.protocol !== 'https:') return { ok: false, message: `不允许的协议：${url.protocol}` }
+      // tg:：Telegram 官方 deeplink（managed bot 创建等场景直接唤起客户端，比 t.me 少一跳浏览器）
+      if (url.protocol !== 'https:' && url.protocol !== 'tg:') {
+        return { ok: false, message: `不允许的协议：${url.protocol}` }
+      }
       try {
         await shell.openExternal(url.toString())
         return { ok: true }

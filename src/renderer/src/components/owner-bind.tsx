@@ -4,7 +4,7 @@ import { useAtomValue } from 'jotai'
 import type { ConfigState } from '../../../shared/config'
 import type { SenderInfo } from '../../../shared/messages'
 import { transferOwner } from '../../../shared/users'
-import { channelStatusesAtom } from '../lib/service-atoms'
+import { channelStatusesAtom, managerStatusesAtom } from '../lib/service-atoms'
 import { ipc } from '../lib/ipc'
 import { Button, ErrorText } from './form'
 import { useSenders } from './member-picker'
@@ -28,7 +28,9 @@ export function OwnerBindPanel({
   const intl = useIntl()
   const senders = useSenders(channelId, undefined, { privateOnly: true })
   const statuses = useAtomValue(channelStatusesAtom)
-  const status = statuses.find((item) => item.id === channelId)
+  const managerStatuses = useAtomValue(managerStatusesAtom)
+  // channelId 也可能是 manager id（manager 私聊同样 record-only 入历史，绑定流程完全复用）
+  const status = [...statuses, ...managerStatuses].find((item) => item.id === channelId)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -112,7 +114,8 @@ export function OwnerBindModal({
   const [botUsername, setBotUsername] = useState<string | null>(null)
   const [linkError, setLinkError] = useState<string | null>(null)
 
-  const token = state.config.channels[channelId]?.token
+  // manager bot 不在 channels：token 从 manager_bots 兜底（owner 绑定弹窗两者共用）
+  const token = state.config.channels[channelId]?.token ?? state.config.manager_bots[channelId]?.token
 
   useEffect(() => {
     if (botUsername !== null || token === undefined) return

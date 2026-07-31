@@ -104,10 +104,12 @@ function makeManager(
     autoReviewPass?: boolean
     /** 自动审核进度卡片是否发送成功（默认成功）；false 模拟无 owner / 卡片发送失败 */
     autoReviewCard?: boolean
+    managerBots?: Config['manager_bots']
   } = {},
 ) {
   const config: Config = {
     channels: {},
+    manager_bots: options.managerBots ?? {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
     bindings: [
       {
@@ -370,6 +372,24 @@ describe('ChatManager agent output gating', () => {
     await vi.waitFor(() => expect(sent.length).toBe(1))
     // agent 的部分产出被省略，只保留本层的 Error 反馈
     expect(sent[0]!.parts).toEqual([{ kind: 'text', text: 'Error: boom' }])
+  })
+})
+
+describe('ChatManager manager bots record-only', () => {
+  it('manager 渠道的消息只入历史：不建 runtime、不审核、不回复', async () => {
+    const createRuntime = vi.fn(() => Promise.reject(new Error('manager 不应创建会话')))
+    const { manager, recorded, sent, approvalRequests } = makeManager(createRuntime, {
+      managerBots: { mgr: { token: '88:t', managing: [] } },
+    })
+
+    manager.handleInbound(inbound('/start', { channelId: 'mgr', chatId: 'P:7', senderId: '7' }))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(recorded).toHaveLength(1)
+    expect(recorded[0]?.channelId).toBe('mgr')
+    expect(createRuntime).not.toHaveBeenCalled()
+    expect(approvalRequests).toHaveLength(0)
+    expect(sent).toHaveLength(0)
   })
 })
 

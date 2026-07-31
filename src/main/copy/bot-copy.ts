@@ -54,4 +54,9 @@ export const botCopy = {
     permissionIgnored: '⛔ 你没有使用权限。',
     noOwner: '⚠️ 该频道未绑定 owner，消息无法审核。',
   },
+
+  manager: {
+    /** manager bot 收到 /start 的即时回复（manager 不参与会话，仅此一句） */
+    startReply: '👋 已收到。这是渠道管理 bot，用于创建/管理托管 bot 与 owner 绑定，不参与对话。',
+  },
 } as const

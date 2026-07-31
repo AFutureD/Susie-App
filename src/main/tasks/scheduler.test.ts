@@ -30,6 +30,7 @@ function makeTask(overrides: Partial<ScheduledTask> = {}): ScheduledTask {
 function makeConfig(tasks: ScheduledTask[], assistants?: AssistantConfig[]): Config {
   return {
     channels: {},
+    manager_bots: {},
     assistants: assistants ?? [{ id: 'default', agent_id: 'codex' }],
     bindings: [],
     users: [],

@@ -6,6 +6,7 @@ import {
   autoReviewSchema,
   bindingSchema,
   channelSettingsSchema,
+  managerBotSchema,
   scheduledTaskSchema,
   userSchema,
   type ConfigMutationResult,
@@ -68,6 +69,13 @@ export function configHandlers({ config }: ConfigHandlerDeps): IpcHandlers['conf
       return config.upsertScheduledTask(parsed.data, expectedVersion)
     },
     deleteScheduledTask: ({ id, expectedVersion }) => config.deleteScheduledTask(id, expectedVersion),
+
+    upsertManagerBot: ({ id, settings, expectedVersion }) => {
+      const parsed = managerBotSchema.safeParse(settings)
+      if (!parsed.success) return invalid(parsed.error.issues[0]?.message)
+      return config.upsertManagerBot(id, parsed.data, expectedVersion)
+    },
+    deleteManagerBot: ({ id, expectedVersion }) => config.deleteManagerBot(id, expectedVersion),
   }
 }
 

@@ -58,9 +58,13 @@ export function UsersPage() {
     return <Page titleId="page.users.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
   }
 
-  // 频道全集：config.channels ∪ 名单里引用的幽灵频道（频道删除不级联清理用户）
+  // 频道全集：config.channels ∪ manager_bots（owner 同存 users 表）∪ 名单里引用的幽灵频道（删除不级联清理用户）
   const channelIds = [
-    ...new Set([...Object.keys(state.config.channels), ...state.config.users.map((user) => user.channel)]),
+    ...new Set([
+      ...Object.keys(state.config.channels),
+      ...Object.keys(state.config.manager_bots),
+      ...state.config.users.map((user) => user.channel),
+    ]),
   ]
 
   return (
@@ -77,7 +81,8 @@ export function UsersPage() {
             key={channelId}
             state={state}
             channelId={channelId}
-            ghost={!(channelId in state.config.channels)}
+            manager={channelId in state.config.manager_bots}
+            ghost={!(channelId in state.config.channels) && !(channelId in state.config.manager_bots)}
           />
         ))}
       </div>
@@ -85,7 +90,17 @@ export function UsersPage() {
   )
 }
 
-function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; channelId: string; ghost: boolean }) {
+function ChannelUsersCard({
+  state,
+  channelId,
+  manager,
+  ghost,
+}: {
+  state: ConfigState
+  channelId: string
+  manager: boolean
+  ghost: boolean
+}) {
   const intl = useIntl()
   const senders = useSenders(ghost ? '' : channelId)
   const knownGroups = useChannelGroups(ghost ? '' : channelId)
@@ -136,6 +151,9 @@ function ChannelUsersCard({ state, channelId, ghost }: { state: ConfigState; cha
     <div className="rounded-xl border border-line bg-raised p-4">
       <div className="flex items-center gap-2">
         <span className="truncate text-sm font-semibold">{channelId}</span>
+        {manager && (
+          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">manager</span>
+        )}
         {ghost && (
           <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500">
             {intl.formatMessage({ id: 'users.ghost' })}

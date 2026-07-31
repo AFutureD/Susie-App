@@ -17,6 +17,7 @@ function binding(overrides: Partial<ChatBinding> = {}): ChatBinding {
 function makeHarness(initialBindings: ChatBinding[]) {
   const config: Config = {
     channels: {},
+    manager_bots: {},
     assistants: [
       { id: 'default', agent_id: 'codex' },
       { id: 'other', agent_id: 'codex' },

@@ -127,6 +127,24 @@ export interface ChannelStatus {
   detail: string | null
 }
 
+/**
+ * manager bot 收到的 managed bot 创建/变更事件（发现 ≠ 添加：仅登记，
+ * 用户在「添加托管 Bot」弹窗显式点添加才落地为渠道）。持久化在 SQLite 且
+ * 添加后不删——渠道删除后凭此重新加回；列表只吐「未添加」的记录。
+ * IPC 响应与 managerBots.discoveries 推送事件共用此形状。
+ */
+export interface ManagedBotDiscovery {
+  managerId: string
+  /** 被管 bot 的 Telegram user id（字符串形式；其 token 前缀即此值） */
+  botId: string
+  username: string
+  name: string
+  /** ManagedBotUpdated.user——在 Telegram 完成创建的人（manager 无 owner 时的兜底 owner） */
+  creatorId: string
+  creatorName: string | null
+  discoveredTs: number
+}
+
 /** agent 模型候选（main 枚举，UI 下拉 / /model 列表共用） */
 export interface AgentModelOption {
   value: string

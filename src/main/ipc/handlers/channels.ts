@@ -1,4 +1,4 @@
-import { fetchBotUsername } from '../../channels/telegram/bot'
+import { getMeRaw } from '../../channels/telegram/bot-api'
 import { errorMessage } from '../../../shared/errors'
 import type { SusieService } from '../../service'
 import type { IpcHandlers } from '../router'
@@ -13,11 +13,24 @@ export function channelsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['
 
     resolveUsername: async ({ token }) => {
       try {
-        return { ok: true as const, username: await fetchBotUsername(token) }
+        const me = await getMeRaw(token.trim())
+        if (me.username === undefined || me.username === '') {
+          return { ok: false as const, message: 'bot 未返回 username' }
+        }
+        return { ok: true as const, username: me.username, canManageBots: me.can_manage_bots === true }
       } catch (error) {
         return { ok: false as const, message: errorMessage(error) }
       }
     },
+  }
+}
+
+export function managerBotsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['managerBots'] {
+  return {
+    statuses: () => service.managedBots.statuses(),
+    // 弹窗打开时走带存活校验的版本（BotFather 已删的 bot 不列出）
+    discoveries: ({ managerId }) => service.managedBots.listAddable(managerId),
+    add: ({ managerId, botId, expectedVersion }) => service.managedBots.addManagedBot({ managerId, botId, expectedVersion }),
   }
 }
 

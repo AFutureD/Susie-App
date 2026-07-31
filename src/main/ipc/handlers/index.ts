@@ -4,7 +4,7 @@
 import type { IpcHandlers } from '../router'
 import { agentsHandlers } from './agents'
 import { appHandlers, type AppHandlerDeps } from './app'
-import { channelsHandlers, chatHandlers, type ServiceHandlerDeps } from './channels'
+import { channelsHandlers, chatHandlers, managerBotsHandlers, type ServiceHandlerDeps } from './channels'
 import { assistantsHandlers, configHandlers, type ConfigHandlerDeps } from './config'
 import { autoReviewHandlers, historyHandlers } from './history'
 import { skillsHandlers } from './skills'
@@ -19,6 +19,7 @@ export function buildIpcHandlers(deps: IpcHandlerDeps): IpcHandlers {
     config: configHandlers(deps),
     assistants: assistantsHandlers(deps),
     channels: channelsHandlers(deps),
+    managerBots: managerBotsHandlers(deps),
     chat: chatHandlers(deps),
     history: historyHandlers(deps),
     tasks: tasksHandlers(deps),

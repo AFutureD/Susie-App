@@ -156,6 +156,10 @@ export class ChatManager {
     // 定位：channel 是"消息来源"而非"对话对象"——bot 不参与 channel 的会话循环。
     if (decodeChatId(message.chatId)?.chatType === 'channel') return
 
+    // manager bot（渠道管理，不是渠道）：同样 record-only——入历史只为 owner 绑定的
+    // senders 候选；放在 out 检查之前，manager 私聊里的亲自回复没有「闭嘴窗」语义。
+    if (message.channelId in this.deps.store.current.manager_bots) return
+
     if (message.out) {
       // 自己亲自回复了：闭嘴两分钟并取消进行中的 turn
       const entry = this.chats.get(key)

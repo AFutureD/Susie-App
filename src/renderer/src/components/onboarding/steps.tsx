@@ -30,6 +30,12 @@ export function ChannelStep({
       setError(intl.formatMessage({ id: 'channels.resolve.failed' }, { detail: resolved.message }))
       return
     }
+    // 引导步需要的是会话渠道；manager bot（渠道管理）不参与会话，引导后去「频道」页添加
+    if (resolved.canManageBots) {
+      setBusy(false)
+      setError(intl.formatMessage({ id: 'onboarding.channel.managerToken' }))
+      return
+    }
     const result = await ipc.config.upsertChannel({
       id: resolved.username,
       settings: { type: 'telegram_bot', token: trimmed, enabled: true, drop_pending_updates: false },

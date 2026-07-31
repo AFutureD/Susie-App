@@ -8,6 +8,7 @@ import type {
   AgentProgress,
   AutoReviewRecord,
   ChannelStatus,
+  ManagedBotDiscovery,
   StoredMessage,
   TaskRunRecord,
   UpdateState,
@@ -16,6 +17,10 @@ import type {
 export interface IpcEvents {
   'config.state': ConfigState
   'channels.status': ChannelStatus[]
+  /** manager bot 轮询器状态（渠道管理不是渠道，独立于 channels.status） */
+  'managerBots.status': ChannelStatus[]
+  /** 某 manager 的 managed bot 发现列表变化（全量替换） */
+  'managerBots.discoveries': { managerId: string; discoveries: ManagedBotDiscovery[] }
   'history.message': StoredMessage
   'agents.progress': AgentProgress
   /** 自动审核记录新增/状态更新（按 id 去重合并） */

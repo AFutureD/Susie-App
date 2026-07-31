@@ -7,7 +7,7 @@ import { NAV_ROUTES } from '../../shared/nav'
 import { configStateAtom } from './lib/config-atoms'
 import { ToastHost } from './lib/toast'
 import { ipc, onIpcEvent } from './lib/ipc'
-import { channelStatusesAtom } from './lib/service-atoms'
+import { channelStatusesAtom, managerStatusesAtom } from './lib/service-atoms'
 import { updateStateAtom } from './lib/update-atoms'
 import { AgentsPage } from './pages/agents'
 import { AssistantsPage } from './pages/assistants'
@@ -28,6 +28,7 @@ const NAV_ITEMS = NAV_ROUTES.map((name) => ({ to: `/${name}`, id: `nav.${name}` 
 function ConfigBootstrap() {
   const setState = useSetAtom(configStateAtom)
   const setStatuses = useSetAtom(channelStatusesAtom)
+  const setManagerStatuses = useSetAtom(managerStatusesAtom)
   const setUpdateState = useSetAtom(updateStateAtom)
 
   useEffect(() => {
@@ -38,19 +39,24 @@ function ConfigBootstrap() {
     void ipc.channels.statuses().then((statuses) => {
       if (alive) setStatuses(statuses)
     })
+    void ipc.managerBots.statuses().then((statuses) => {
+      if (alive) setManagerStatuses(statuses)
+    })
     void ipc.update.getState().then((state) => {
       if (alive) setUpdateState(state)
     })
     const offConfig = onIpcEvent('config.state', setState)
     const offStatus = onIpcEvent('channels.status', setStatuses)
+    const offManagerStatus = onIpcEvent('managerBots.status', setManagerStatuses)
     const offUpdate = onIpcEvent('update.state', setUpdateState)
     return () => {
       alive = false
       offConfig()
       offStatus()
+      offManagerStatus()
       offUpdate()
     }
-  }, [setState, setStatuses, setUpdateState])
+  }, [setState, setStatuses, setManagerStatuses, setUpdateState])
 
   return null
 }

@@ -12,8 +12,10 @@ import {
   type Config,
   type ConfigMutationResult,
   type ConfigState,
+  type ManagerBotConfig,
   type ScheduledTask,
 } from '../../shared/config'
+import { transferOwner } from '../../shared/users'
 import { deepEqual, defaultConfig, parseConfigText, serializeConfig } from './load'
 
 export type Unsubscribe = () => void
@@ -188,6 +190,51 @@ export class ConfigStore {
     return this.mutate(expectedVersion, (draft) => {
       if (!(id in draft.channels)) throw new Error(`通道不存在：${id}`)
       delete draft.channels[id]
+      // 双向都在 config 内：渠道删除时同步从各 manager 的 managing 列表剔除，避免幽灵 chips
+      for (const manager of Object.values(draft.manager_bots)) {
+        const index = manager.managing.indexOf(id)
+        if (index >= 0) manager.managing.splice(index, 1)
+      }
+    })
+  }
+
+  upsertManagerBot(id: string, settings: ManagerBotConfig, expectedVersion: number): ConfigMutationResult {
+    if (!ID_PATTERN.test(id)) return fail('manager id 只能包含字母、数字、_ 和 -')
+    return this.mutate(expectedVersion, (draft) => {
+      draft.manager_bots[id] = settings
+    })
+  }
+
+  /** 删除 manager：managed 渠道保留（只失去分组与自动轮换）；discoveries 由 registry 清理 */
+  deleteManagerBot(id: string, expectedVersion: number): ConfigMutationResult {
+    return this.mutate(expectedVersion, (draft) => {
+      if (!(id in draft.manager_bots)) throw new Error(`manager 不存在：${id}`)
+      delete draft.manager_bots[id]
+    })
+  }
+
+  /**
+   * 「添加托管 Bot」的原子落地：渠道 + manager.managing 追加 + owner 登记一次写入，
+   * 避免分次写的版本冲突或「渠道有了 owner 没写上」半完成态。
+   */
+  addManagedChannel(
+    input: {
+      managerId: string
+      channelId: string
+      settings: ChannelSettings
+      owner: { userId: string; name?: string }
+    },
+    expectedVersion: number,
+  ): ConfigMutationResult {
+    const { managerId, channelId, settings, owner } = input
+    if (!ID_PATTERN.test(channelId)) return fail('channel id 只能包含字母、数字、_ 和 -')
+    return this.mutate(expectedVersion, (draft) => {
+      const manager = draft.manager_bots[managerId]
+      if (manager === undefined) throw new Error(`manager 不存在：${managerId}`)
+      if (channelId in draft.channels) throw new Error(`通道已存在：${channelId}`)
+      draft.channels[channelId] = settings
+      if (!manager.managing.includes(channelId)) manager.managing.push(channelId)
+      draft.users = transferOwner(draft.users, channelId, owner.userId, owner.name)
     })
   }
 
@@ -338,6 +385,16 @@ export function diffConfigPaths(prev: Config, next: Config): string[] {
   }
   if (channelsChanged) changed.push('channels')
 
+  const managerIds = new Set([...Object.keys(prev.manager_bots), ...Object.keys(next.manager_bots)])
+  let managersChanged = false
+  for (const id of managerIds) {
+    if (!deepEqual(prev.manager_bots[id], next.manager_bots[id])) {
+      changed.push(`manager_bots.${id}`)
+      managersChanged = true
+    }
+  }
+  if (managersChanged) changed.push('manager_bots')
+
   const prevAssistants = new Map(prev.assistants.map((a) => [a.id, a]))
   const nextAssistants = new Map(next.assistants.map((a) => [a.id, a]))
   const assistantIds = new Set([...prevAssistants.keys(), ...nextAssistants.keys()])
@@ -373,8 +430,9 @@ export function diffConfigPaths(prev: Config, next: Config): string[] {
 }
 
 /**
- * path 寻址：'' | 'channels' | 'channels.<id>' | 'assistants' | 'assistants.<id>' | 'bindings' | 'users'
- * | 'auto_review' | 'scheduled_tasks' | 'scheduled_tasks.<id>'。id 由 schema 保证不含 '.'。
+ * path 寻址：'' | 'channels' | 'channels.<id>' | 'manager_bots' | 'manager_bots.<id>' | 'assistants'
+ * | 'assistants.<id>' | 'bindings' | 'users' | 'auto_review' | 'scheduled_tasks' | 'scheduled_tasks.<id>'。
+ * id 由 schema 保证不含 '.'。
  */
 export function resolveConfigPath(config: Config, refPath: string): unknown {
   if (refPath === '') return config
@@ -386,6 +444,8 @@ export function resolveConfigPath(config: Config, refPath: string): unknown {
   switch (head) {
     case 'channels':
       return rest === null ? config.channels : config.channels[rest]
+    case 'manager_bots':
+      return rest === null ? config.manager_bots : config.manager_bots[rest]
     case 'assistants':
       return rest === null ? config.assistants : config.assistants.find((a) => a.id === rest)
     case 'bindings':

@@ -343,6 +343,77 @@ members = ["7"]
     expect(good.ok).toBe(true)
   })
 
+  it('manager_bots：TOML 完整往返，path 订阅与寻址可用', () => {
+    const configPath = tempConfigPath()
+    const store = ConfigStore.init(configPath)
+
+    const events: unknown[] = []
+    store.ref('manager_bots.mgr').onChange((next) => events.push(next))
+
+    const result = store.upsertManagerBot('mgr', { token: '88:mgr-token', managing: [] }, store.currentVersion)
+    expect(result.ok).toBe(true)
+    expect(events).toHaveLength(1)
+    const text = readFileSync(configPath, 'utf-8')
+    expect(text).toContain('[manager_bots.mgr]')
+    expect(text).toContain('88:mgr-token')
+
+    const reloaded = ConfigStore.init(configPath)
+    expect(reloaded.state().lastError).toBeNull()
+    expect(reloaded.current.manager_bots['mgr']?.managing).toEqual([])
+  })
+
+  it('addManagedChannel：渠道 + managing + owner 一次原子写入；重复 id 与未知 manager 拒绝', () => {
+    const configPath = tempConfigPath()
+    const store = ConfigStore.init(configPath)
+    store.upsertManagerBot('mgr', { token: '88:t', managing: [] }, store.currentVersion)
+    store.setUsers([{ channel: 'mgr', user_id: '7', name: 'Boss', role: 'owner', private: 'review', groups: {} }], store.currentVersion)
+
+    const settings = { type: 'telegram_bot', token: '99:child', enabled: true, drop_pending_updates: false } as const
+    const added = store.addManagedChannel(
+      { managerId: 'mgr', channelId: 'child_bot', settings, owner: { userId: '7', name: 'Boss' } },
+      store.currentVersion,
+    )
+    expect(added.ok).toBe(true)
+    expect(store.current.manager_bots['mgr']?.managing).toEqual(['child_bot'])
+    expect(store.current.users.find((u) => u.channel === 'child_bot')?.role).toBe('owner')
+
+    const dup = store.addManagedChannel(
+      { managerId: 'mgr', channelId: 'child_bot', settings, owner: { userId: '7' } },
+      store.currentVersion,
+    )
+    expect(dup.ok).toBe(false)
+    if (!dup.ok) expect(dup.message).toContain('已存在')
+
+    const ghost = store.addManagedChannel(
+      { managerId: 'nope', channelId: 'other_bot', settings, owner: { userId: '7' } },
+      store.currentVersion,
+    )
+    expect(ghost.ok).toBe(false)
+    if (!ghost.ok) expect(ghost.message).toContain('manager 不存在')
+  })
+
+  it('deleteChannel 会同步从 manager.managing 剔除；deleteManagerBot 保留 managed 渠道', () => {
+    const configPath = tempConfigPath()
+    const store = ConfigStore.init(configPath)
+    store.upsertManagerBot('mgr', { token: '88:t', managing: [] }, store.currentVersion)
+    const settings = { type: 'telegram_bot', token: '99:child', enabled: true, drop_pending_updates: false } as const
+    store.addManagedChannel(
+      { managerId: 'mgr', channelId: 'child_bot', settings, owner: { userId: '7' } },
+      store.currentVersion,
+    )
+
+    expect(store.deleteChannel('child_bot', store.currentVersion).ok).toBe(true)
+    expect(store.current.manager_bots['mgr']?.managing).toEqual([])
+
+    store.addManagedChannel(
+      { managerId: 'mgr', channelId: 'child_bot', settings, owner: { userId: '7' } },
+      store.currentVersion,
+    )
+    expect(store.deleteManagerBot('mgr', store.currentVersion).ok).toBe(true)
+    expect(store.current.manager_bots['mgr']).toBeUndefined()
+    expect(store.current.channels['child_bot']).toBeDefined()
+  })
+
   it('scheduled task：设 skill 时空 content 合法（补充输入可空），未设时拒绝；skill 完整往返', () => {
     const configPath = tempConfigPath()
     writeFileSync(configPath, '[[assistants]]\nid = "default"\n')

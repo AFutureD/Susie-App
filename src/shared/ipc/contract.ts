@@ -11,6 +11,7 @@ import {
   autoReviewSchema,
   bindingSchema,
   channelSettingsSchema,
+  managerBotSchema,
   scheduledTaskSchema,
   userSchema,
   type ConfigMutationResult,
@@ -23,6 +24,7 @@ import type {
   AutoReviewRecord,
   ChannelStatus,
   ChatInfo,
+  ManagedBotDiscovery,
   SenderInfo,
   StoredMessage,
   TaskRunRecord,
@@ -79,7 +81,7 @@ export const ipcContract = {
   app: {
     getInfo: { req: z.void(), res: res<AppInfo>() },
     setLoginItem: { req: z.object({ enabled: z.boolean() }), res: res<ActionResult>() },
-    /** 在系统默认浏览器/对应 App 打开外部链接（仅 https） */
+    /** 在系统默认浏览器/对应 App 打开外部链接（仅 https 与 tg: deeplink） */
     openExternal: { req: z.object({ url: z.string() }), res: res<ActionResult>() },
     pickDirectory: { req: z.void(), res: res<string | null>() },
   },
@@ -121,6 +123,12 @@ export const ipcContract = {
       res: res<ConfigMutationResult>(),
     },
     deleteScheduledTask: { req: z.object({ id: z.string(), expectedVersion }), res: res<ConfigMutationResult>() },
+    upsertManagerBot: {
+      req: z.object({ id: z.string(), settings: z.custom<z.input<typeof managerBotSchema>>(), expectedVersion }),
+      res: res<ConfigMutationResult>(),
+    },
+    /** 删除 manager：managed 渠道保留（只失去分组与自动轮换），发现记录清库 */
+    deleteManagerBot: { req: z.object({ id: z.string(), expectedVersion }), res: res<ConfigMutationResult>() },
   },
 
   assistants: {
@@ -130,10 +138,26 @@ export const ipcContract = {
 
   channels: {
     statuses: { req: z.void(), res: res<ChannelStatus[]>() },
-    /** 用 token 调 getMe 拿 bot username（频道 ID 留空时自动命名） */
+    /**
+     * 用 token 调 getMe 拿 bot username（ID 留空时自动命名）与 can_manage_bots
+     * （新增入口据此自动识别普通渠道 / manager，不需要用户手选类型）
+     */
     resolveUsername: {
       req: z.object({ token: z.string() }),
-      res: res<{ ok: true; username: string } | { ok: false; message: string }>(),
+      res: res<{ ok: true; username: string; canManageBots: boolean } | { ok: false; message: string }>(),
+    },
+  },
+
+  managerBots: {
+    statuses: { req: z.void(), res: res<ChannelStatus[]>() },
+    /** 某 manager 的 managed bot 发现列表（发现 ≠ 添加；打开弹窗时回填，之后订阅事件） */
+    discoveries: { req: z.object({ managerId: z.string() }), res: res<ManagedBotDiscovery[]>() },
+    /** 从发现落地为普通 telegram_bot 渠道：取 token、写 managing、复制 owner（创建者兜底） */
+    add: {
+      req: z.object({ managerId: z.string(), botId: z.string(), expectedVersion }),
+      res: res<
+        { ok: true; channelId: string; state: ConfigState } | { ok: false; message: string; conflict: boolean }
+      >(),
     },
   },
 

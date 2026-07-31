@@ -39,14 +39,6 @@ export interface TelegramBotChannelDeps {
   log: Logger
 }
 
-/** 用 token 调 getMe 拿 bot username（频道 ID 留空时的自动命名） */
-export async function fetchBotUsername(token: string): Promise<string> {
-  const bot = new TelegramBot(token)
-  const me = await withDeadline(bot.getMe(), 10_000, 'getMe')
-  if (me.username === undefined || me.username === '') throw new Error('bot 未返回 username')
-  return me.username
-}
-
 /** Bot API 对命令的硬性约束：名称 1-32 位小写字母/数字/下划线，描述 1-256 字符 */
 export function toBotCommands(specs: CommandSpec[]): BotCommand[] {
   return specs

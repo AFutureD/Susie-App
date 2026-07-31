@@ -13,6 +13,7 @@ const OWNER_ID = '900'
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
     channels: {},
+    manager_bots: {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
     bindings: [{ channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, send_output: false }],
     users: [

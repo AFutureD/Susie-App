@@ -27,6 +27,17 @@ export const telegramBotChannelSchema = z.strictObject({
 /** 未来扩展通道类型时加入该 discriminated union */
 export const channelSettingsSchema = z.discriminatedUnion('type', [telegramBotChannelSchema])
 
+/**
+ * Manager bot（渠道管理，不是渠道）：经 BotFather 开启 Bot Management Mode 的 bot，
+ * 常驻监听 managed_bot 事件、代取被管 bot 的 token。不参与会话循环（消息 record-only 入历史），
+ * 不可作为 bindings / scheduled_tasks 目标；无 enabled——存在即运行，删除即停。
+ */
+export const managerBotSchema = z.strictObject({
+  token: z.string().min(1, 'token 不能为空'),
+  /** 经「添加托管 Bot」流程落地的渠道 id 列表（自动维护，手改合法）；引用不校验，渠道删除时同步剔除 */
+  managing: z.array(z.string()).default([]),
+})
+
 export const assistantSchema = z.strictObject({
   id: z.string().regex(ID_PATTERN, 'id 只能包含字母、数字、_ 和 -'),
   agent_id: z.string().min(1).default('codex'),
@@ -167,6 +178,9 @@ export const configSchema = z
     channels: z
       .record(z.string().regex(ID_PATTERN, 'channel id 只能包含字母、数字、_ 和 -'), channelSettingsSchema)
       .default({}),
+    manager_bots: z
+      .record(z.string().regex(ID_PATTERN, 'manager id 只能包含字母、数字、_ 和 -'), managerBotSchema)
+      .default({}),
     assistants: z.array(assistantSchema).default([{ id: DEFAULT_ASSISTANT_ID, agent_id: 'codex' }]),
     bindings: z.array(bindingSchema).default([]),
     users: z.array(userSchema).default([]),
@@ -231,6 +245,7 @@ export const configSchema = z
 
 export type TelegramBotChannelSettings = z.infer<typeof telegramBotChannelSchema>
 export type ChannelSettings = z.infer<typeof channelSettingsSchema>
+export type ManagerBotConfig = z.infer<typeof managerBotSchema>
 export type AssistantConfig = z.infer<typeof assistantSchema>
 export type ChatBinding = z.infer<typeof bindingSchema>
 export type ChannelUser = z.infer<typeof userSchema>

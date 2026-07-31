@@ -123,6 +123,24 @@ CREATE INDEX IF NOT EXISTS idx_task_runs_task ON task_runs(task_id, id);
 `)
     },
   },
+  {
+    id: 6,
+    comment: 'managed_bot_discoveries：manager bot 发现的 managed bot（Telegram offset 确认后不重推，必须持久化）',
+    up(db) {
+      db.exec(`
+CREATE TABLE IF NOT EXISTS managed_bot_discoveries(
+  manager_id TEXT NOT NULL,
+  bot_id TEXT NOT NULL,
+  username TEXT NOT NULL,
+  name TEXT NOT NULL,
+  creator_id TEXT NOT NULL,
+  creator_name TEXT,
+  discovered_ts INTEGER NOT NULL,
+  PRIMARY KEY(manager_id, bot_id)
+);
+`)
+    },
+  },
 ]
 
 export function runMigrations(db: DatabaseSync, migrations: readonly Migration[] = MIGRATIONS): void {

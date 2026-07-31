@@ -9,7 +9,9 @@ import { CodexInstaller } from './agents/codex/installer'
 import { AgentManager } from './agents/manager'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
+import { DiscoveryRepo } from './channels/telegram/discovery-repo'
 import { telegramBotFactory } from './channels/telegram/factory'
+import { ManagedBotRegistry } from './channels/telegram/managed-bots'
 import type { ChannelFactory } from './channels/types'
 import { getWorkspaceDir } from './config/paths'
 import type { ConfigStore } from './config/store'
@@ -51,6 +53,7 @@ export class SusieService {
   readonly autoReviewRepo: AutoReviewRepo
   readonly taskRuns: TaskRunRepo
   readonly hub: ChannelHub
+  readonly managedBots: ManagedBotRegistry
   readonly chatManager: ChatManager
   readonly approvals: ApprovalManager
   readonly autoReviewer: AutoReviewer
@@ -117,11 +120,22 @@ export class SusieService {
       log,
     })
 
+    // manager bot 编排：常驻轮询发现 managed bot（发现 ≠ 添加，addManagedBot 是唯一建渠道入口）
+    this.managedBots = new ManagedBotRegistry({
+      store,
+      repo: new DiscoveryRepo(this.db),
+      emit: (managerId, discoveries) => broadcast('managerBots.discoveries', { managerId, discoveries }),
+      onMessage: (envelope) => this.chatManager.handleInbound(envelope),
+      onStatuses: (statuses) => broadcast('managerBots.status', statuses),
+      log,
+    })
+
     this.chatManager = new ChatManager({
       store,
       messages: this.messages,
       mcpName: SUSIE_MCP_NAME,
-      getChannel: (id) => this.hub.get(id),
+      // manager 不在 hub：fallback 到 registry，history 页 composer 才能给 manager 私聊发消息
+      getChannel: (id) => this.hub.get(id) ?? this.managedBots.get(id),
       createRuntime: (assistant) => this.createRuntime(assistant),
       onHistoryMessage: (message) => broadcast('history.message', message),
       // 注意透传 options：autoReviewReason 要随卡片显示（漏传曾导致拒绝原因永远上不了卡片）
@@ -178,6 +192,7 @@ export class SusieService {
     })
 
     this.hub.start()
+    this.managedBots.start()
     this.scheduler.start()
   }
 
@@ -192,6 +207,8 @@ export class SusieService {
     await withTimeout(this.chatManager.dispose(), 3500, undefined)
     this.log.info('service stopping: hub')
     await this.hub.stopAll()
+    this.log.info('service stopping: manager bots')
+    await this.managedBots.stopAll()
     this.log.info('service stopping: mcp')
     await withTimeout(this.mcp.stop(), 2000, undefined)
     this.skills.dispose()
