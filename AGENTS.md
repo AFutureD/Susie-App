@@ -27,6 +27,14 @@ Your job is trying to add documents in this swift package project.
 [DESIGN.md](./DESIGN.md)
 
 
+## 0x03. User-Facing Feature Documentation
+
+- Any change that adds, removes, or changes user-visible behavior must update `docs/FEAT.md` in the same change.
+- Keep `docs/FEAT.md` focused on what users can do. Lead with the Happy Path, then introduce advanced capabilities progressively as users explore further.
+- Invoke the `$i-have-adhd` skill whenever writing or revising `docs/FEAT.md`. Apply it to the document's reader-facing structure and wording, not only to the assistant response.
+- Before adding content, review the complete `docs/FEAT.md`. Improve nearby wording, merge overlapping explanations, and remove stale or redundant content instead of only appending another section.
+- Keep the document concise and user-facing. Avoid implementation details and do not duplicate exhaustive setup or reference material from `README.md`.
+
 ---
 
 Susie 桌面版（TypeScript / Electron）。迁移计划、架构决策与里程碑见

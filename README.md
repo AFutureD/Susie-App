@@ -5,6 +5,8 @@
 Susie 桌面版（TypeScript / Electron）。迁移计划与决策见
 [docs/developer/tasks/260722T1917-migrate-macos-desktop-app](./docs/developer/tasks/260722T1917-migrate-macos-desktop-app/TASK.md)。
 
+用户功能与上手路径见 [docs/FEAT.md](./docs/FEAT.md)。
+
 ## 开发
 
 ```bash
