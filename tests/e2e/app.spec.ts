@@ -1,4 +1,6 @@
 import { appendFileSync, mkdtempSync, readFileSync } from 'node:fs'
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import process from 'node:process'
@@ -8,6 +10,10 @@ import { NAV_ROUTES } from '../../src/shared/nav'
 // 端到端：驱动真实 Electron 实例（隔离 SUSIE_CONFIG_DIR / SUSIE_USER_DATA_DIR，
 // 不触碰真实配置，也不与正在运行的 dev 实例抢单实例锁）。
 // 用例之间共享同一个应用实例，串行执行。
+//
+// 新增渠道走统一 AddBotForm：保存前真调 getMe 识别普通渠道 / manager，假 token 在
+// 真实 API 必然失败——经 SUSIE_TG_API_BASE 把 raw 客户端（bot-api.ts）指到本地 stub。
+// 普通渠道轮询走 node-telegram-bot-api（不经 stub），错误态本就被 UI 容忍。
 
 test.describe.configure({ mode: 'serial' })
 
@@ -15,6 +21,31 @@ let app: ElectronApplication
 let win: Page
 let configDir: string
 let configPath: string
+let tgStub: Server
+
+/** 本地 Telegram Bot API stub：只实现 getMe（username 固定 e2e_bot，非 manager） */
+function startTgStub(): Promise<string> {
+  tgStub = createServer((req, res) => {
+    res.setHeader('content-type', 'application/json')
+    if (/^\/bot[^/]+\/getMe$/.test(req.url ?? '')) {
+      res.end(
+        JSON.stringify({
+          ok: true,
+          result: { id: 10001, is_bot: true, first_name: 'E2E Bot', username: 'e2e_bot', can_manage_bots: false },
+        }),
+      )
+      return
+    }
+    res.statusCode = 404
+    res.end(JSON.stringify({ ok: false, error_code: 404, description: 'Not Found' }))
+  })
+  return new Promise((resolve) => {
+    tgStub.listen(0, '127.0.0.1', () => {
+      const { port } = tgStub.address() as AddressInfo
+      resolve(`http://127.0.0.1:${port}`)
+    })
+  })
+}
 
 test.beforeAll(async () => {
   configDir = mkdtempSync(path.join(tmpdir(), 'susie-e2e-config-'))
@@ -28,6 +59,7 @@ test.beforeAll(async () => {
   delete env['SUSIE_SMOKE']
   env['SUSIE_CONFIG_DIR'] = configDir
   env['SUSIE_USER_DATA_DIR'] = mkdtempSync(path.join(tmpdir(), 'susie-e2e-userdata-'))
+  env['SUSIE_TG_API_BASE'] = await startTgStub()
 
   app = await electron.launch({ args: ['.'], cwd: process.cwd(), env })
   win = await app.firstWindow()
@@ -35,6 +67,7 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await app?.close()
+  await new Promise((resolve) => tgStub?.close(resolve))
 })
 
 test('首次启动：出现 onboarding 引导，跳过后进入主界面', async () => {
@@ -54,15 +87,16 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
 
 test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async () => {
   await win.getByRole('link', { name: '频道' }).click()
-  await win.getByRole('button', { name: '新增频道' }).click()
+  await win.getByRole('button', { name: '新增', exact: true }).click()
   await win.getByPlaceholder('my_bot').fill('e2e_bot')
   await win.getByPlaceholder('123456:bot-token').fill('10001:e2e-token')
   await expect(win.getByPlaceholder('my_bot')).toHaveValue('e2e_bot')
   await expect(win.getByPlaceholder('123456:bot-token')).toHaveValue('10001:e2e-token')
   await win.getByRole('button', { name: '保存', exact: true }).click()
 
-  // 新建成功 → 立即弹出 Owner 绑定（假 token 拿不到深链，但监听面板照常出现）；此处稍后再设
+  // 保存前 getMe 打到本地 stub（非 manager → 普通渠道）→ 立即弹出 Owner 绑定；此处稍后再设
   await expect(win.getByRole('heading', { name: '绑定 Owner' })).toBeVisible()
+  await expect(win.getByText('t.me/e2e_bot')).toBeVisible()
   await expect(win.getByText('正在等待你的消息…')).toBeVisible()
   await win.getByRole('button', { name: '稍后在「用户」页设置' }).click()
   await expect(win.getByRole('heading', { name: '绑定 Owner' })).toHaveCount(0)

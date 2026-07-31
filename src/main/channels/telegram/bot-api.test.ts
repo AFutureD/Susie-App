@@ -9,6 +9,7 @@ function stubFetch(body: unknown, status = 200): ReturnType<typeof vi.fn> {
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
 })
 
 describe('callBotApi', () => {
@@ -17,6 +18,13 @@ describe('callBotApi', () => {
     const result = await callBotApi<{ id: number }>('T:1', 'getMe')
     expect(result.id).toBe(1)
     expect(fn).toHaveBeenCalledWith('https://api.telegram.org/botT:1/getMe', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('SUSIE_TG_API_BASE 覆写 API base', async () => {
+    vi.stubEnv('SUSIE_TG_API_BASE', 'http://127.0.0.1:8081')
+    const fn = stubFetch({ ok: true, result: { id: 1, is_bot: true } })
+    await callBotApi('T:1', 'getMe')
+    expect(fn).toHaveBeenCalledWith('http://127.0.0.1:8081/botT:1/getMe', expect.anything())
   })
 
   it('非 ok 响应映射为 BotApiError（含 retry_after）', async () => {

@@ -2,6 +2,11 @@
 // node-telegram-bot-api v1.2 不认识 Bot API 9.6 的 managed_bot update，也没有 getManagedBotToken，
 // manager 侧全部经此文件直调 HTTP。普通渠道（bot.ts）继续走库，互不影响。
 
+import process from 'node:process'
+
+/** API base 可经 SUSIE_TG_API_BASE 覆写（自建 Bot API server / e2e 本地 stub） */
+const apiBase = (): string => process.env['SUSIE_TG_API_BASE'] ?? 'https://api.telegram.org'
+
 export interface TgUser {
   id: number
   is_bot: boolean
@@ -84,7 +89,7 @@ export async function callBotApi<T>(
   const { timeoutMs = 30_000, signal } = options
   const signals = [AbortSignal.timeout(timeoutMs), ...(signal ? [signal] : [])]
 
-  const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+  const response = await fetch(`${apiBase()}/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(params),
