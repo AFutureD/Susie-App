@@ -38,10 +38,11 @@ test.afterAll(async () => {
 })
 
 test('首次启动：出现 onboarding 引导，跳过后进入主界面', async () => {
-  // 启动时 config.toml 不存在（firstRun）→ 引导第 1 步（添加频道）
+  // 启动时 config.toml 不存在（firstRun）→ 引导第 1 步（添加 Manager Bot，含步骤指示器与示范视频）
   await expect(win.getByText('欢迎使用 Susie')).toBeVisible()
-  await expect(win.getByText('第 1 步 · 添加 Telegram Bot')).toBeVisible()
-  await expect(win.getByText(/BotFather 创建 Bot/)).toBeVisible()
+  await expect(win.getByRole('heading', { name: '添加 Manager Bot' })).toBeVisible()
+  await expect(win.getByText(/Bot Management Mode/)).toBeVisible()
+  await expect(win.locator('video')).toBeVisible()
 
   await win.getByRole('button', { name: /跳过引导/ }).click()
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)

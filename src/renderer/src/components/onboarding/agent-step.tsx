@@ -5,7 +5,7 @@ import { ipc } from '../../lib/ipc'
 import { AgentProgressLine, useAgentProgress } from '../agent-progress'
 import { Button } from '../form'
 
-// 向导第 4 步（最后一步）：准备 Agent。检测本机 codex/claude CLI——检测到即推荐对应 agent
+// 向导第 5 步（最后一步）：准备 Agent。检测本机 codex/claude CLI——检测到即推荐对应 agent
 // （可复用其登录）；安装必须由用户手动点击（复用 agents.install 与进度事件流），
 // 不自动安装，「下一步」/「跳过此步」都进完成页。
 

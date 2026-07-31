@@ -6,6 +6,7 @@ import type { SenderInfo } from '../../../shared/messages'
 import { transferOwner } from '../../../shared/users'
 import { channelStatusesAtom, managerStatusesAtom } from '../lib/service-atoms'
 import { ipc } from '../lib/ipc'
+import { tgResolveLink } from '../lib/telegram'
 import { Button, ErrorText } from './form'
 import { useSenders } from './member-picker'
 
@@ -55,7 +56,7 @@ export function OwnerBindPanel({
           <Button
             variant="primary"
             disabled={botUsername === null}
-            onClick={() => void ipc.app.openExternal({ url: `https://t.me/${botUsername ?? ''}` })}
+            onClick={() => void ipc.app.openExternal({ url: tgResolveLink(botUsername ?? '') })}
           >
             {intl.formatMessage({ id: 'onboarding.listen.open' })}
           </Button>

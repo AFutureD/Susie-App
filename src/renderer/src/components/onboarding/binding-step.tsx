@@ -7,10 +7,11 @@ import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/confi
 import type { ChatInfo } from '../../../../shared/messages'
 import { ipc } from '../../lib/ipc'
 import { useChatsQuery } from '../../lib/ipc-query'
+import { tgResolveLink } from '../../lib/telegram'
 import { channelStatusesAtom } from '../../lib/service-atoms'
 import { Button, ErrorText } from '../form'
 
-// 向导第 3 步：会话绑定（全部会话默认 / 仅指定会话 + 监听新会话面板）。
+// 向导第 4 步：会话绑定（全部会话默认 / 仅指定会话 + 监听新会话面板）。
 
 export function BindingStep({
   state,
@@ -180,7 +181,7 @@ function ListenPanel({
           <Button
             variant="primary"
             disabled={botUsername === null}
-            onClick={() => void ipc.app.openExternal({ url: `https://t.me/${botUsername ?? ''}` })}
+            onClick={() => void ipc.app.openExternal({ url: tgResolveLink(botUsername ?? '') })}
           >
             {intl.formatMessage({ id: 'onboarding.listen.open' })}
           </Button>

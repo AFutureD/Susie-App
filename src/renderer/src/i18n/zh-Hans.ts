@@ -41,17 +41,26 @@ export const zhHans: Record<string, string> = {
   // 首启引导
   'onboarding.welcome.title': '欢迎使用 Susie',
   'onboarding.welcome.subtitle':
-    '四步完成初始设置：连接 Telegram Bot，绑定 Owner，选择由助手响应的会话，并准备 Agent。',
+    '五步完成初始设置：添加 Manager Bot，绑定 Owner，创建你的第一个 Bot，选择响应的会话，并准备 Agent。',
   'onboarding.skip': '跳过引导（之后可在「Agent」「频道」「用户」与「助手」页手动配置）',
-  'onboarding.step.channel': '第 1 步 · 添加 Telegram Bot',
-  'onboarding.channel.guide.step1': '在 Telegram 中找 @BotFather 创建 Bot，获取 token。',
-  'onboarding.channel.guide.step2':
-    '在 BotFather 的 Bot Settings 中：打开 Secretary Mode 和 Bot to Bot Communication Mode，关闭 Group Privacy。',
-  'onboarding.channel.guide.open': '打开 @BotFather',
-  'onboarding.channel.submit': '连接',
-  'onboarding.channel.connecting': '正在连接…',
-  'onboarding.step.owner': '第 2 步 · 绑定 Owner',
-  'onboarding.step.binding': '第 3 步 · 会话绑定',
+  'onboarding.progress.manager': 'Manager Bot',
+  'onboarding.progress.owner': '绑定 Owner',
+  'onboarding.progress.bot': '添加 Bot',
+  'onboarding.progress.binding': '会话绑定',
+  'onboarding.progress.agent': '准备 Agent',
+  'onboarding.step.manager': '添加 Manager Bot',
+  'onboarding.manager.guide.step1': '在 Telegram 中找 @BotFather 创建 Bot，获取 token。',
+  'onboarding.manager.guide.step2': '在 BotFather 的 Bot Settings 中打开「Bot Management Mode」（参照右侧示范）。',
+  'onboarding.manager.guide.open': '打开 @BotFather',
+  'onboarding.manager.submit': '连接',
+  'onboarding.manager.connecting': '正在连接…',
+  'onboarding.manager.notManager':
+    '该 bot 未开启 Bot Management Mode，不能作为 Manager。请在 @BotFather 的 Bot Settings 中打开后重试。',
+  'onboarding.step.owner': '绑定 Owner',
+  'onboarding.owner.managerNote': '之后由此 Manager 创建的 Bot，其 Owner 默认继承这里的绑定。',
+  'onboarding.step.bot': '添加 Bot',
+  'onboarding.bot.subtitle': '用 Manager 在 Telegram 中一键创建你的第一个会话 Bot；它的 Owner 默认与 Manager 相同。',
+  'onboarding.step.binding': '会话绑定',
   'onboarding.binding.subtitle': '选择哪些会话交给助手响应，之后可随时在「助手」页调整。用户权限在「用户」页设置。',
   'onboarding.binding.all.title': '所有会话（默认）',
   'onboarding.binding.all.desc': '所有私聊和群聊都由助手响应（群内默认仅响应 @ 提及）。点击即完成设置。',
@@ -67,7 +76,7 @@ export const zhHans: Record<string, string> = {
   'onboarding.listen.bound': '已绑定',
   'onboarding.listen.back': '返回',
   'onboarding.listen.finish': '完成',
-  'onboarding.step.agent': '第 4 步 · 准备 Agent',
+  'onboarding.step.agent': '准备 Agent',
   'onboarding.agent.subtitle':
     '助手由本机 agent 驱动回复。Susie 会检测已安装的 codex / claude CLI 并推荐对应 agent；安装由你手动触发，也可以稍后在「Agent」页进行。',
   'onboarding.agent.cli.found': '检测到本机 {cli} CLI——推荐安装此 agent，安装后可复用其登录。',
@@ -85,8 +94,8 @@ export const zhHans: Record<string, string> = {
   'page.channels.title': '频道',
   'page.channels.empty': '还没有配置任何频道。点击「新增频道」，填入 Telegram Bot 的 token 即可开始。',
   'channels.add': '新增',
-  'channels.addForm.hint': '保存时自动识别类型：开启了 Bot Management Mode 的 bot 作为渠道管理（Manager）接入，其余为普通频道。',
-  'onboarding.channel.managerToken': '这是一个 Manager Bot（已开启 Bot Management Mode），不能作为会话频道。请换一个普通 bot 的 token，Manager 可在之后的「频道」页添加。',
+  'channels.addForm.hint':
+    '保存时自动识别类型：开启了 Bot Management Mode 的 bot 作为渠道管理（Manager）接入，其余为普通频道。',
   'channels.enable': '启用',
   'channels.disable': '停用',
   'channels.deleteConfirm': '确定删除频道 "{id}"？其下所有会话绑定不会被自动清理。',
@@ -99,7 +108,8 @@ export const zhHans: Record<string, string> = {
 
   'managerBots.addManaged': '添加托管 Bot',
   'managerBots.hint': 'Manager 只负责创建与管理托管 bot，不参与会话，也不能被绑定或作为任务目标。',
-  'managerBots.deleteConfirm': '确定删除 Manager "{id}"？其下托管渠道会保留，仅失去分组与 token 自动轮换；未添加的发现记录将被清空。',
+  'managerBots.deleteConfirm':
+    '确定删除 Manager "{id}"？其下托管渠道会保留，仅失去分组与 token 自动轮换；未添加的发现记录将被清空。',
 
   'managedBot.title': '添加托管 Bot',
   'managedBot.subtitle': '在 Telegram 中一键创建新 bot；创建完成后会实时出现在下方列表，点「添加」才会成为频道。',
