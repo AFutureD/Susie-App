@@ -3,15 +3,10 @@ import { useIntl } from 'react-intl'
 import type { ConfigState, ManagerBotConfig } from '../../../../shared/config'
 import { Button, ErrorText, Field, TextInput } from '../../components/form'
 import { ipc } from '../../lib/ipc'
-import { maskToken } from './telegram-form'
 
 // Manager bot 的行内编辑（新增走统一的 AddBotForm，凭 can_manage_bots 自动落到这一类）：
 // 只有 token——无 enabled（存在即运行）、无 drop_pending（离线积压的创建事件必须收）。
 // managing 列表由添加流程维护，表单不暴露。
-
-export function ManagerBotSummary({ settings }: { settings: ManagerBotConfig }) {
-  return <span>token {maskToken(settings.token)}</span>
-}
 
 export function ManagerBotForm({
   managerId,

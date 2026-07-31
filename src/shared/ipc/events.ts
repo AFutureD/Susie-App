@@ -7,6 +7,7 @@ import type { ConfigState } from '../config'
 import type {
   AgentProgress,
   AutoReviewRecord,
+  BotIdentity,
   ChannelStatus,
   ManagedBotDiscovery,
   StoredMessage,
@@ -17,6 +18,8 @@ import type {
 export interface IpcEvents {
   'config.state': ConfigState
   'channels.status': ChannelStatus[]
+  /** 渠道/manager 的 getMe 身份缓存变化（全量替换） */
+  'channels.identities': BotIdentity[]
   /** manager bot 轮询器状态（渠道管理不是渠道，独立于 channels.status） */
   'managerBots.status': ChannelStatus[]
   /** 某 manager 的 managed bot 发现列表变化（全量替换） */

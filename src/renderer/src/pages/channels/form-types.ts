@@ -15,6 +15,4 @@ export interface ChannelFormProps {
 
 export interface ChannelTypeUi {
   Form: (props: ChannelFormProps) => ReactNode
-  /** 列表行的类型特有摘要（如 Telegram 的脱敏 token） */
-  Summary: (props: { settings: ChannelSettings }) => ReactNode
 }

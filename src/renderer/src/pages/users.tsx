@@ -20,7 +20,7 @@ import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
-import { useChatsQuery } from '../lib/ipc-query'
+import { useBotIdentityMap, useChatsQuery } from '../lib/ipc-query'
 import { useConfigMutation } from '../lib/ipc-mutation'
 
 // 用户管理 = 身份轴：owner 全局直通并负责审核；其余用户按范围（私聊 / 具体群）三档
@@ -53,6 +53,7 @@ function useChannelGroups(channelId: string): KnownGroup[] {
 export function UsersPage() {
   const intl = useIntl()
   const state = useAtomValue(configStateAtom)
+  const identityMap = useBotIdentityMap()
 
   if (!state) {
     return <Page titleId="page.users.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
@@ -81,6 +82,7 @@ export function UsersPage() {
             key={channelId}
             state={state}
             channelId={channelId}
+            channelLabel={identityMap.get(channelId)?.name ?? channelId}
             manager={channelId in state.config.manager_bots}
             ghost={!(channelId in state.config.channels) && !(channelId in state.config.manager_bots)}
           />
@@ -93,11 +95,14 @@ export function UsersPage() {
 function ChannelUsersCard({
   state,
   channelId,
+  channelLabel,
   manager,
   ghost,
 }: {
   state: ConfigState
   channelId: string
+  /** 渠道显示名（getMe display name，回退渠道 id） */
+  channelLabel: string
   manager: boolean
   ghost: boolean
 }) {
@@ -150,7 +155,7 @@ function ChannelUsersCard({
   return (
     <div className="rounded-xl border border-line bg-raised p-4">
       <div className="flex items-center gap-2">
-        <span className="truncate text-sm font-semibold">{channelId}</span>
+        <span className="truncate text-sm font-semibold">{channelLabel}</span>
         {manager && (
           <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">manager</span>
         )}

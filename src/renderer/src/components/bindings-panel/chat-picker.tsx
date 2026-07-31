@@ -9,6 +9,7 @@ import { Modal } from '../modal'
 /** 添加会话弹窗：历史会话候选 + 手动输入兜底 */
 export function ChatPickerModal({
   channelId,
+  channelLabel,
   chats,
   existingChatIds,
   excludeChatTypes,
@@ -16,6 +17,8 @@ export function ChatPickerModal({
   onClose,
 }: {
   channelId: string
+  /** 标题里的渠道显示名；缺省用 channelId */
+  channelLabel?: string
   chats: ChatInfo[]
   existingChatIds: Set<string>
   /** 屏蔽的 chat 类型（如 bindings 侧屏蔽 'channel'；定时任务不设，允许全部类型） */
@@ -40,7 +43,7 @@ export function ChatPickerModal({
 
   return (
     <Modal
-      title={intl.formatMessage({ id: 'bindings.picker.chat.title' }, { id: channelId })}
+      title={intl.formatMessage({ id: 'bindings.picker.chat.title' }, { id: channelLabel ?? channelId })}
       panelClassName="max-h-[70vh] w-96 overflow-y-auto p-4"
       onClose={onClose}
     >

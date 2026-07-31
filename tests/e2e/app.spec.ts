@@ -23,17 +23,25 @@ let configDir: string
 let configPath: string
 let tgStub: Server
 
-/** 本地 Telegram Bot API stub：只实现 getMe（username 固定 e2e_bot，非 manager） */
+/**
+ * 本地 Telegram Bot API stub：只实现 getMe，且只认识 e2e_bot 的 token——
+ * 其余 token（hot_bot / conflict_bot）返回 401，用于验证身份拉取失败时 UI 回退渠道 id。
+ */
 function startTgStub(): Promise<string> {
   tgStub = createServer((req, res) => {
     res.setHeader('content-type', 'application/json')
-    if (/^\/bot[^/]+\/getMe$/.test(req.url ?? '')) {
+    if (req.url === '/bot10001:e2e-token/getMe') {
       res.end(
         JSON.stringify({
           ok: true,
           result: { id: 10001, is_bot: true, first_name: 'E2E Bot', username: 'e2e_bot', can_manage_bots: false },
         }),
       )
+      return
+    }
+    if (/^\/bot[^/]+\/getMe$/.test(req.url ?? '')) {
+      res.statusCode = 401
+      res.end(JSON.stringify({ ok: false, error_code: 401, description: 'Unauthorized' }))
       return
     }
     res.statusCode = 404
@@ -82,11 +90,11 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
 
   // 主界面：侧边栏挂载，首页为 NAV_ROUTES[0]（助手页，导航清单同源 shared/nav.ts）
   await expect(win.locator('nav a')).toHaveCount(NAV_ROUTES.length)
-  await expect(win.getByText('还没有配置任何频道')).toBeVisible()
+  await expect(win.getByText('还没有配置任何渠道')).toBeVisible()
 })
 
-test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async () => {
-  await win.getByRole('link', { name: '频道' }).click()
+test('UI 新建渠道并落盘 config.toml；随即进入 Owner 绑定', async () => {
+  await win.getByRole('link', { name: '渠道' }).click()
   await win.getByRole('button', { name: '新增', exact: true }).click()
   await win.getByPlaceholder('my_bot').fill('e2e_bot')
   await win.getByPlaceholder('123456:bot-token').fill('10001:e2e-token')
@@ -101,9 +109,9 @@ test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async (
   await win.getByRole('button', { name: '稍后在「用户」页设置' }).click()
   await expect(win.getByRole('heading', { name: '绑定 Owner' })).toHaveCount(0)
 
-  await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
-  // token 打码展示
-  await expect(win.getByText(/token 1000••••oken/)).toBeVisible()
+  // 渠道行：getMe 身份 → 标题 display name、副标题 @username（token 不再出现在列表）
+  await expect(win.getByText('E2E Bot', { exact: true })).toBeVisible()
+  await expect(win.getByText('@e2e_bot')).toBeVisible()
 
   const text = readFileSync(configPath, 'utf-8')
   expect(text).toContain('[channels.e2e_bot]')
@@ -112,14 +120,15 @@ test('UI 新建频道并落盘 config.toml；随即进入 Owner 绑定', async (
 
 test('外部编辑 config.toml 热加载进 UI', async () => {
   appendFileSync(configPath, '\n[channels.hot_bot]\ntype = "telegram_bot"\ntoken = "1:hot"\n')
+  // stub 不认识该 token → 无身份，标题回退渠道 id
   await expect(win.getByText('hot_bot', { exact: true })).toBeVisible()
 })
 
 test('树形面板把「默认」会话指派给助手并落盘', async () => {
   await win.getByRole('link', { name: '助手' }).click()
 
-  // 左栏树：频道行 + 每频道恒存的「默认」行（e2e_bot 先于 hot_bot 声明，取第一个）
-  await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
+  // 左栏树：渠道行（display name）+ 每渠道恒存的「默认」行（e2e_bot 先于 hot_bot 声明，取第一个）
+  await expect(win.getByText('E2E Bot', { exact: true })).toBeVisible()
   const defaultRow = win.getByText('默认（其余会话）').first()
   await expect(defaultRow).toBeVisible()
 
@@ -153,9 +162,9 @@ test('Raw 编辑器：非法配置被拒绝，不影响运行态', async () => {
   await win.getByRole('button', { name: '校验并保存' }).click()
   await expect(win.getByText(/配置校验失败|TOML 解析失败/)).toBeVisible()
 
-  // 运行态仍是 last-good：频道页数据完好
-  await win.getByRole('link', { name: '频道' }).click()
-  await expect(win.getByText('e2e_bot', { exact: true })).toBeVisible()
+  // 运行态仍是 last-good：渠道页数据完好
+  await win.getByRole('link', { name: '渠道' }).click()
+  await expect(win.getByText('E2E Bot', { exact: true })).toBeVisible()
 })
 
 test('Agent 页：同构列表渲染 Codex 行与安装态', async () => {
@@ -185,8 +194,8 @@ test('技能页：维度切换、搜索与获取入口', async () => {
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
 })
 
-test('历史页：空态与会话列表骨架', async () => {
-  await win.getByRole('link', { name: '历史' }).click()
+test('会话页：空态与会话列表骨架', async () => {
+  await win.getByRole('link', { name: '会话' }).click()
   await expect(win.getByText('还没有任何消息记录')).toBeVisible()
   await expect(win.getByPlaceholder('搜索全部历史（回车）')).toBeVisible()
 })

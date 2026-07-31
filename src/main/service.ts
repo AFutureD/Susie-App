@@ -9,6 +9,7 @@ import { CodexInstaller } from './agents/codex/installer'
 import { AgentManager } from './agents/manager'
 import type { AgentRuntime } from './agents/types'
 import { ChannelHub } from './channels/hub'
+import { BotIdentityRegistry } from './channels/identity'
 import { DiscoveryRepo } from './channels/telegram/discovery-repo'
 import { telegramBotFactory } from './channels/telegram/factory'
 import { ManagedBotRegistry } from './channels/telegram/managed-bots'
@@ -53,6 +54,7 @@ export class SusieService {
   readonly autoReviewRepo: AutoReviewRepo
   readonly taskRuns: TaskRunRepo
   readonly hub: ChannelHub
+  readonly identity: BotIdentityRegistry
   readonly managedBots: ManagedBotRegistry
   readonly chatManager: ChatManager
   readonly approvals: ApprovalManager
@@ -163,6 +165,13 @@ export class SusieService {
       log,
     })
 
+    // 渠道 bot 身份缓存（display name / username），纯 UI 展示用
+    this.identity = new BotIdentityRegistry({
+      store,
+      emit: (identities) => broadcast('channels.identities', identities),
+      log,
+    })
+
     // 权限名单变化 → 各通道命令菜单重新同步（谁能看到需审核命令随之变化）
     this.unsubUsers = store.subscribePath('users', () => this.hub.refreshCommandMenus())
   }
@@ -192,6 +201,7 @@ export class SusieService {
     })
 
     this.hub.start()
+    this.identity.start()
     this.managedBots.start()
     this.scheduler.start()
   }
@@ -206,6 +216,7 @@ export class SusieService {
     // 会话销毁要等 agent 子进程限时收尸；mcp.stop 不允许挂住退出
     await withTimeout(this.chatManager.dispose(), 3500, undefined)
     this.log.info('service stopping: hub')
+    this.identity.stop()
     await this.hub.stopAll()
     this.log.info('service stopping: manager bots')
     await this.managedBots.stopAll()

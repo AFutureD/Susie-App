@@ -1,18 +1,9 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
-import type { ChannelSettings, TelegramBotChannelSettings } from '../../../../shared/config'
+import type { TelegramBotChannelSettings } from '../../../../shared/config'
 import { Button, CheckboxField, ErrorText, Field, TextInput } from '../../components/form'
 import { ipc } from '../../lib/ipc'
 import type { ChannelFormProps } from './form-types'
-
-export function maskToken(token: string): string {
-  if (token.length <= 8) return '••••••'
-  return `${token.slice(0, 4)}••••${token.slice(-4)}`
-}
-
-export function TelegramChannelSummary({ settings }: { settings: ChannelSettings }) {
-  return <span>token {maskToken(settings.token)}</span>
-}
 
 /** telegram_bot 渠道的行内编辑（新增走统一的 AddBotForm） */
 export function TelegramChannelForm({ channelId, initial: initialSettings, state, onDone }: ChannelFormProps) {

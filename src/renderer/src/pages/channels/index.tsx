@@ -2,24 +2,26 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { ChannelSettings, ConfigState } from '../../../../shared/config'
-import type { ChannelStatus } from '../../../../shared/messages'
+import type { BotIdentity, ChannelStatus } from '../../../../shared/messages'
 import { Button } from '../../components/form'
 import { OwnerBindModal } from '../../components/owner-bind'
 import { Page } from '../../components/page'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { channelStatusesAtom, managerStatusesAtom } from '../../lib/service-atoms'
+import { useBotIdentityMap } from '../../lib/ipc-query'
 import { useConfigMutation } from '../../lib/ipc-mutation'
 import { AddBotForm } from './add-bot-form'
 import { AddManagedBotModal } from './add-managed-bot-modal'
+import { BotUsername } from './bot-username'
 import type { ChannelTypeUi } from './form-types'
-import { ManagerBotForm, ManagerBotSummary } from './manager-form'
+import { ManagerBotForm } from './manager-form'
 import { buildChannelList } from './model'
-import { TelegramChannelForm, TelegramChannelSummary } from './telegram-form'
+import { TelegramChannelForm } from './telegram-form'
 
 /** per-type 行内编辑注册表：新增通道类型 = 加一个 <type>-form.tsx + 此处登记一项 */
 const CHANNEL_UI: Record<ChannelSettings['type'], ChannelTypeUi> = {
-  telegram_bot: { Form: TelegramChannelForm, Summary: TelegramChannelSummary },
+  telegram_bot: { Form: TelegramChannelForm },
 }
 
 const STATE_DOT: Record<string, string> = {
@@ -55,6 +57,7 @@ function StatusDetail({ status }: { status: ChannelStatus | undefined }) {
 function ChannelRow({
   id,
   settings,
+  identity,
   status,
   state,
   editing,
@@ -63,6 +66,7 @@ function ChannelRow({
 }: {
   id: string
   settings: ChannelSettings
+  identity: BotIdentity | undefined
   status: ChannelStatus | undefined
   state: ConfigState
   editing: string | null
@@ -90,7 +94,7 @@ function ChannelRow({
         <StatusDot status={status} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold">{id}</span>
+            <span className="truncate text-sm font-semibold">{identity?.name ?? id}</span>
             {variant === 'card' && (
               <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
                 {settings.type}
@@ -98,9 +102,11 @@ function ChannelRow({
             )}
             <StatusDetail status={status} />
           </div>
-          <div className="mt-1 flex gap-4 font-mono text-xs text-ink-muted">
-            <typeUi.Summary settings={settings} />
-          </div>
+          {identity?.username != null && (
+            <div className="mt-1 flex">
+              <BotUsername username={identity.username} />
+            </div>
+          )}
         </div>
         <Button onClick={() => void toggleEnabled()}>
           {intl.formatMessage({ id: settings.enabled ? 'channels.disable' : 'channels.enable' })}
@@ -131,6 +137,7 @@ export function ChannelsPage() {
   const state = useAtomValue(configStateAtom)
   const statuses = useAtomValue(channelStatusesAtom)
   const managerStatuses = useAtomValue(managerStatusesAtom)
+  const identityMap = useBotIdentityMap()
   const mutation = useConfigMutation()
   const [editing, setEditing] = useState<string | null>(null)
   const [editingManager, setEditingManager] = useState<string | null>(null)
@@ -181,6 +188,7 @@ export function ChannelsPage() {
             key={entry.id}
             id={entry.id}
             settings={entry.settings}
+            identity={identityMap.get(entry.id)}
             status={statusById.get(entry.id)}
             state={state}
             editing={editing}
@@ -190,6 +198,7 @@ export function ChannelsPage() {
 
         {managers.map(([id, settings]) => {
           const status = managerStatusById.get(id)
+          const identity = identityMap.get(id)
           const members = model.grouped.get(id) ?? []
           return (
             <div key={id} className="rounded-xl border border-line bg-raised p-4">
@@ -197,15 +206,17 @@ export function ChannelsPage() {
                 <StatusDot status={status} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold">{id}</span>
+                    <span className="truncate text-sm font-semibold">{identity?.name ?? id}</span>
                     <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
                       manager
                     </span>
                     <StatusDetail status={status} />
                   </div>
-                  <div className="mt-1 flex gap-4 font-mono text-xs text-ink-muted">
-                    <ManagerBotSummary settings={settings} />
-                  </div>
+                  {identity?.username != null && (
+                    <div className="mt-1 flex">
+                      <BotUsername username={identity.username} />
+                    </div>
+                  )}
                 </div>
                 <Button variant="primary" onClick={() => setAddManagedFor(id)}>
                   {intl.formatMessage({ id: 'managerBots.addManaged' })}
@@ -236,6 +247,7 @@ export function ChannelsPage() {
                       key={entry.id}
                       id={entry.id}
                       settings={entry.settings}
+                      identity={identityMap.get(entry.id)}
                       status={statusById.get(entry.id)}
                       state={state}
                       editing={editing}

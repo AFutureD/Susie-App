@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useSyncExternalStore } from 'react'
 import type { IpcEvents } from '../../../shared/ipc/events'
 import { errorMessage } from '../../../shared/errors'
@@ -133,10 +133,23 @@ export function resetIpcQueryCacheForTests(): void {
 
 // ---------- 常用查询 ----------
 
-import type { ChatInfo } from '../../../shared/messages'
+import type { BotIdentity, ChatInfo } from '../../../shared/messages'
 import { ipc } from './ipc'
 
 /** 全部历史会话（history.message 事件自动失效；所有页面共享同一缓存条目与订阅） */
 export function useChatsQuery(): QuerySnapshot<ChatInfo[]> & { refetch: () => void } {
   return useIpcQuery('history.chats', () => ipc.history.chats(), { invalidateOn: ['history.message'] })
+}
+
+/** 渠道/manager bot 的 getMe 身份快照（channels.identities 事件自动失效） */
+export function useBotIdentitiesQuery(): QuerySnapshot<BotIdentity[]> & { refetch: () => void } {
+  return useIpcQuery('channels.identities', () => ipc.channels.identities(), {
+    invalidateOn: ['channels.identities'],
+  })
+}
+
+/** channelId → 身份的查找表；未拉到身份的渠道不在表中（调用方回退渠道 id） */
+export function useBotIdentityMap(): Map<string, BotIdentity> {
+  const { data } = useBotIdentitiesQuery()
+  return useMemo(() => new Map((data ?? []).map((identity) => [identity.channelId, identity])), [data])
 }

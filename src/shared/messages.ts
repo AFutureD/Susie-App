@@ -128,6 +128,17 @@ export interface ChannelStatus {
 }
 
 /**
+ * 渠道 bot 的 getMe 身份（应用启动/配置变更时主进程拉取并缓存）。
+ * UI 用 name 作渠道显示名、username 作副标题；拉取失败的渠道不在列表中（UI 回退渠道 id）。
+ */
+export interface BotIdentity {
+  channelId: string
+  /** first_name [+ last_name]，Telegram 侧设置的显示名 */
+  name: string
+  username: string | null
+}
+
+/**
  * manager bot 收到的 managed bot 创建/变更事件（发现 ≠ 添加：仅登记，
  * 用户在「添加托管 Bot」弹窗显式点添加才落地为渠道）。持久化在 SQLite 且
  * 添加后不删——渠道删除后凭此重新加回；列表只吐「未添加」的记录。

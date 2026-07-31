@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { MessagePart, StoredMessage } from '../../../shared/messages'
+import type { ChatInfo, MessagePart, StoredMessage } from '../../../shared/messages'
 import { Button, TextInput } from '../components/form'
 import { ipc, onIpcEvent } from '../lib/ipc'
-import { useChatsQuery } from '../lib/ipc-query'
+import { useBotIdentityMap, useChatsQuery } from '../lib/ipc-query'
 
 const REPLY_PREVIEW_MAX = 90
 
@@ -138,6 +138,18 @@ export function HistoryPage() {
 
   const { data: chatsData } = useChatsQuery()
   const chats = chatsData ?? []
+  const identityMap = useBotIdentityMap()
+
+  // 左栏树形导航：按渠道分组（保持 chats 的最近活跃序），组头显示渠道 display name
+  const chatGroups = useMemo(() => {
+    const byChannel = new Map<string, ChatInfo[]>()
+    for (const chat of chatsData ?? []) {
+      const list = byChannel.get(chat.channelId)
+      if (list === undefined) byChannel.set(chat.channelId, [chat])
+      else list.push(chat)
+    }
+    return [...byChannel.entries()]
+  }, [chatsData])
 
   // 引用块的目标解析：当前视图内 (id → message) 的 lookup；超出加载窗口时降级为"未加载"占位
   const messageById = useMemo(() => {
@@ -214,26 +226,33 @@ export function HistoryPage() {
             <p className="px-1 py-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'history.empty' })}</p>
           )}
           <div className="flex flex-col gap-1">
-            {chats.map((chat) => {
-              const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
-              return (
-                <button
-                  key={chatKey(chat.channelId, chat.chatId)}
-                  onClick={() => {
-                    setSearchResults(null)
-                    setSelected({ channelId: chat.channelId, chatId: chat.chatId })
-                  }}
-                  className={`rounded-lg px-3 py-2 text-left transition-colors ${
-                    active ? 'bg-raised shadow-sm' : 'hover:bg-raised/60'
-                  }`}
-                >
-                  <div className="truncate text-sm font-medium">{chat.name ?? chat.chatId}</div>
-                  <div className="truncate font-mono text-[11px] text-ink-muted">
-                    {chat.channelId} · {chat.chatId}
-                  </div>
-                </button>
-              )
-            })}
+            {chatGroups.map(([channelId, groupChats]) => (
+              <div key={channelId}>
+                <div className="truncate px-2 py-1.5 text-xs font-semibold text-ink-muted">
+                  {identityMap.get(channelId)?.name ?? channelId}
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  {groupChats.map((chat) => {
+                    const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
+                    return (
+                      <button
+                        key={chatKey(chat.channelId, chat.chatId)}
+                        onClick={() => {
+                          setSearchResults(null)
+                          setSelected({ channelId: chat.channelId, chatId: chat.chatId })
+                        }}
+                        className={`rounded-lg py-2 pr-3 pl-4 text-left transition-colors ${
+                          active ? 'bg-raised shadow-sm' : 'hover:bg-raised/60'
+                        }`}
+                      >
+                        <div className="truncate text-sm font-medium">{chat.name ?? chat.chatId}</div>
+                        <div className="truncate font-mono text-[11px] text-ink-muted">{chat.chatId}</div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </aside>

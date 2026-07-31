@@ -11,6 +11,8 @@ export function channelsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['
   return {
     statuses: () => service.hub.statuses(),
 
+    identities: () => service.identity.identities(),
+
     resolveUsername: async ({ token }) => {
       try {
         const me = await getMeRaw(token.trim())

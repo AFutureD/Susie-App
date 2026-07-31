@@ -1,5 +1,6 @@
 import { useIntl } from 'react-intl'
 import type { ConfigState } from '../../../../shared/config'
+import { useBotIdentityMap } from '../../lib/ipc-query'
 import { ErrorText } from '../form'
 import { ChatDetail, DefaultDetail, GhostDetail, chatTypeLabel } from './chat-detail'
 import { ChatPickerModal } from './chat-picker'
@@ -15,6 +16,9 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
   const intl = useIntl()
   const panel = useBindings(state)
   const { tree, selection, selectedKey, selectedEntry, selectedRow, busy } = panel
+  const identityMap = useBotIdentityMap()
+  // 渠道以 getMe display name 展示（幽灵/未拉到身份时回退渠道 id）
+  const channelLabel = (channelId: string): string => identityMap.get(channelId)?.name ?? channelId
 
   return (
     <section className="mt-10">
@@ -32,6 +36,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
               <ChannelSection
                 key={entry.channelId}
                 entry={entry}
+                label={channelLabel(entry.channelId)}
                 selectedKey={selectedKey}
                 busy={busy}
                 onSelect={panel.setSelection}
@@ -73,6 +78,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
       {panel.pickerChannel !== null && (
         <ChatPickerModal
           channelId={panel.pickerChannel}
+          channelLabel={channelLabel(panel.pickerChannel)}
           chats={panel.chats}
           existingChatIds={
             new Set(tree.find((entry) => entry.channelId === panel.pickerChannel)?.rows.map((row) => row.chatId) ?? [])
@@ -91,12 +97,15 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
 
 function ChannelSection({
   entry,
+  label,
   selectedKey,
   busy,
   onSelect,
   onAddChat,
 }: {
   entry: ChannelTree
+  /** 渠道显示名（getMe display name，回退渠道 id） */
+  label: string
   selectedKey: string | null
   busy: boolean
   onSelect: (selection: Selection) => void
@@ -114,7 +123,7 @@ function ChannelSection({
           selectedKey === key ? 'bg-accent/10' : ''
         }`}
       >
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-red-500">{entry.channelId}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-red-500">{label}</span>
         <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] text-red-500">
           {intl.formatMessage({ id: 'bindings.tree.ghost' })}
         </span>
@@ -126,7 +135,7 @@ function ChannelSection({
   return (
     <div className="mb-1">
       <div className="flex items-center gap-2 px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{entry.channelId}</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
         <button
           type="button"
           title={intl.formatMessage({ id: 'bindings.tree.addChat' })}
