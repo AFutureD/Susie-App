@@ -81,13 +81,18 @@ function makeHarness(options: {
   const config = makeConfig(options.tasks, options.assistants)
   const emitted: TaskRunRecord[] = []
   const sends: { channelId: string; chatId: string; parts: MessagePart[] }[] = []
+  const scopes: string[] = []
   const runs = new TaskRunRepo(new AppDatabase(':memory:'))
   let clock = options.now ?? MONDAY_9AM
 
   const deps: TaskSchedulerDeps = {
     store: { current: config } as unknown as ConfigStore,
     runs,
-    createRuntime: async () => stubRuntime(options.runtime ?? {}),
+    mcpName: 'susie',
+    createRuntime: async (_assistant, mcpScope) => {
+      scopes.push(mcpScope)
+      return stubRuntime(options.runtime ?? {})
+    },
     sendMessage: async (input) => {
       if ((options.failSendTo ?? []).includes(input.chatId)) throw new Error('通道未运行')
       sends.push(input)
@@ -102,6 +107,7 @@ function makeHarness(options: {
     scheduler,
     emitted,
     sends,
+    scopes,
     runs,
     advance: (ms: number) => {
       clock += ms
@@ -117,7 +123,7 @@ async function settled(emitted: TaskRunRecord[], count = 2): Promise<void> {
 }
 
 describe('TaskScheduler.tick', () => {
-  it('到点触发：留痕 running → ok，输出投递到全部目标', async () => {
+  it('到点触发：留痕 running → ok，agent 未经 MCP 投递时输出兜底投递到全部目标', async () => {
     const h = makeHarness({
       tasks: [
         makeTask({
@@ -228,6 +234,87 @@ describe('TaskScheduler.tick', () => {
     await settled(allFail.emitted)
     expect(allFail.emitted.at(-1)?.status).toBe('error')
     expect(allFail.emitted.at(-1)?.error).toBe('全部目标投递失败')
+  })
+})
+
+describe('MCP 自主投递（noteDelivery 归因）', () => {
+  it('agent 经 send_message 成功投递：不兜底，明细与摘要归因回执行记录', async () => {
+    const holder: { note?: () => void } = {}
+    const prompts: string[] = []
+    const h = makeHarness({
+      tasks: [makeTask()],
+      runtime: {
+        text: '执行摘要',
+        onPrompt: (text) => {
+          prompts.push(text)
+          holder.note?.()
+        },
+      },
+    })
+    holder.note = () =>
+      h.scheduler.noteDelivery(h.scopes[0] ?? '', { channel: 'tg', chatId: 'P:1', ok: true, message: null })
+
+    h.scheduler.tick()
+    await settled(h.emitted)
+
+    expect(h.scopes[0]).toMatch(/^task-\d+$/)
+    // prompt 头部渲染投递目标上下文（agent 据此定位 send_message 的目标）
+    expect(prompts[0]).toContain('<TARGETS>')
+    expect(prompts[0]).toContain('channel_id: tg, chat_id: P:1')
+    const final = h.emitted.at(-1)
+    expect(final?.status).toBe('ok')
+    expect(final?.result).toBe('执行摘要')
+    expect(final?.deliveries).toEqual([{ channel: 'tg', chatId: 'P:1', ok: true, message: null }])
+    expect(h.sends).toHaveLength(0) // 已自主投递 → 调度器不再兜底
+  })
+
+  it('agent 成功投递且无最终输出：状态 ok，result 为 null', async () => {
+    const holder: { note?: () => void } = {}
+    const h = makeHarness({
+      tasks: [makeTask()],
+      runtime: { text: '', onPrompt: () => holder.note?.() },
+    })
+    holder.note = () =>
+      h.scheduler.noteDelivery(h.scopes[0] ?? '', { channel: 'tg', chatId: 'P:1', ok: true, message: null })
+
+    h.scheduler.tick()
+    await settled(h.emitted)
+
+    const final = h.emitted.at(-1)
+    expect(final?.status).toBe('ok')
+    expect(final?.result).toBeNull()
+    expect(h.sends).toHaveLength(0)
+  })
+
+  it('agent 投递全部失败但有输出：兜底投递，失败明细保留', async () => {
+    const holder: { note?: () => void } = {}
+    const h = makeHarness({
+      tasks: [makeTask()],
+      runtime: { text: '要点', onPrompt: () => holder.note?.() },
+    })
+    holder.note = () =>
+      h.scheduler.noteDelivery(h.scopes[0] ?? '', { channel: 'tg', chatId: 'P:9', ok: false, message: '通道未运行' })
+
+    h.scheduler.tick()
+    await settled(h.emitted)
+
+    const final = h.emitted.at(-1)
+    expect(final?.status).toBe('ok')
+    expect(final?.deliveries).toEqual([
+      { channel: 'tg', chatId: 'P:9', ok: false, message: '通道未运行' },
+      { channel: 'tg', chatId: 'P:1', ok: true, message: null },
+    ])
+    expect(h.sends.map((send) => send.chatId)).toEqual(['P:1'])
+  })
+
+  it('无输出且未投递任何消息：记录 error', async () => {
+    const h = makeHarness({ tasks: [makeTask()], runtime: { text: '' } })
+    h.scheduler.tick()
+    await settled(h.emitted)
+    const final = h.emitted.at(-1)
+    expect(final?.status).toBe('error')
+    expect(final?.error).toContain('任务执行无输出')
+    expect(h.sends).toHaveLength(0)
   })
 })
 

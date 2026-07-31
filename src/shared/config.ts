@@ -150,7 +150,8 @@ export const taskTargetSchema = z.strictObject({
 export const taskSkillSchema = z.string().min(1, 'skill 名称不能为空')
 
 /**
- * 定时任务：到点用 assistant 执行一次 content，最终输出发送到全部 targets。
+ * 定时任务：到点用 assistant 执行一次 content，结果由 agent 经 susie MCP send_message
+ * 发送到 targets（可附带文件）；agent 未发送任何消息时，调度器把最终输出兜底投递到全部 targets。
  * schedule 为标准 5 字段 cron（分 时 日 月 周，本地时区）；UI 用预设控件生成/反解析，
  * 不直接暴露表达式。错过的点位（睡眠/未运行）一律跳过，不补跑。
  */

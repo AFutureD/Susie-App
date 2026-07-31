@@ -1,9 +1,9 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import type { StoredMessage } from '../../shared/messages'
+import type { StoredMessage, TaskDelivery } from '../../shared/messages'
 import { resolveDateRange } from './dates'
-import { parseReplyTo, SusieMcpServer, type McpBridge } from './server'
+import { parseReplyTo, scopeFromUrl, SusieMcpServer, type McpBridge } from './server'
 
 describe('parseReplyTo (send_message.reply_to 三态)', () => {
   it('缺省 → undefined（走 turn 锚点）', () => {
@@ -22,6 +22,21 @@ describe('parseReplyTo (send_message.reply_to 三态)', () => {
     expect(parseReplyTo(1.5)).toBeUndefined()
     expect(parseReplyTo('abc')).toBeUndefined()
     expect(parseReplyTo(false)).toBeUndefined()
+  })
+})
+
+describe('scopeFromUrl (归因 scope 提取)', () => {
+  it('/mcp → 无 scope；/mcp/<scope> → scope（含 URL 解码）', () => {
+    expect(scopeFromUrl('/mcp')).toEqual({ scope: undefined })
+    expect(scopeFromUrl('/mcp/task-42')).toEqual({ scope: 'task-42' })
+    expect(scopeFromUrl('/mcp/task%2D1?x=1')).toEqual({ scope: 'task-1' })
+    expect(scopeFromUrl('/mcp/')).toEqual({ scope: undefined })
+  })
+  it('其他路径 → null（404）', () => {
+    expect(scopeFromUrl(undefined)).toBeNull()
+    expect(scopeFromUrl('/')).toBeNull()
+    expect(scopeFromUrl('/mcpfoo')).toBeNull()
+    expect(scopeFromUrl('/other')).toBeNull()
   })
 })
 
@@ -117,5 +132,42 @@ describe('SusieMcpServer roundtrip', () => {
     const result = await client.callTool({ name: 'nope', arguments: {} })
     expect(result.isError).toBe(true)
     await client.close()
+  })
+
+  it('scoped URL（/mcp/<scope>）上的 send_message 触发投递归因回调', async () => {
+    const observed: { scope: string; delivery: TaskDelivery }[] = []
+    server.setDeliveryObserver((scope, delivery) => observed.push({ scope, delivery }))
+
+    const client = new Client({ name: 'test3', version: '0.0.0' })
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${url}/task-7`)))
+    await client.callTool({
+      name: 'send_message',
+      arguments: { channel_id: 'ch', chat_id: 'P:1', content: 'hi' },
+    })
+    expect(observed).toEqual([{ scope: 'task-7', delivery: { channel: 'ch', chatId: 'P:1', ok: true, message: null } }])
+    await client.close()
+
+    // 无 scope（/mcp）不触发回调
+    const plain = new Client({ name: 'test4', version: '0.0.0' })
+    await plain.connect(new StreamableHTTPClientTransport(new URL(url)))
+    await plain.callTool({ name: 'send_message', arguments: { channel_id: 'ch', chat_id: 'P:1', content: 'hi' } })
+    expect(observed).toHaveLength(1)
+    await plain.close()
+
+    // 投递失败同样归因（ok: false + 原因），tool 层照旧返回 isError
+    server.setBridge({ ...bridge, sendMessage: () => Promise.reject(new Error('通道未运行')) })
+    const failing = new Client({ name: 'test5', version: '0.0.0' })
+    await failing.connect(new StreamableHTTPClientTransport(new URL(`${url}/task-8`)))
+    const failed = await failing.callTool({
+      name: 'send_message',
+      arguments: { channel_id: 'ch', chat_id: 'P:1', content: 'hi' },
+    })
+    expect(failed.isError).toBe(true)
+    expect(observed.at(-1)).toEqual({
+      scope: 'task-8',
+      delivery: { channel: 'ch', chatId: 'P:1', ok: false, message: '通道未运行' },
+    })
+    await failing.close()
+    server.setBridge(bridge)
   })
 })

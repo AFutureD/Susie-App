@@ -86,7 +86,7 @@ export interface AutoReviewRecord {
 export type TaskRunStatus = 'running' | 'ok' | 'error'
 export type TaskTrigger = 'schedule' | 'manual'
 
-/** 单个目标的投递结果（随执行记录持久化） */
+/** 单条投递结果（随执行记录持久化）：agent 经 MCP send_message 的自主投递 + 调度器兜底投递 */
 export interface TaskDelivery {
   channel: string
   chatId: string
@@ -102,7 +102,7 @@ export interface TaskRunRecord {
   taskName: string
   trigger: TaskTrigger
   status: TaskRunStatus
-  /** agent 最终输出全文；失败或执行中为 null */
+  /** agent 最终输出全文（执行摘要）；失败、执行中或 agent 经 MCP 投递且无摘要时为 null */
   result: string | null
   error: string | null
   deliveries: TaskDelivery[]

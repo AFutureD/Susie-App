@@ -2,7 +2,8 @@ import http from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import type { ChatInfo, StoredMessage } from '../../shared/messages'
+import { errorMessage } from '../../shared/errors'
+import type { ChatInfo, StoredMessage, TaskDelivery } from '../../shared/messages'
 import type { Logger } from '../util/logger'
 import { resolveDateRange } from './dates'
 
@@ -107,6 +108,27 @@ export function parseReplyTo(value: unknown): string | null | undefined {
 }
 
 /**
+ * 从请求路径提取归因 scope：`/mcp` → 无 scope（会话 agent）；`/mcp/<scope>` → scope
+ * （定时任务的一次执行，见 service.createTaskRuntime）；其他路径 → null（404）。
+ */
+export function scopeFromUrl(url: string | undefined): { scope: string | undefined } | null {
+  if (url === undefined) return null
+  let pathname: string
+  try {
+    pathname = new URL(url, 'http://127.0.0.1').pathname
+  } catch {
+    return null
+  }
+  if (pathname === '/mcp') return { scope: undefined }
+  if (!pathname.startsWith('/mcp/')) return null
+  const scope = decodeURIComponent(pathname.slice('/mcp/'.length))
+  return scope === '' ? { scope: undefined } : { scope }
+}
+
+/** send_message 的投递结果上报（scope 归因）；定时任务据此把 agent 的自主投递记回执行记录 */
+export type McpDeliveryObserver = (scope: string, delivery: TaskDelivery) => void
+
+/**
  * 内置 MCP server（Streamable HTTP，仅监听 127.0.0.1）。
  * agent 通过它反向操作 Susie：主动发消息、查历史、列会话。
  * 无状态模式：每个请求独立 Server + Transport 实例（SDK 推荐做法）。
@@ -114,6 +136,7 @@ export function parseReplyTo(value: unknown): string | null | undefined {
 export class SusieMcpServer {
   private httpServer: http.Server | null = null
   private bridge: McpBridge | null = null
+  private deliveryObserver: McpDeliveryObserver | null = null
   private readonly log: Logger
   url: string | null = null
 
@@ -125,13 +148,18 @@ export class SusieMcpServer {
     this.bridge = bridge
   }
 
+  setDeliveryObserver(observer: McpDeliveryObserver): void {
+    this.deliveryObserver = observer
+  }
+
   async start(preferredPort: number): Promise<string> {
     const server = http.createServer((req, res) => {
-      if (req.url === undefined || !req.url.startsWith('/mcp')) {
+      const parsed = scopeFromUrl(req.url)
+      if (parsed === null) {
         res.writeHead(404).end()
         return
       }
-      void this.handle(req, res).catch((error: unknown) => {
+      void this.handle(req, res, parsed.scope).catch((error: unknown) => {
         this.log.error(`mcp http 请求处理失败：${error instanceof Error ? error.message : String(error)}`)
         if (!res.headersSent) res.writeHead(500)
         res.end()
@@ -153,8 +181,8 @@ export class SusieMcpServer {
     }
   }
 
-  private async handle(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    const mcpServer = this.buildServer()
+  private async handle(req: http.IncomingMessage, res: http.ServerResponse, scope: string | undefined): Promise<void> {
+    const mcpServer = this.buildServer(scope)
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
@@ -167,7 +195,7 @@ export class SusieMcpServer {
     await transport.handleRequest(req, res)
   }
 
-  private buildServer(): Server {
+  private buildServer(scope: string | undefined): Server {
     const server = new Server({ name: 'susie', version: '1.0.0' }, { capabilities: { tools: {} } })
 
     server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: TOOLS }))
@@ -183,16 +211,25 @@ export class SusieMcpServer {
       try {
         switch (request.params.name) {
           case 'send_message': {
+            const channelId = asString(args['channel_id'], 'channel_id')
+            const chatId = asString(args['chat_id'], 'chat_id')
             const file = args['file']
             const files = typeof file === 'string' ? [file] : Array.isArray(file) ? file.map(String) : []
-            const sent = await bridge.sendMessage({
-              channelId: asString(args['channel_id'], 'channel_id'),
-              chatId: asString(args['chat_id'], 'chat_id'),
-              content: typeof args['content'] === 'string' ? args['content'] : '',
-              files,
-              replyTo: parseReplyTo(args['reply_to']),
-            })
-            return toolResult(sent)
+            // scope 归因：定时任务 runtime 走 /mcp/<scope>，投递结果（含失败）回写其执行记录
+            try {
+              const sent = await bridge.sendMessage({
+                channelId,
+                chatId,
+                content: typeof args['content'] === 'string' ? args['content'] : '',
+                files,
+                replyTo: parseReplyTo(args['reply_to']),
+              })
+              this.notifyDelivery(scope, { channel: channelId, chatId, ok: true, message: null })
+              return toolResult(sent)
+            } catch (error) {
+              this.notifyDelivery(scope, { channel: channelId, chatId, ok: false, message: errorMessage(error) })
+              throw error
+            }
           }
 
           case 'list_messages': {
@@ -229,6 +266,10 @@ export class SusieMcpServer {
     })
 
     return server
+  }
+
+  private notifyDelivery(scope: string | undefined, delivery: TaskDelivery): void {
+    if (scope !== undefined) this.deliveryObserver?.(scope, delivery)
   }
 }
 

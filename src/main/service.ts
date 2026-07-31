@@ -115,12 +115,15 @@ export class SusieService {
     this.scheduler = new TaskScheduler({
       store,
       runs: this.taskRuns,
-      createRuntime: (assistant) => this.createTaskRuntime(assistant),
+      mcpName: SUSIE_MCP_NAME,
+      createRuntime: (assistant, mcpScope) => this.createTaskRuntime(assistant, mcpScope),
       // 延迟闭包：chatManager 在下方构造（与 approvals 同款解环手法）
       sendMessage: (input) => this.chatManager.sendMessage(input),
       emit: (record) => broadcast('tasks.run', record),
       log,
     })
+    // 任务 agent 经 scoped MCP（/mcp/task-<runId>）自主投递：结果归因回执行记录
+    this.mcp.setDeliveryObserver((scope, delivery) => this.scheduler.noteDelivery(scope, delivery))
 
     // manager bot 编排：常驻轮询发现 managed bot（发现 ≠ 添加，addManagedBot 是唯一建渠道入口）
     this.managedBots = new ManagedBotRegistry({
@@ -228,48 +231,55 @@ export class SusieService {
     this.log.info('service stopped')
   }
 
-  /** 会话运行时：注入 susie MCP；工作目录缺省 workspace/<assistant.id>（环境准备留在 service 层） */
+  /** 会话运行时：注入裸 susie MCP；工作目录缺省 workspace/<assistant.id> */
   private createRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
-    const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
-    fs.mkdirSync(cwd, { recursive: true })
-    return this.agents.createRuntime({
-      agentId: assistant.agent_id,
-      model: assistant.model ?? null,
-      thinkingLevel: assistant.thinking_level ?? null,
+    return this.buildRuntime(assistant, {
+      cwd: assistant.work_dir ?? getWorkspaceDir(assistant.id),
       models: assistant.models ?? [],
-      cwd,
-      mcpUrl: this.mcp.url,
-      mcpName: SUSIE_MCP_NAME,
+      mcp: 'chat',
     })
   }
 
-  /** 定时任务运行时：工作目录同会话运行时；不注入 susie MCP（结果由调度器统一投递） */
-  private createTaskRuntime(assistant: AssistantConfig): Promise<AgentRuntime> {
-    const cwd = assistant.work_dir ?? getWorkspaceDir(assistant.id)
-    fs.mkdirSync(cwd, { recursive: true })
-    return this.agents.createRuntime({
-      agentId: assistant.agent_id,
-      model: assistant.model ?? null,
-      thinkingLevel: assistant.thinking_level ?? null,
-      models: [],
-      cwd,
-      mcpUrl: null,
-      mcpName: SUSIE_MCP_NAME,
+  /**
+   * 定时任务运行时：工作目录同会话运行时；注入按执行归因的 susie MCP（/mcp/<mcpScope>）——
+   * agent 经 send_message 自行投递结果（支持 file 发文件），投递明细由 delivery observer
+   * 记回执行记录；agent 一条都没发成时调度器把最终输出兜底投递。
+   */
+  private createTaskRuntime(assistant: AssistantConfig, mcpScope: string): Promise<AgentRuntime> {
+    return this.buildRuntime(assistant, {
+      cwd: assistant.work_dir ?? getWorkspaceDir(assistant.id),
+      mcp: { scope: mcpScope },
     })
   }
 
   /** 自动审核运行时：不注入 susie MCP（审核 agent 不应对外发消息），用独立工作目录 */
   private createReviewRuntime(config: AutoReviewConfig): Promise<AgentRuntime> {
-    const cwd = getWorkspaceDir('auto-review')
-    fs.mkdirSync(cwd, { recursive: true })
+    return this.buildRuntime(config, { cwd: getWorkspaceDir('auto-review'), mcp: 'none' })
+  }
+
+  /**
+   * runtime 统一工厂（环境准备 + MCP 注入的唯一实现）。
+   * mcp 档位：'chat' 裸 /mcp（会话 agent）；{ scope } 归因 URL /mcp/<scope>（定时任务，
+   * send_message 投递结果按 scope 记回执行记录）；'none' 不注入（自动审核）。
+   */
+  private buildRuntime(
+    config: Pick<AssistantConfig, 'agent_id' | 'model' | 'thinking_level'>,
+    options: { cwd: string; models?: string[]; mcp: 'chat' | 'none' | { scope: string } },
+  ): Promise<AgentRuntime> {
+    fs.mkdirSync(options.cwd, { recursive: true })
     return this.agents.createRuntime({
       agentId: config.agent_id,
       model: config.model ?? null,
       thinkingLevel: config.thinking_level ?? null,
-      models: [],
-      cwd,
-      mcpUrl: null,
+      models: options.models ?? [],
+      cwd: options.cwd,
+      mcpUrl: this.resolveMcpUrl(options.mcp),
       mcpName: SUSIE_MCP_NAME,
     })
+  }
+
+  private resolveMcpUrl(mcp: 'chat' | 'none' | { scope: string }): string | null {
+    if (mcp === 'none' || this.mcp.url === null) return null
+    return mcp === 'chat' ? this.mcp.url : `${this.mcp.url}/${encodeURIComponent(mcp.scope)}`
   }
 }
