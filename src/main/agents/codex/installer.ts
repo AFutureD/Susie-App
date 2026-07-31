@@ -48,6 +48,28 @@ interface CodexManifest {
 }
 
 /**
+ * 在 PATH 中定位 codex，跳过 node_modules 内的 PATH 目录：dev 下 pnpm script
+ * 会把项目 node_modules/.bin 前置注入 PATH，其中的 @openai/codex vendor wrapper
+ * 会被误认成用户自装的 codex——该来源已被明确禁用（只认 已下载 → PATH）。
+ * 注意只看 PATH 目录本身，不能看 realpath 后的目标：npm/mise 全局安装的 codex
+ * 同样是指向 lib/node_modules/.../codex.js 的 symlink，那是合法的用户安装。
+ */
+export function findCodexOnPath(envPath: string = process.env['PATH'] ?? ''): string | null {
+  for (const dir of envPath.split(path.delimiter)) {
+    if (dir === '' || dir.split(path.sep).includes('node_modules')) continue
+    const candidate = path.join(dir, 'codex')
+    try {
+      if (!fs.statSync(candidate).isFile()) continue
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return candidate
+    } catch {
+      continue
+    }
+  }
+  return null
+}
+
+/**
  * codex 二进制按需下载器。二进制不随应用分发（~300MB），
  * 从 npm registry 拉取 @openai/codex 锁定的版本到 <dataDir>/<version>/。
  * 解析顺序：已下载 → PATH。开发环境体验与正式版一致。
@@ -84,9 +106,11 @@ export class CodexInstaller {
   }
 
   pathProbe(): CodexResolved | null {
-    const probe = spawnSync('codex', ['--version'], { encoding: 'utf-8' })
+    const executable = findCodexOnPath()
+    if (executable === null) return null
+    const probe = spawnSync(executable, ['--version'], { encoding: 'utf-8' })
     if (probe.status !== 0) return null
-    return { source: 'path', version: probe.stdout.trim(), executablePath: 'codex', pathDir: null }
+    return { source: 'path', version: probe.stdout.trim(), executablePath: executable, pathDir: null }
   }
 
   resolve(): CodexResolved | null {

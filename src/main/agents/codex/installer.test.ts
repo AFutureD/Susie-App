@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { CodexInstaller, codexTarballUrl, platformTarget } from './installer'
+import { CodexInstaller, codexTarballUrl, findCodexOnPath, platformTarget } from './installer'
 
 function tempDataDir(): string {
   return path.join(mkdtempSync(path.join(tmpdir(), 'susie-codex-test-')), 'codex')
@@ -26,6 +26,55 @@ describe('platformTarget / codexTarballUrl', () => {
     expect(codexTarballUrl('0.145.0', 'darwin-arm64')).toBe(
       'https://registry.npmjs.org/@openai/codex/-/codex-0.145.0-darwin-arm64.tgz',
     )
+  })
+})
+
+describe('findCodexOnPath', () => {
+  function makeExecutable(dir: string, name = 'codex'): string {
+    mkdirSync(dir, { recursive: true })
+    const file = path.join(dir, name)
+    writeFileSync(file, '#!/bin/sh\necho codex-cli 0.0.0\n')
+    chmodSync(file, 0o755)
+    return file
+  }
+
+  it('resolves the first executable hit on PATH', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'susie-codex-path-'))
+    const binDir = path.join(root, 'bin')
+    makeExecutable(binDir)
+    expect(findCodexOnPath(`${binDir}:/usr/bin`)).toBe(path.join(binDir, 'codex'))
+  })
+
+  it('skips hits inside node_modules (dev 下 pnpm 注入的 vendor wrapper)', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'susie-codex-path-'))
+    // 模拟 pnpm 布局：node_modules/.bin/codex -> ../@openai/codex/bin/codex.js
+    const wrapperTarget = makeExecutable(path.join(root, 'node_modules', '@openai', 'codex', 'bin'), 'codex.js')
+    const dotBin = path.join(root, 'node_modules', '.bin')
+    mkdirSync(dotBin, { recursive: true })
+    symlinkSync(wrapperTarget, path.join(dotBin, 'codex'))
+
+    expect(findCodexOnPath(dotBin)).toBeNull()
+
+    // node_modules 命中被跳过后，仍应继续找到后面的真实 codex
+    const realBin = path.join(root, 'real-bin')
+    makeExecutable(realBin)
+    expect(findCodexOnPath(`${dotBin}:${realBin}`)).toBe(path.join(realBin, 'codex'))
+  })
+
+  it('accepts npm/mise global installs（bin 目录干净、symlink 指向 lib/node_modules）', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'susie-codex-path-'))
+    // 模拟 npm -g 布局：<prefix>/bin/codex -> ../lib/node_modules/@openai/codex/bin/codex.js
+    const target = makeExecutable(path.join(root, 'lib', 'node_modules', '@openai', 'codex', 'bin'), 'codex.js')
+    const globalBin = path.join(root, 'bin')
+    mkdirSync(globalBin, { recursive: true })
+    symlinkSync(target, path.join(globalBin, 'codex'))
+
+    expect(findCodexOnPath(globalBin)).toBe(path.join(globalBin, 'codex'))
+  })
+
+  it('returns null when PATH has no codex', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'susie-codex-path-'))
+    expect(findCodexOnPath(root)).toBeNull()
   })
 })
 
