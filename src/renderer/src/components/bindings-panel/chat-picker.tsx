@@ -38,8 +38,7 @@ export function ChatPickerModal({
     (chat) => chat.channelId === channelId && !existingChatIds.has(chat.chatId) && !isExcluded(chat.chatId),
   )
   // '*' 是数据层保留字（通道默认由「默认」行表达），空白会破坏 chat key 编码
-  const manualValid =
-    /^\S+$/.test(manual) && manual !== CHAT_ALL && !existingChatIds.has(manual) && !isExcluded(manual)
+  const manualValid = /^\S+$/.test(manual) && manual !== CHAT_ALL && !existingChatIds.has(manual) && !isExcluded(manual)
 
   return (
     <Modal

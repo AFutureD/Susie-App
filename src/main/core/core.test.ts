@@ -856,12 +856,10 @@ describe('ChatManager channel short-circuit', () => {
   // broadcast channel（C:*）只做历史归档：进 record + onHistoryMessage，不建 runtime、不发消息、不请求审核
   it('records channel_post to history but skips runtime/reply/approval pipeline', async () => {
     let runtimeCreated = 0
-    const { manager, sent, recorded, approvalRequests, autoReviews } = makeManager(
-      () => {
-        runtimeCreated += 1
-        return Promise.resolve(stubRuntime({}))
-      },
-    )
+    const { manager, sent, recorded, approvalRequests, autoReviews } = makeManager(() => {
+      runtimeCreated += 1
+      return Promise.resolve(stubRuntime({}))
+    })
 
     manager.handleInbound(
       inbound('channel post text', {

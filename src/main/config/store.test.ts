@@ -366,7 +366,10 @@ members = ["7"]
     const configPath = tempConfigPath()
     const store = ConfigStore.init(configPath)
     store.upsertManagerBot('mgr', { token: '88:t', managing: [] }, store.currentVersion)
-    store.setUsers([{ channel: 'mgr', user_id: '7', name: 'Boss', role: 'owner', private: 'review', groups: {} }], store.currentVersion)
+    store.setUsers(
+      [{ channel: 'mgr', user_id: '7', name: 'Boss', role: 'owner', private: 'review', groups: {} }],
+      store.currentVersion,
+    )
 
     const settings = { type: 'telegram_bot', token: '99:child', enabled: true, drop_pending_updates: false } as const
     const added = store.addManagedChannel(

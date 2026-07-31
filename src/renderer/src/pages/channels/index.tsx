@@ -49,7 +49,6 @@ function StatusDetail({ status }: { status: ChannelStatus | undefined }) {
   )
 }
 
-
 /**
  * 单个渠道行。card = 顶层独立卡片；row = manager 卡片内的成员行
  * （hairline 分隔的扁平行——避免卡片套卡片）。

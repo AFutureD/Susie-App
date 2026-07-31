@@ -200,7 +200,9 @@ describe('TelegramManagerBotChannel', () => {
     })
 
     const stopped = channel.stop()
-    await expect(Promise.race([stopped, new Promise((_r, reject) => setTimeout(() => reject(new Error('stop 超时')), 1000))])).resolves.toBeUndefined()
+    await expect(
+      Promise.race([stopped, new Promise((_r, reject) => setTimeout(() => reject(new Error('stop 超时')), 1000))]),
+    ).resolves.toBeUndefined()
     expect(channel.status().state).toBe('stopped')
   })
 })

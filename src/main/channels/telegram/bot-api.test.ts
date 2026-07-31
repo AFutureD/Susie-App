@@ -17,7 +17,10 @@ describe('callBotApi', () => {
     const fn = stubFetch({ ok: true, result: { id: 1, is_bot: true } })
     const result = await callBotApi<{ id: number }>('T:1', 'getMe')
     expect(result.id).toBe(1)
-    expect(fn).toHaveBeenCalledWith('https://api.telegram.org/botT:1/getMe', expect.objectContaining({ method: 'POST' }))
+    expect(fn).toHaveBeenCalledWith(
+      'https://api.telegram.org/botT:1/getMe',
+      expect.objectContaining({ method: 'POST' }),
+    )
   })
 
   it('SUSIE_TG_API_BASE 覆写 API base', async () => {
@@ -62,7 +65,9 @@ describe('getManagedBotToken', () => {
   it('传 user_id 并归一 string 结果', async () => {
     const fn = stubFetch({ ok: true, result: '999:child-token' })
     await expect(getManagedBotToken('T:mgr', 999)).resolves.toBe('999:child-token')
-    const body = JSON.parse((fn.mock.calls[0]?.[1] as RequestInit).body as string) as Record<string, unknown>
+    expect(fn).toHaveBeenCalledTimes(1)
+    const [, init] = fn.mock.calls[0] as [string, RequestInit]
+    const body = JSON.parse(init.body as string) as Record<string, unknown>
     expect(body['user_id']).toBe(999)
   })
 

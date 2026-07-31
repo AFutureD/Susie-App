@@ -32,7 +32,8 @@ export function managerBotsHandlers({ service }: ServiceHandlerDeps): IpcHandler
     statuses: () => service.managedBots.statuses(),
     // 弹窗打开时走带存活校验的版本（BotFather 已删的 bot 不列出）
     discoveries: ({ managerId }) => service.managedBots.listAddable(managerId),
-    add: ({ managerId, botId, expectedVersion }) => service.managedBots.addManagedBot({ managerId, botId, expectedVersion }),
+    add: ({ managerId, botId, expectedVersion }) =>
+      service.managedBots.addManagedBot({ managerId, botId, expectedVersion }),
   }
 }
 

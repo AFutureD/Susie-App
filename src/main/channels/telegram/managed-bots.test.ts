@@ -141,7 +141,9 @@ describe('listAddable（存活校验）', () => {
     // 401（manager token 问题）不当作已删除
     vi.stubGlobal(
       'fetch',
-      vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: false, error_code: 401, description: 'Unauthorized' }))),
+      vi
+        .fn()
+        .mockResolvedValue(new Response(JSON.stringify({ ok: false, error_code: 401, description: 'Unauthorized' }))),
     )
     const kept = await registry.listAddable('mgr')
     expect(kept.map((d) => d.botId)).toEqual(['999'])
@@ -161,7 +163,11 @@ describe('addManagedBot', () => {
     await registry.handleManagedBotUpdate('mgr', '88:t', EV)
     emit.mockClear()
 
-    const result = await registry.addManagedBot({ managerId: 'mgr', botId: '999', expectedVersion: store.currentVersion })
+    const result = await registry.addManagedBot({
+      managerId: 'mgr',
+      botId: '999',
+      expectedVersion: store.currentVersion,
+    })
 
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.channelId).toBe('child_bot')
@@ -185,7 +191,11 @@ describe('addManagedBot', () => {
     store.upsertManagerBot('mgr', { token: '88:t', managing: [] }, store.currentVersion)
     await registry.handleManagedBotUpdate('mgr', '88:t', EV)
 
-    const result = await registry.addManagedBot({ managerId: 'mgr', botId: '999', expectedVersion: store.currentVersion })
+    const result = await registry.addManagedBot({
+      managerId: 'mgr',
+      botId: '999',
+      expectedVersion: store.currentVersion,
+    })
 
     expect(result.ok).toBe(true)
     const owner = store.current.users.find((u) => u.channel === 'child_bot' && u.role === 'owner')
@@ -198,12 +208,20 @@ describe('addManagedBot', () => {
     stubManagedBotToken('999:fresh')
     store.upsertManagerBot('mgr', { token: '88:t', managing: [] }, store.currentVersion)
 
-    const missing = await registry.addManagedBot({ managerId: 'mgr', botId: '999', expectedVersion: store.currentVersion })
+    const missing = await registry.addManagedBot({
+      managerId: 'mgr',
+      botId: '999',
+      expectedVersion: store.currentVersion,
+    })
     expect(missing.ok).toBe(false)
     if (!missing.ok) expect(missing.message).toContain('发现记录不存在')
 
     await registry.handleManagedBotUpdate('mgr', '88:t', EV)
-    const stale = await registry.addManagedBot({ managerId: 'mgr', botId: '999', expectedVersion: store.currentVersion + 9 })
+    const stale = await registry.addManagedBot({
+      managerId: 'mgr',
+      botId: '999',
+      expectedVersion: store.currentVersion + 9,
+    })
     expect(stale.ok).toBe(false)
     if (!stale.ok) expect(stale.conflict).toBe(true)
 
@@ -212,7 +230,11 @@ describe('addManagedBot', () => {
       { type: 'telegram_bot', token: '999:x', enabled: true, drop_pending_updates: false },
       store.currentVersion,
     )
-    const taken = await registry.addManagedBot({ managerId: 'mgr', botId: '999', expectedVersion: store.currentVersion })
+    const taken = await registry.addManagedBot({
+      managerId: 'mgr',
+      botId: '999',
+      expectedVersion: store.currentVersion,
+    })
     expect(taken.ok).toBe(false)
     if (!taken.ok) expect(taken.message).toContain('已是渠道')
   })

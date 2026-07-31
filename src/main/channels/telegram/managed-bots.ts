@@ -16,8 +16,7 @@ import type { Channel } from '../types'
 // - addManagedBot 是唯一建渠道入口（用户在弹窗显式触发）。
 
 export type AddManagedBotResult =
-  | { ok: true; channelId: string; state: ConfigState }
-  | { ok: false; message: string; conflict: boolean }
+  { ok: true; channelId: string; state: ConfigState } | { ok: false; message: string; conflict: boolean }
 
 export interface ManagedBotRegistryDeps {
   store: ConfigStore
@@ -77,7 +76,9 @@ export class ManagedBotRegistry {
    * 渠道删除后记录自然重新露出，凭此重新加回）。
    */
   list(managerId: string): ManagedBotDiscovery[] {
-    return this.deps.repo.listByManager(managerId).filter((discovery) => this.findChannelByBotId(discovery.botId) === null)
+    return this.deps.repo
+      .listByManager(managerId)
+      .filter((discovery) => this.findChannelByBotId(discovery.botId) === null)
   }
 
   /**
@@ -143,7 +144,11 @@ export class ManagedBotRegistry {
   }
 
   /** 唯一的建渠道入口：取 token → 原子写入渠道 + managing + owner（manager 的 owner，创建者兜底） */
-  async addManagedBot(input: { managerId: string; botId: string; expectedVersion: number }): Promise<AddManagedBotResult> {
+  async addManagedBot(input: {
+    managerId: string
+    botId: string
+    expectedVersion: number
+  }): Promise<AddManagedBotResult> {
     const { managerId, botId, expectedVersion } = input
     const store = this.deps.store
 
@@ -206,7 +211,11 @@ export class ManagedBotRegistry {
       const settings = this.deps.store.current.channels[channelId]
       if (settings === undefined || settings.type !== 'telegram_bot') return
       if (settings.token === fresh) return
-      const result = this.deps.store.upsertChannel(channelId, { ...settings, token: fresh }, this.deps.store.currentVersion)
+      const result = this.deps.store.upsertChannel(
+        channelId,
+        { ...settings, token: fresh },
+        this.deps.store.currentVersion,
+      )
       if (result.ok) {
         this.deps.log.info(`manager ${managerId}: 渠道 ${channelId} 的 token 已轮换，渠道将自动重启`)
         return
