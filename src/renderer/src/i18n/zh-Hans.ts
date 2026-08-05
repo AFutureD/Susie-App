@@ -242,6 +242,14 @@ export const zhHans: Record<string, string> = {
   'bindings.detail.respond.chat.hint': '关闭即静音此会话（保留绑定与配置）；渠道默认响应时可用它排除个别会话。',
   'bindings.detail.trigger': '触发条件',
   'bindings.detail.group.onlyMention': '群内仅响应 @ 提及',
+  'bindings.detail.group.privacyMode.warn.title': 'Bot 暂时无法响应群里的普通消息',
+  'bindings.detail.group.privacyMode.warn.body':
+    '此 Bot 开启了 Telegram 隐私模式（Privacy Mode），在群里只能收到 @ 提及、对 Bot 消息的回复和命令。要让 Bot 读取群内全部消息，请按教程在 BotFather 中关闭隐私模式；修改后需把 Bot 移出本群再重新拉入才会生效，完成后点「重新检测」。',
+  'bindings.detail.group.privacyMode.watchVideo': '查看设置教程',
+  'bindings.detail.group.privacyMode.recheck': '重新检测',
+  'bindings.detail.group.privacyMode.recheckFailed': '检测失败：{message}',
+  'bindings.detail.group.privacyMode.ok': '隐私模式已关闭，Bot 可读取群内全部消息。',
+  'bindings.detail.group.privacyMode.video.title': '在 BotFather 关闭隐私模式',
   'bindings.detail.output': '输出',
   'bindings.detail.output.sendOutput': '发送 agent 运行输出',
   'bindings.detail.output.sendOutput.hint':

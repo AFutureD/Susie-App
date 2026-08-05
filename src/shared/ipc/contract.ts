@@ -141,6 +141,8 @@ export const ipcContract = {
     statuses: { req: z.void(), res: res<ChannelStatus[]>() },
     /** 已成功 getMe 的渠道/manager 身份快照（display name + username）；变更经 channels.identities 事件推送 */
     identities: { req: z.void(), res: res<BotIdentity[]>() },
+    /** 手动重拉某渠道 getMe 身份（群隐私模式警告的「重新检测」）；新值经 channels.identities 事件回流 */
+    refreshIdentity: { req: z.object({ id: z.string() }), res: res<ActionResult>() },
     /**
      * 用 token 调 getMe 拿 bot username（ID 留空时自动命名）与 can_manage_bots
      * （新增入口据此自动识别普通渠道 / manager，不需要用户手选类型）

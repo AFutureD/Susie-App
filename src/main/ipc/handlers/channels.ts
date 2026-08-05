@@ -13,6 +13,8 @@ export function channelsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['
 
     identities: () => service.identity.identities(),
 
+    refreshIdentity: ({ id }) => service.identity.refresh(id),
+
     resolveUsername: async ({ token }) => {
       try {
         const me = await getMeRaw(token.trim())

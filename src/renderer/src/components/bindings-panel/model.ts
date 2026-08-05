@@ -1,7 +1,7 @@
 import { expandBindings, type ChatAssignment, type WildcardAssignment } from '../../../../shared/bindings'
 import { decodeChatId } from '../../../../shared/chat-id'
 import type { Config } from '../../../../shared/config'
-import type { ChatInfo } from '../../../../shared/messages'
+import type { BotIdentity, ChatInfo } from '../../../../shared/messages'
 
 // 树形导航的数据模型：准入统一由绑定决定，行集合 = 精确绑定的会话 + 本地草稿。
 
@@ -85,4 +85,20 @@ export function buildTree(config: Config, chats: ChatInfo[], drafts: DraftChat[]
 
 function nameKey(channelId: string, chatId: string): string {
   return `${channelId}\n${chatId}`
+}
+
+export type GroupPrivacyStatus = 'warn' | 'ok' | 'unknown'
+
+/**
+ * 群会话的 Privacy Mode 判定（getMe.can_read_all_group_messages）：
+ * 仅 group/supergroup 参与（channel 不可绑定、sender/private 与隐私模式无关）；
+ * 身份未拉到或响应缺失字段 → 'unknown'（UI 不渲染，与「身份失败回退渠道 id」同一降级）。
+ */
+export function groupPrivacyStatus(
+  chatType: string | null,
+  identity: Pick<BotIdentity, 'canReadAllGroupMessages'> | undefined,
+): GroupPrivacyStatus | null {
+  if (chatType !== 'group' && chatType !== 'supergroup') return null
+  if (identity === undefined || identity.canReadAllGroupMessages === null) return 'unknown'
+  return identity.canReadAllGroupMessages ? 'ok' : 'warn'
 }

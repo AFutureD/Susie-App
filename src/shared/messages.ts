@@ -136,6 +136,8 @@ export interface BotIdentity {
   /** first_name [+ last_name]，Telegram 侧设置的显示名 */
   name: string
   username: string | null
+  /** getMe.can_read_all_group_messages；false = Privacy Mode 开启；null = 响应缺失该字段 */
+  canReadAllGroupMessages: boolean | null
 }
 
 /**

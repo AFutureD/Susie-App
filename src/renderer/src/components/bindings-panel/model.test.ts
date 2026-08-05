@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { configSchema } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
-import { buildTree } from './model'
+import { buildTree, groupPrivacyStatus } from './model'
 
 function makeConfig(overrides: Record<string, unknown>) {
   return configSchema.parse({
@@ -87,5 +87,26 @@ describe('buildTree', () => {
       { channelId: 'bot', chatId: 'P:5', name: null, chatType: 'private', threadId: null, assignment: null },
     ])
     expect(tree[1]?.rows.map((row) => row.chatId)).toEqual(['G:9'])
+  })
+})
+
+describe('groupPrivacyStatus', () => {
+  it('仅 group/supergroup 参与判定', () => {
+    const identity = { canReadAllGroupMessages: false }
+    expect(groupPrivacyStatus('private', identity)).toBeNull()
+    expect(groupPrivacyStatus('channel', identity)).toBeNull()
+    expect(groupPrivacyStatus('sender', identity)).toBeNull()
+    expect(groupPrivacyStatus(null, identity)).toBeNull()
+    expect(groupPrivacyStatus('group', identity)).toBe('warn')
+    expect(groupPrivacyStatus('supergroup', identity)).toBe('warn')
+  })
+
+  it('隐私模式关闭（可读全部群消息）→ ok', () => {
+    expect(groupPrivacyStatus('group', { canReadAllGroupMessages: true })).toBe('ok')
+  })
+
+  it('身份未拉到或字段缺失 → unknown', () => {
+    expect(groupPrivacyStatus('group', undefined)).toBe('unknown')
+    expect(groupPrivacyStatus('supergroup', { canReadAllGroupMessages: null })).toBe('unknown')
   })
 })

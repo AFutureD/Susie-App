@@ -15,6 +15,8 @@ export interface TgUser {
   username?: string
   /** Bot API 9.6：getMe 返回，Bot Management Mode 开启标志 */
   can_manage_bots?: boolean
+  /** getMe 返回：true = 可读群内全部消息（即 Privacy Mode 关闭） */
+  can_read_all_group_messages?: boolean
 }
 
 export interface TgChat {

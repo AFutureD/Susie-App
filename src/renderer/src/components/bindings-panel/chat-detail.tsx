@@ -1,6 +1,8 @@
 import { useIntl } from 'react-intl'
 import type { ChatAssignment } from '../../../../shared/bindings'
+import type { BotIdentity } from '../../../../shared/messages'
 import { Button, CheckboxField, Field, Select } from '../form'
+import { GroupPrivacyNotice } from './group-privacy-notice'
 import type { ChannelTree, ChatRow } from './model'
 import type { AssignmentPatch } from './use-bindings'
 
@@ -121,6 +123,7 @@ const FOLLOW_BASE = { assistantId: null, respond: true, onlyMention: true, sendO
 
 export function ChatDetail({
   row,
+  identity,
   assistantOptions,
   busy,
   onAssign,
@@ -128,6 +131,8 @@ export function ChatDetail({
   onRemove,
 }: {
   row: ChatRow
+  /** 渠道 bot 的 getMe 身份（群会话的 Privacy Mode 判定用）；未拉到为 undefined */
+  identity: BotIdentity | undefined
   assistantOptions: AssistantOption[]
   busy: boolean
   onAssign: (assistantId: string | null) => void
@@ -185,6 +190,7 @@ export function ChatDetail({
           <span className="text-xs font-medium text-ink-muted">
             {intl.formatMessage({ id: 'bindings.detail.trigger' })}
           </span>
+          <GroupPrivacyNotice channelId={row.channelId} chatType={row.chatType} identity={identity} />
           <fieldset disabled={busy} className="flex flex-col gap-2">
             <CheckboxField
               label={intl.formatMessage({ id: 'bindings.detail.group.onlyMention' })}

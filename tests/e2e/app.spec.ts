@@ -22,6 +22,8 @@ let win: Page
 let configDir: string
 let configPath: string
 let tgStub: Server
+/** e2e_bot 的 Telegram 隐私模式（getMe.can_read_all_group_messages = !此值）；群警告用例中途翻转它模拟用户在 BotFather 关闭 */
+let e2eBotPrivacyMode = true
 
 /**
  * 本地 Telegram Bot API stub：只实现 getMe，且只认识 e2e_bot 的 token——
@@ -34,7 +36,14 @@ function startTgStub(): Promise<string> {
       res.end(
         JSON.stringify({
           ok: true,
-          result: { id: 10001, is_bot: true, first_name: 'E2E Bot', username: 'e2e_bot', can_manage_bots: false },
+          result: {
+            id: 10001,
+            is_bot: true,
+            first_name: 'E2E Bot',
+            username: 'e2e_bot',
+            can_manage_bots: false,
+            can_read_all_group_messages: !e2eBotPrivacyMode,
+          },
         }),
       )
       return
@@ -245,6 +254,31 @@ test('会话页：添加会话即落盘（跟随渠道默认助手）', async ()
   // 右栏详情默认选中新会话：跟随渠道默认 + 响应开启
   await expect(win.getByLabel('助手')).toHaveValue('')
   await expect(win.getByLabel('响应此会话')).toBeChecked()
+})
+
+test('会话页：群会话显示隐私模式警告，教程视频可弹出，重新检测后翻转', async () => {
+  await win.getByRole('link', { name: '会话', exact: true }).click()
+  await win.getByRole('button', { name: '添加会话' }).first().click()
+  await expect(win.getByText(/添加会话到/)).toBeVisible()
+  await win.getByPlaceholder('P:123456').fill('S:-100999')
+  await win.getByRole('button', { name: '添加', exact: true }).click()
+  await expect(win.getByText(/添加会话到/)).toHaveCount(0)
+
+  // 群类型 + stub getMe 的 can_read_all_group_messages=false → amber 警告
+  await expect(win.getByText('Bot 暂时无法响应群里的普通消息')).toBeVisible()
+
+  // 教程视频弹窗（onboarding 已关闭，此时页面上只有这一个 video）
+  await win.getByRole('button', { name: '查看设置教程' }).click()
+  await expect(win.getByText('在 BotFather 关闭隐私模式')).toBeVisible()
+  await expect(win.locator('video')).toBeVisible()
+  await win.locator('div.fixed.inset-0').click({ position: { x: 10, y: 10 } })
+  await expect(win.getByText('在 BotFather 关闭隐私模式')).toHaveCount(0)
+
+  // 模拟用户在 BotFather 关闭隐私模式 → 重新检测 → 警告翻转为正向状态行
+  e2eBotPrivacyMode = false
+  await win.getByRole('button', { name: '重新检测' }).click()
+  await expect(win.getByText('隐私模式已关闭，Bot 可读取群内全部消息。')).toBeVisible()
+  await expect(win.getByText('Bot 暂时无法响应群里的普通消息')).toHaveCount(0)
 })
 
 test('任务页：新建定时任务（默认调度 + 弹窗选会话）并落盘', async () => {

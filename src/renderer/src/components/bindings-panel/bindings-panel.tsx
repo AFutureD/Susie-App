@@ -63,6 +63,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
               <ChatDetail
                 key={`${selectedKey}@${state.version}`}
                 row={selectedRow}
+                identity={identityMap.get(selection.channelId)}
                 assistantOptions={panel.assistantOptions}
                 busy={busy}
                 onAssign={(assistantId) => panel.setAssistant(selection, assistantId)}
