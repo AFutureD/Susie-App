@@ -1,8 +1,10 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
+import { expandBindings } from '../../../../shared/bindings'
 import type { ChannelSettings, ConfigState } from '../../../../shared/config'
 import type { BotIdentity, ChannelStatus } from '../../../../shared/messages'
+import { ChannelDefaultBindingModal } from '../../components/channel-default-binding'
 import { Button } from '../../components/form'
 import { OwnerBindModal } from '../../components/owner-bind'
 import { Page } from '../../components/page'
@@ -143,8 +145,9 @@ export function ChannelsPage() {
   /** 统一新增入口（token → getMe 自动识别普通渠道 / manager） */
   const [adding, setAdding] = useState(false)
   const [addManagedFor, setAddManagedFor] = useState<string | null>(null)
-  // 新建频道/manager 后立即进入 owner 绑定（之后仍可在「用户」页调整）
-  const [ownerBindChannel, setOwnerBindChannel] = useState<string | null>(null)
+  // 新增后的弹窗流：直连渠道/manager 先 owner 绑定，普通渠道随后必绑默认助手；
+  // 托管 Bot owner 自动继承 manager，直接进助手绑定
+  const [postAdd, setPostAdd] = useState<{ channelId: string; stage: 'owner' | 'assistant' } | null>(null)
 
   if (!state) {
     return <Page titleId="page.channels.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
@@ -160,6 +163,17 @@ export function ChannelsPage() {
     await mutation.run((expectedVersion) => ipc.config.deleteManagerBot({ id, expectedVersion }))
   }
 
+  // owner 段收尾：普通渠道且尚无通道默认绑定 → 进助手绑定；manager（不在 channels）或已有绑定 → 结束
+  const finishOwnerStage = () => {
+    setPostAdd((prev) => {
+      if (prev === null) return null
+      const needsAssistant =
+        prev.channelId in state.config.channels &&
+        expandBindings(state.config.bindings).wildcard[prev.channelId] === undefined
+      return needsAssistant ? { channelId: prev.channelId, stage: 'assistant' } : null
+    })
+  }
+
   return (
     <Page
       titleId="page.channels.title"
@@ -172,7 +186,11 @@ export function ChannelsPage() {
       <div className="flex flex-col gap-3">
         {adding && (
           <div className="rounded-xl border border-line bg-raised p-4">
-            <AddBotForm state={state} onDone={() => setAdding(false)} onCreated={setOwnerBindChannel} />
+            <AddBotForm
+              state={state}
+              onDone={() => setAdding(false)}
+              onCreated={(id) => setPostAdd({ channelId: id, stage: 'owner' })}
+            />
           </div>
         )}
 
@@ -261,13 +279,26 @@ export function ChannelsPage() {
         })}
       </div>
 
-      {ownerBindChannel !== null &&
-        (ownerBindChannel in state.config.channels || ownerBindChannel in state.config.manager_bots) && (
-          <OwnerBindModal state={state} channelId={ownerBindChannel} onClose={() => setOwnerBindChannel(null)} />
+      {postAdd?.stage === 'owner' &&
+        (postAdd.channelId in state.config.channels || postAdd.channelId in state.config.manager_bots) && (
+          <OwnerBindModal state={state} channelId={postAdd.channelId} onClose={finishOwnerStage} />
         )}
 
+      {postAdd?.stage === 'assistant' && postAdd.channelId in state.config.channels && (
+        <ChannelDefaultBindingModal state={state} channelId={postAdd.channelId} onClose={() => setPostAdd(null)} />
+      )}
+
       {addManagedFor !== null && addManagedFor in state.config.manager_bots && (
-        <AddManagedBotModal state={state} managerId={addManagedFor} onClose={() => setAddManagedFor(null)} />
+        <AddManagedBotModal
+          state={state}
+          managerId={addManagedFor}
+          onClose={() => setAddManagedFor(null)}
+          onAdded={(channelId) => {
+            // owner 已由主进程继承 manager 的 owner：跳过 owner 段直接绑默认助手
+            setAddManagedFor(null)
+            setPostAdd({ channelId, stage: 'assistant' })
+          }}
+        />
       )}
     </Page>
   )

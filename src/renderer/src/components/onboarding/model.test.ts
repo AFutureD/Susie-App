@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { AssistantConfig } from '../../../../shared/config'
+import { configSchema, type AssistantConfig, type ConfigState } from '../../../../shared/config'
 import type { AgentInfo } from '../../../../shared/messages'
-import { reconcileDefaultAssistant, shouldOnboard } from './model'
+import { needsFallbackBinding, reconcileDefaultAssistant, shouldOnboard } from './model'
 
 describe('shouldOnboard', () => {
   it('首启（本次启动时 config.toml 不存在）→ 进入', () => {
@@ -68,5 +68,37 @@ describe('reconcileDefaultAssistant', () => {
     const overview = [agent({ id: 'claude-acp', source: 'installed' })]
     expect(reconcileDefaultAssistant([other], overview)).toEqual({ id: 'work', agent_id: 'claude-acp' })
     expect(reconcileDefaultAssistant([], overview)).toBeNull()
+  })
+})
+
+describe('needsFallbackBinding', () => {
+  const makeState = (overrides: Record<string, unknown>): ConfigState => ({
+    version: 1,
+    configPath: '/tmp/config.toml',
+    config: configSchema.parse({
+      channels: { bot: { type: 'telegram_bot', token: '1:x' } },
+      ...overrides,
+    }),
+    lastError: null,
+    firstRun: true,
+  })
+
+  it('渠道已建且无通道默认绑定 → 需要回落', () => {
+    expect(needsFallbackBinding(makeState({}), 'bot')).toBe(true)
+  })
+
+  it('已有通道默认绑定 → 不回落（不覆盖绑定步已写内容）', () => {
+    const state = makeState({ bindings: [{ channel: 'bot', chat_id: '*', assistant_id: 'default' }] })
+    expect(needsFallbackBinding(state, 'bot')).toBe(false)
+  })
+
+  it('仅精确绑定不算通道默认 → 仍需回落', () => {
+    const state = makeState({ bindings: [{ channel: 'bot', chat_id: 'P:1', assistant_id: 'default' }] })
+    expect(needsFallbackBinding(state, 'bot')).toBe(true)
+  })
+
+  it('渠道不存在或未走到建渠道步（channelId null）→ 不回落', () => {
+    expect(needsFallbackBinding(makeState({}), 'gone')).toBe(false)
+    expect(needsFallbackBinding(makeState({}), null)).toBe(false)
   })
 })

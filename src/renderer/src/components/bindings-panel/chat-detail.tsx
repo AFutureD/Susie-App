@@ -23,15 +23,20 @@ export function chatTypeLabel(intl: ReturnType<typeof useIntl>, chatType: string
   }
 }
 
+export interface AssistantOption {
+  id: string
+  label: string
+}
+
 export function DefaultDetail({
   entry,
-  assistantIds,
+  assistantOptions,
   busy,
   onAssign,
   onOption,
 }: {
   entry: ChannelTree
-  assistantIds: string[]
+  assistantOptions: AssistantOption[]
   busy: boolean
   onAssign: (assistantId: string | null) => void
   onOption: (patch: AssignmentPatch) => void
@@ -51,16 +56,33 @@ export function DefaultDetail({
           disabled={busy}
           onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
         >
-          <option value="">{intl.formatMessage({ id: 'bindings.detail.assistant.none' })}</option>
-          {assistantIds.map((id) => (
-            <option key={id} value={id}>
-              {id}
+          {/* 通道默认必须指定助手（不响应用下方开关表达）；legacy 无默认绑定时显示占位 */}
+          {entry.defaultAssignment === null && (
+            <option value="" disabled>
+              {intl.formatMessage({ id: 'bindings.detail.assistant.unset' })}
+            </option>
+          )}
+          {assistantOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
             </option>
           ))}
         </Select>
       </Field>
       {entry.defaultAssignment !== null && (
-        <OutputOptions assignment={entry.defaultAssignment} busy={busy} onOption={onOption} />
+        <>
+          <fieldset disabled={busy} className="flex flex-col gap-1 border-t border-line pt-3">
+            <CheckboxField
+              label={intl.formatMessage({ id: 'bindings.detail.respond.default' })}
+              checked={entry.defaultAssignment.respond}
+              onChange={(value) => onOption({ respond: value })}
+            />
+            <span className="text-xs text-ink-muted/70">
+              {intl.formatMessage({ id: 'bindings.detail.respond.default.hint' })}
+            </span>
+          </fieldset>
+          <OutputOptions assignment={entry.defaultAssignment} busy={busy} onOption={onOption} />
+        </>
       )}
     </div>
   )
@@ -94,16 +116,19 @@ function OutputOptions({
   )
 }
 
+/** 草稿会话（尚无绑定落盘）在表单中的展示底座：跟随默认 + 各选项默认值 */
+const FOLLOW_BASE = { assistantId: null, respond: true, onlyMention: true, sendOutput: false } as const
+
 export function ChatDetail({
   row,
-  assistantIds,
+  assistantOptions,
   busy,
   onAssign,
   onTrigger,
   onRemove,
 }: {
   row: ChatRow
-  assistantIds: string[]
+  assistantOptions: AssistantOption[]
   busy: boolean
   onAssign: (assistantId: string | null) => void
   onTrigger: (row: ChatRow, patch: AssignmentPatch) => void
@@ -112,6 +137,8 @@ export function ChatDetail({
   const intl = useIntl()
   const typeLabel = chatTypeLabel(intl, row.chatType)
   const isGroupLike = row.chatType !== null && row.chatType !== 'private'
+  // 选项编辑对草稿同样可用（setTrigger 以跟随默认为底座落盘），展示值与底座一致
+  const assignment = row.assignment ?? FOLLOW_BASE
 
   return (
     <div className="flex max-w-md flex-col gap-4">
@@ -129,43 +156,46 @@ export function ChatDetail({
 
       <Field label={intl.formatMessage({ id: 'bindings.detail.assistant' })}>
         <Select
-          value={row.assignment?.assistantId ?? ''}
+          value={assignment.assistantId ?? ''}
           disabled={busy}
           onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
         >
           <option value="">{intl.formatMessage({ id: 'bindings.detail.assistant.follow' })}</option>
-          {assistantIds.map((id) => (
-            <option key={id} value={id}>
-              {id}
+          {assistantOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
             </option>
           ))}
         </Select>
       </Field>
+
+      <fieldset disabled={busy} className="flex flex-col gap-1 border-t border-line pt-3">
+        <CheckboxField
+          label={intl.formatMessage({ id: 'bindings.detail.respond.chat' })}
+          checked={assignment.respond}
+          onChange={(value) => onTrigger(row, { respond: value })}
+        />
+        <span className="text-xs text-ink-muted/70">
+          {intl.formatMessage({ id: 'bindings.detail.respond.chat.hint' })}
+        </span>
+      </fieldset>
 
       {isGroupLike && (
         <div className="flex flex-col gap-2 border-t border-line pt-3">
           <span className="text-xs font-medium text-ink-muted">
             {intl.formatMessage({ id: 'bindings.detail.trigger' })}
           </span>
-          {row.assignment === null ? (
-            <p className="text-xs text-ink-muted/70">
-              {intl.formatMessage({ id: 'bindings.detail.trigger.followDefault' })}
-            </p>
-          ) : (
-            <fieldset disabled={busy} className="flex flex-col gap-2">
-              <CheckboxField
-                label={intl.formatMessage({ id: 'bindings.detail.group.onlyMention' })}
-                checked={row.assignment.onlyMention}
-                onChange={(value) => onTrigger(row, { onlyMention: value })}
-              />
-            </fieldset>
-          )}
+          <fieldset disabled={busy} className="flex flex-col gap-2">
+            <CheckboxField
+              label={intl.formatMessage({ id: 'bindings.detail.group.onlyMention' })}
+              checked={assignment.onlyMention}
+              onChange={(value) => onTrigger(row, { onlyMention: value })}
+            />
+          </fieldset>
         </div>
       )}
 
-      {row.assignment !== null && (
-        <OutputOptions assignment={row.assignment} busy={busy} onOption={(patch) => onTrigger(row, patch)} />
-      )}
+      <OutputOptions assignment={assignment} busy={busy} onOption={(patch) => onTrigger(row, patch)} />
 
       <div className="border-t border-line pt-3">
         <Button variant="danger" disabled={busy} onClick={() => onRemove(row)}>

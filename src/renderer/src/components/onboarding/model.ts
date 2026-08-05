@@ -1,3 +1,4 @@
+import { expandBindings } from '../../../../shared/bindings'
 import { DEFAULT_ASSISTANT_ID, type AssistantConfig, type ConfigState } from '../../../../shared/config'
 import type { AgentInfo } from '../../../../shared/messages'
 
@@ -29,4 +30,14 @@ export function reconcileDefaultAssistant(
   const fallback = overview.find((agent) => agent.source !== null && agent.mcpHttp !== false)
   if (fallback === undefined) return null
   return { ...assistant, agent_id: fallback.id }
+}
+
+/**
+ * 关闭/跳过向导时是否需要写回落绑定：渠道已建好但还没有通道默认绑定
+ * （绑定步被打断）——此时补一条 { default 助手, respond: false }，
+ * 保证「添加渠道必有默认绑定」的不变量；已有默认绑定或渠道不存在则不写。
+ */
+export function needsFallbackBinding(state: ConfigState, channelId: string | null): boolean {
+  if (channelId === null || !(channelId in state.config.channels)) return false
+  return expandBindings(state.config.bindings).wildcard[channelId] === undefined
 }

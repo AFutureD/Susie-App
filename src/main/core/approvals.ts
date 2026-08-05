@@ -1,4 +1,4 @@
-import { resolveBinding } from '../../shared/bindings'
+import { resolveEffectiveBinding } from '../../shared/bindings'
 import type { ChatMessage, InboundEnvelope, StoredMessage } from '../../shared/messages'
 import { channelOwner, defaultUser, findUser, upsertUser } from '../../shared/users'
 import type { Channel, ChannelCallbackEvent, InlineButton } from '../channels/types'
@@ -258,11 +258,14 @@ export class ApprovalManager {
       return
     }
 
-    // allow：先预检绑定仍有效（失效则不重放，卡片注明），再认领与分发
-    const binding = resolveBinding(this.deps.store.current.bindings, pending.channelId, pending.chatId)
-    const assistantExists =
-      binding !== null && this.deps.store.current.assistants.some((a) => a.id === binding.assistant_id)
-    if (binding === null || !assistantExists) {
+    // allow：先预检路由仍有效（失效/静音则不重放，卡片注明），再认领与分发
+    const eff = resolveEffectiveBinding(this.deps.store.current.bindings, pending.channelId, pending.chatId)
+    const routable =
+      eff !== null &&
+      eff.respond &&
+      eff.assistantId !== null &&
+      this.deps.store.current.assistants.some((a) => a.id === eff.assistantId)
+    if (!routable) {
       if (this.deps.approvals.claim(pending.id, 'failed', Date.now())) {
         await this.editCard(channel, { ...pending, status: 'failed' }, COPY.decision.bindingGone)
       }

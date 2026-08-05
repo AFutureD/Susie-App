@@ -172,7 +172,7 @@ describe('mutations', () => {
     if (!result.ok) expect(result.conflict).toBe(true)
   })
 
-  it('deletes unreferenced assistants but refuses ones referenced by bindings', () => {
+  it('deletes unreferenced assistants but refuses default and ones referenced by bindings', () => {
     const configPath = tempConfigPath()
     writeFileSync(
       configPath,
@@ -183,6 +183,9 @@ id = "default"
 [[assistants]]
 id = "ops"
 
+[[assistants]]
+id = "spare"
+
 [[bindings]]
 channel = "bot"
 assistant_id = "ops"
@@ -190,12 +193,50 @@ assistant_id = "ops"
     )
     const store = ConfigStore.init(configPath)
 
-    // 不再有全局兜底特权助手：未被引用即可删除
-    expect(store.deleteAssistant('default', store.currentVersion).ok).toBe(true)
+    // default 是不可删除的兜底助手
+    const guard = store.deleteAssistant('default', store.currentVersion)
+    expect(guard.ok).toBe(false)
+    if (!guard.ok) expect(guard.message).toContain('不可删除')
+
+    // 未被引用的普通助手仍可删
+    expect(store.deleteAssistant('spare', store.currentVersion).ok).toBe(true)
 
     const result = store.deleteAssistant('ops', store.currentVersion)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.message).toContain('ops')
+  })
+
+  it('rejects wildcard bindings without assistant_id but accepts exact ones (跟随通道默认)', () => {
+    const configPath = tempConfigPath()
+    writeFileSync(configPath, BASE_TOML)
+    const store = ConfigStore.init(configPath)
+
+    const invalid = store.setBindings(
+      [{ channel: 'bot', chat_id: '*', respond: true, only_mention: true, send_output: false }],
+      store.currentVersion,
+    )
+    expect(invalid.ok).toBe(false)
+    if (!invalid.ok) expect(invalid.message).toContain('必须指定 assistant_id')
+
+    const followDefault = store.setBindings(
+      [
+        {
+          channel: 'bot',
+          chat_id: '*',
+          assistant_id: 'default',
+          respond: false,
+          only_mention: true,
+          send_output: false,
+        },
+        { channel: 'bot', chat_id: 'P:1', respond: true, only_mention: true, send_output: false },
+      ],
+      store.currentVersion,
+    )
+    expect(followDefault.ok).toBe(true)
+    // 精确绑定省写 assistant_id（跟随通道默认），TOML 不落该键
+    const text = readFileSync(configPath, 'utf-8')
+    expect(text).toContain('respond = false')
+    expect(text.split('[[bindings]]')[2] ?? '').not.toContain('assistant_id')
   })
 
   it('replaces bindings wholesale, rejects unknown assistants and stale versions', () => {
@@ -216,8 +257,15 @@ assistant_id = "default"
     const versionBefore = store.currentVersion
     const replaced = store.setBindings(
       [
-        { channel: 'b', chat_id: 'P:1', assistant_id: 'default', only_mention: true, send_output: false },
-        { channel: 'b', chat_id: '*', assistant_id: 'default', only_mention: true, send_output: false },
+        {
+          channel: 'b',
+          chat_id: 'P:1',
+          assistant_id: 'default',
+          respond: true,
+          only_mention: true,
+          send_output: false,
+        },
+        { channel: 'b', chat_id: '*', assistant_id: 'default', respond: true, only_mention: true, send_output: false },
       ],
       versionBefore,
     )
@@ -228,7 +276,7 @@ assistant_id = "default"
 
     // 引用未知 assistant → superRefine 拒绝，状态不变
     const invalid = store.setBindings(
-      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', only_mention: true, send_output: false }],
+      [{ channel: 'b', chat_id: '*', assistant_id: 'ghost', respond: true, only_mention: true, send_output: false }],
       store.currentVersion,
     )
     expect(invalid.ok).toBe(false)
@@ -341,6 +389,46 @@ members = ["7"]
 
     const good = store.saveRaw('[[assistants]]\nid = "default"\n', versionBefore)
     expect(good.ok).toBe(true)
+  })
+
+  describe('default 助手保障', () => {
+    it('init heals a config missing the default assistant and writes it back', () => {
+      const configPath = tempConfigPath()
+      writeFileSync(configPath, '[[assistants]]\nid = "ops"\n')
+      const store = ConfigStore.init(configPath)
+
+      expect(store.state().lastError).toBeNull()
+      expect(store.state().firstRun).toBe(false)
+      expect(store.current.assistants.map((a) => a.id)).toEqual(['default', 'ops'])
+      expect(readFileSync(configPath, 'utf-8')).toContain('id = "default"')
+    })
+
+    it('applyExternalText heals, bumps version, and the write-back does not echo', () => {
+      const configPath = tempConfigPath()
+      writeFileSync(configPath, BASE_TOML)
+      const store = ConfigStore.init(configPath)
+      const versionBefore = store.currentVersion
+
+      store.applyExternalText('[[assistants]]\nid = "ops"\n')
+      expect(store.current.assistants.map((a) => a.id)).toEqual(['default', 'ops'])
+      expect(store.currentVersion).toBe(versionBefore + 1)
+      expect(readFileSync(configPath, 'utf-8')).toContain('id = "default"')
+
+      // 回写内容已登记 hash：watcher 回调不再产生任何 state 通知
+      let stateNotifications = 0
+      store.onState(() => {
+        stateNotifications += 1
+      })
+      store.reloadFromDisk()
+      expect(stateNotifications).toBe(0)
+    })
+
+    it('saveRaw refuses raw text without the default assistant', () => {
+      const store = ConfigStore.init(tempConfigPath())
+      const result = store.saveRaw('[[assistants]]\nid = "ops"\n', store.currentVersion)
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.message).toContain('不可删除')
+    })
   })
 
   it('manager_bots：TOML 完整往返，path 订阅与寻址可用', () => {

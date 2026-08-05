@@ -1,11 +1,11 @@
-import { expandBindings, type ChatAssignment } from '../../../../shared/bindings'
+import { expandBindings, type ChatAssignment, type WildcardAssignment } from '../../../../shared/bindings'
 import { decodeChatId } from '../../../../shared/chat-id'
 import type { Config } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 
 // 树形导航的数据模型：准入统一由绑定决定，行集合 = 精确绑定的会话 + 本地草稿。
 
-/** 已添加但尚未绑定的 chat（仅编辑器会话内存活） */
+/** 刚添加的 chat 的乐观渲染占位（addChat 已同步落盘绑定，config 广播回流前由它撑住行与选中态） */
 export interface DraftChat {
   channelId: string
   chatId: string
@@ -27,8 +27,8 @@ export interface ChatRow {
 export interface ChannelTree {
   channelId: string
   ghost: boolean
-  /** 通道默认（chat_id='*'）的指派；null = 无（该通道其余会话不响应） */
-  defaultAssignment: ChatAssignment | null
+  /** 通道默认（chat_id='*'）的指派；null = 未设置（该通道其余会话不响应） */
+  defaultAssignment: WildcardAssignment | null
   rows: ChatRow[]
 }
 

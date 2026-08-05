@@ -40,6 +40,8 @@ export const managerBotSchema = z.strictObject({
 
 export const assistantSchema = z.strictObject({
   id: z.string().regex(ID_PATTERN, 'id 只能包含字母、数字、_ 和 -'),
+  /** 展示名；缺省时 UI 统一回退 id（name ?? id） */
+  name: z.string().optional(),
   agent_id: z.string().min(1).default('codex'),
   work_dir: z.string().optional(),
   forward_to: z.string().optional(),
@@ -112,8 +114,9 @@ export const autoReviewSchema = z.strictObject({
 
 /**
  * 绑定 = 路由与会话配置：一条 = 一个会话（chat_id 为 CHAT_ALL 时表示「该通道其余会话」的默认）。
- * 没有任何绑定命中的会话无助手承接（不响应）——不存在全局兜底。
- * 是否响应与审核由用户模块（users）按发送者身份决定，绑定不参与。
+ * 是否响应由 respond 决定（精确命中优先于通道默认）；没有任何绑定命中、
+ * 或解析不到助手（精确绑定未指定且通道无默认）的会话不响应——不存在全局兜底。
+ * 发送者层面的响应与审核由用户模块（users）按身份决定，绑定不参与。
  */
 export const bindingSchema = z.strictObject({
   channel: z.string().min(1),
@@ -123,7 +126,10 @@ export const bindingSchema = z.strictObject({
     .min(1)
     .default(CHAT_ALL)
     .refine((value) => decodeChatId(value)?.chatType !== 'channel', 'channel 不能作为绑定目标'),
-  assistant_id: z.string().min(1),
+  /** 通道默认（chat_id='*'）必填（superRefine）；精确会话可缺省 = 跟随通道默认助手 */
+  assistant_id: z.string().min(1).optional(),
+  /** 是否响应；缺省 true——老配置（无此字段）保持「绑定存在即响应」的行为 */
+  respond: z.boolean().default(true),
   /** 群会话生效：仅响应 @ 提及 */
   only_mention: z.boolean().default(true),
   /**
@@ -196,11 +202,19 @@ export const configSchema = z
       ctx.addIssue({ code: 'custom', path: ['assistants'], message: 'assistant id 必须唯一' })
     }
     config.bindings.forEach((binding, index) => {
-      if (!idSet.has(binding.assistant_id)) {
+      if (binding.assistant_id !== undefined && !idSet.has(binding.assistant_id)) {
         ctx.addIssue({
           code: 'custom',
           path: ['bindings', index, 'assistant_id'],
           message: `未知的 assistant id: ${binding.assistant_id}`,
+        })
+      }
+      // 通道默认是精确绑定的助手兜底，必须指定；防止「respond=true 却永远静默」的迷惑态
+      if (binding.chat_id === CHAT_ALL && binding.assistant_id === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['bindings', index, 'assistant_id'],
+          message: '通道默认绑定（chat_id = "*"）必须指定 assistant_id',
         })
       }
     })

@@ -3,11 +3,12 @@ import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import type { AssistantConfig, ConfigState, ThinkingLevel } from '../../../shared/config'
 import { THINKING_LEVELS } from '../../../shared/config'
+import { DEFAULT_ASSISTANT_ID } from '../../../shared/config'
 import type { AgentModelOption } from '../../../shared/messages'
 import { AssistantSkillsModal } from '../components/assistant-skills-modal'
-import { BindingsPanel } from '../components/bindings-panel/bindings-panel'
 import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
+import { DEFAULT_ASSISTANT_LABEL, assistantLabel } from '../lib/assistant-label'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
 import { useConfigMutation } from '../lib/ipc-mutation'
@@ -33,9 +34,10 @@ export function AssistantsPage() {
     return <Page titleId="page.assistants.title">{intl.formatMessage({ id: 'common.loading' })}</Page>
   }
 
-  const deleteAssistant = async (id: string) => {
-    if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id }))) return
-    await mutation.run((expectedVersion) => ipc.config.deleteAssistant({ id, expectedVersion }))
+  const deleteAssistant = async (assistant: AssistantConfig) => {
+    if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id: assistantLabel(assistant) })))
+      return
+    await mutation.run((expectedVersion) => ipc.config.deleteAssistant({ id: assistant.id, expectedVersion }))
   }
 
   return (
@@ -46,7 +48,10 @@ export function AssistantsPage() {
             <div className="flex items-center gap-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">{assistant.id}</span>
+                  <span className="text-sm font-semibold">{assistantLabel(assistant)}</span>
+                  <span className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
+                    {assistant.id}
+                  </span>
                   <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
                     {assistant.agent_id}
                   </span>
@@ -69,9 +74,11 @@ export function AssistantsPage() {
               <Button onClick={() => setEditing(editing === assistant.id ? null : assistant.id)}>
                 {intl.formatMessage({ id: 'common.edit' })}
               </Button>
-              <Button variant="danger" onClick={() => void deleteAssistant(assistant.id)}>
-                {intl.formatMessage({ id: 'common.delete' })}
-              </Button>
+              {assistant.id !== DEFAULT_ASSISTANT_ID && (
+                <Button variant="danger" onClick={() => void deleteAssistant(assistant)}>
+                  {intl.formatMessage({ id: 'common.delete' })}
+                </Button>
+              )}
             </div>
             {editing === assistant.id && (
               <AssistantForm
@@ -97,9 +104,16 @@ export function AssistantsPage() {
         )}
       </div>
 
-      {skillsFor !== null && <AssistantSkillsModal assistantId={skillsFor} onClose={() => setSkillsFor(null)} />}
-
-      <BindingsPanel state={state} />
+      {skillsFor !== null && (
+        <AssistantSkillsModal
+          assistantId={skillsFor}
+          label={(() => {
+            const target = state.config.assistants.find((assistant) => assistant.id === skillsFor)
+            return target === undefined ? undefined : assistantLabel(target)
+          })()}
+          onClose={() => setSkillsFor(null)}
+        />
+      )}
     </Page>
   )
 }
@@ -115,7 +129,10 @@ function AssistantForm({
 }) {
   const intl = useIntl()
   const [id, setId] = useState(initial?.id ?? '')
+  const [name, setName] = useState(initial?.name ?? '')
   const [agentId, setAgentId] = useState(initial?.agent_id ?? CODEX_AGENT_ID)
+  // default 助手名称固定为「默认」：输入禁用，提交不写 name
+  const isDefault = initial?.id === DEFAULT_ASSISTANT_ID
   const [workDir, setWorkDir] = useState(initial?.work_dir ?? '')
   const [forwardTo, setForwardTo] = useState(initial?.forward_to ?? '')
   const [model, setModel] = useState(initial?.model ?? '')
@@ -164,6 +181,7 @@ function AssistantForm({
     setError(null)
     const assistant: AssistantConfig = {
       id: id.trim(),
+      ...(isDefault || name.trim() === '' ? {} : { name: name.trim() }),
       agent_id: agentId,
       ...(workDir.trim() === '' ? {} : { work_dir: workDir.trim() }),
       ...(forwardTo.trim() === '' ? {} : { forward_to: forwardTo.trim() }),
@@ -191,6 +209,21 @@ function AssistantForm({
         <Field label={intl.formatMessage({ id: 'assistants.field.id' })}>
           <TextInput value={id} onChange={(event) => setId(event.target.value)} disabled={initial !== undefined} />
         </Field>
+        <Field
+          label={intl.formatMessage({ id: 'assistants.field.name' })}
+          hint={intl.formatMessage({
+            id: isDefault ? 'assistants.field.name.fixedHint' : 'assistants.field.name.hint',
+          })}
+        >
+          <TextInput
+            value={isDefault ? DEFAULT_ASSISTANT_LABEL : name}
+            disabled={isDefault}
+            onChange={(event) => setName(event.target.value)}
+            placeholder={id.trim() === '' ? undefined : id.trim()}
+          />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
         <Field
           label={intl.formatMessage({ id: 'assistants.field.agent' })}
           hint={intl.formatMessage({ id: 'assistants.field.agent.hint' })}

@@ -12,7 +12,8 @@ import { updateStateAtom } from './lib/update-atoms'
 import { AgentsPage } from './pages/agents'
 import { AssistantsPage } from './pages/assistants'
 import { ChannelsPage } from './pages/channels'
-import { HistoryPage } from './pages/history'
+import { ChatsPage } from './pages/chats'
+import { ChatHistoryPage } from './pages/chats/history'
 import { IntelligencePage } from './pages/intelligence'
 import { AutoReviewHistoryPage } from './pages/intelligence/history'
 import { LogsPage } from './pages/logs'
@@ -115,7 +116,8 @@ export function App() {
             <Route path="/intelligence/history" element={<AutoReviewHistoryPage />} />
             <Route path="/tasks" element={<TasksPage />} />
             <Route path="/tasks/history" element={<TaskHistoryPage />} />
-            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/chats" element={<ChatsPage />} />
+            <Route path="/chats/history" element={<ChatHistoryPage />} />
             <Route path="/logs" element={<LogsPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>

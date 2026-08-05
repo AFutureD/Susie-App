@@ -165,7 +165,8 @@ function ChannelUsersCard({
           </span>
         )}
         <div className="flex-1" />
-        {!ghost && (
+        {/* manager 不参与会话循环，权限档位无意义：不提供添加用户，只管理 Owner（供托管渠道继承） */}
+        {!ghost && !manager && (
           <Button disabled={mutation.busy} onClick={() => setPickerOpen(true)}>
             {intl.formatMessage({ id: 'users.add' })}
           </Button>
@@ -182,7 +183,9 @@ function ChannelUsersCard({
       )}
 
       {users.length === 0 ? (
-        <p className="mt-3 text-sm text-ink-muted">{intl.formatMessage({ id: 'users.roster.empty' })}</p>
+        <p className="mt-3 text-sm text-ink-muted">
+          {intl.formatMessage({ id: manager ? 'users.roster.managerEmpty' : 'users.roster.empty' })}
+        </p>
       ) : (
         <div className="mt-2 divide-y divide-line/60">
           {users.map((user) => (
@@ -193,6 +196,7 @@ function ChannelUsersCard({
               knownGroups={knownGroups}
               expanded={expandedId === user.user_id}
               busy={mutation.busy}
+              ownerOnly={manager}
               onToggle={() => setExpandedId(expandedId === user.user_id ? null : user.user_id)}
               onScope={(scope, level) => setScope(user, scope, level)}
               onMakeOwner={() => makeOwner(user)}
@@ -245,6 +249,7 @@ function UserRow({
   knownGroups,
   expanded,
   busy,
+  ownerOnly = false,
   onToggle,
   onScope,
   onMakeOwner,
@@ -255,6 +260,8 @@ function UserRow({
   knownGroups: KnownGroup[]
   expanded: boolean
   busy: boolean
+  /** manager 渠道：只允许 Owner 管理（转让/移除），隐藏权限档位 */
+  ownerOnly?: boolean
   onToggle: () => void
   onScope: (scope: PermissionScope, level: PermissionLevel) => void
   onMakeOwner: () => void
@@ -284,21 +291,25 @@ function UserRow({
           </span>
         ) : (
           <>
-            <label className="flex shrink-0 items-center gap-1.5 text-xs text-ink-muted">
-              {intl.formatMessage({ id: 'users.scope.private' })}
-              <LevelSelect
-                value={user.private}
-                disabled={busy}
-                onChange={(level) => onScope({ kind: 'private' }, level)}
-              />
-            </label>
-            <button
-              type="button"
-              onClick={onToggle}
-              className="shrink-0 text-xs whitespace-nowrap text-ink-muted transition-colors hover:text-ink"
-            >
-              {intl.formatMessage({ id: 'users.scope.groups' })} {expanded ? '▾' : '▸'}
-            </button>
+            {!ownerOnly && (
+              <>
+                <label className="flex shrink-0 items-center gap-1.5 text-xs text-ink-muted">
+                  {intl.formatMessage({ id: 'users.scope.private' })}
+                  <LevelSelect
+                    value={user.private}
+                    disabled={busy}
+                    onChange={(level) => onScope({ kind: 'private' }, level)}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={onToggle}
+                  className="shrink-0 text-xs whitespace-nowrap text-ink-muted transition-colors hover:text-ink"
+                >
+                  {intl.formatMessage({ id: 'users.scope.groups' })} {expanded ? '▾' : '▸'}
+                </button>
+              </>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -319,7 +330,7 @@ function UserRow({
         </button>
       </div>
 
-      {expanded && !isOwner && (
+      {expanded && !isOwner && !ownerOnly && (
         <div className="mt-2 ml-1 flex flex-col gap-1.5 border-l border-line pl-4">
           {knownGroups.length === 0 ? (
             <p className="py-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'users.scope.groups.empty' })}</p>

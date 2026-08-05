@@ -1,15 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useIntl } from 'react-intl'
-import {
-  canonicalizeBindings,
-  expandBindings,
-  type BindingAssignments,
-  type ChatAssignment,
-} from '../../../../shared/bindings'
+import type { ChatAssignment, WildcardAssignment } from '../../../../shared/bindings'
 import type { ConfigState } from '../../../../shared/config'
-import { ipc } from '../../lib/ipc'
+import { assistantLabel } from '../../lib/assistant-label'
 import { useChatsQuery } from '../../lib/ipc-query'
 import { buildTree, type ChatRow, type DraftChat } from './model'
+import { useBindingsWriter } from './use-bindings-writer'
 
 // 绑定面板的 container hook：状态 + 数据 + 全部写操作。
 // 视图（树/详情/弹窗）只消费这里输出的 props 包——config 是唯一事实源，
@@ -28,23 +23,28 @@ export const selectionKey = (selection: Selection): string | null => {
     : `${selection.kind}:${selection.channelId}`
 }
 
-const defaultAssignment = (assistantId: string): ChatAssignment => ({
+const newAssignment = (assistantId: string): WildcardAssignment => ({
   assistantId,
+  respond: true,
   onlyMention: true,
   sendOutput: false,
 })
 
-/** 指派的可调选项（群触发条件 + 输出选项） */
-export type AssignmentPatch = Partial<Pick<ChatAssignment, 'onlyMention' | 'sendOutput'>>
+/** 精确绑定的初始底座：跟随通道默认助手 */
+const followAssignment = (): ChatAssignment => ({
+  assistantId: null,
+  respond: true,
+  onlyMention: true,
+  sendOutput: false,
+})
+
+/** 指派的可调选项（是否响应 + 群触发条件 + 输出选项） */
+export type AssignmentPatch = Partial<Pick<ChatAssignment, 'respond' | 'onlyMention' | 'sendOutput'>>
 
 export function useBindings(state: ConfigState) {
-  const intl = useIntl()
-
   const [drafts, setDrafts] = useState<DraftChat[]>([])
   const [selection, setSelection] = useState<Selection>(null)
   const [pickerChannel, setPickerChannel] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   // 已知会话列表：共享查询缓存（history.message 事件自动失效）
   const { data: chatsData } = useChatsQuery()
@@ -64,55 +64,37 @@ export function useBindings(state: ConfigState) {
     if (!stillValid) setSelection(null)
   }, [tree, selection])
 
-  const submit = useCallback(
-    async (mutate: (assignments: BindingAssignments) => void): Promise<void> => {
-      if (busy) return
-      setBusy(true)
-      const assignments = expandBindings(state.config.bindings)
-      mutate(assignments)
-      const result = await ipc.config.setBindings({
-        bindings: canonicalizeBindings(assignments),
-        expectedVersion: state.version,
-      })
-      setBusy(false)
-      if (!result.ok) {
-        setError(result.conflict ? intl.formatMessage({ id: 'bindings.error.conflictRefreshed' }) : result.message)
-        return
-      }
-      setError(null)
-    },
-    [busy, state.config.bindings, state.version, intl],
-  )
+  const { busy, error, submit } = useBindingsWriter(state)
 
   const setAssistant = useCallback(
     (target: Selection, assistantId: string | null): void => {
       if (target === null || target.kind === 'ghost') return
       void submit((assignments) => {
         if (target.kind === 'default') {
-          if (assistantId === null) delete assignments.wildcard[target.channelId]
-          else assignments.wildcard[target.channelId] = defaultAssignment(assistantId)
-        } else if (assistantId === null) {
-          delete assignments.exact[target.channelId]?.[target.chatId]
+          // 通道默认必须有助手（不响应用 respond 表达）；换助手保留已配置的选项
+          if (assistantId === null) return
+          const existing = assignments.wildcard[target.channelId]
+          assignments.wildcard[target.channelId] =
+            existing === undefined ? newAssignment(assistantId) : { ...existing, assistantId }
         } else {
+          // 精确绑定：null = 跟随通道默认助手（绑定保留）；换助手保留已配置的选项
           const channelExact = (assignments.exact[target.channelId] ??= {})
           const existing = channelExact[target.chatId]
-          // 换助手保留已配置的触发条件
           channelExact[target.chatId] =
-            existing === undefined ? defaultAssignment(assistantId) : { ...existing, assistantId }
+            existing === undefined ? { ...followAssignment(), assistantId } : { ...existing, assistantId }
         }
       })
     },
     [submit],
   )
 
-  /** 更新精确绑定的可调选项（群触发条件 / 输出选项） */
+  /** 更新精确绑定的可调选项（是否响应 / 群触发条件 / 输出选项）；草稿会话以跟随默认为底座落盘 */
   const setTrigger = useCallback(
     (row: ChatRow, patch: AssignmentPatch): void => {
       void submit((assignments) => {
-        const existing = assignments.exact[row.channelId]?.[row.chatId]
-        if (existing === undefined) return
         const channelExact = (assignments.exact[row.channelId] ??= {})
-        channelExact[row.chatId] = { ...existing, ...patch }
+        const existing = channelExact[row.chatId]
+        channelExact[row.chatId] = { ...(existing ?? followAssignment()), ...patch }
       })
     },
     [submit],
@@ -156,17 +138,29 @@ export function useBindings(state: ConfigState) {
     [submit],
   )
 
-  const addChat = useCallback((channelId: string, chatId: string, name: string | null): void => {
-    setDrafts((prev) =>
-      prev.some((draft) => draft.channelId === channelId && draft.chatId === chatId)
-        ? prev
-        : [...prev, { channelId, chatId, name }],
-    )
-    setPickerChannel(null)
-    setSelection({ kind: 'chat', channelId, chatId })
-  }, [])
+  /** 添加会话 = 立即落盘一条「跟随渠道默认助手」的绑定（添加即响应，之后可再调整助手/选项）。
+   *  draft 仅作 config 广播回流前的乐观渲染占位，防止选中项被 stillValid 复位。 */
+  const addChat = useCallback(
+    (channelId: string, chatId: string, name: string | null): void => {
+      setDrafts((prev) =>
+        prev.some((draft) => draft.channelId === channelId && draft.chatId === chatId)
+          ? prev
+          : [...prev, { channelId, chatId, name }],
+      )
+      setPickerChannel(null)
+      setSelection({ kind: 'chat', channelId, chatId })
+      void submit((assignments) => {
+        const channelExact = (assignments.exact[channelId] ??= {})
+        channelExact[chatId] ??= followAssignment()
+      })
+    },
+    [submit],
+  )
 
-  const assistantIds = state.config.assistants.map((assistant) => assistant.id)
+  const assistantOptions = state.config.assistants.map((assistant) => ({
+    id: assistant.id,
+    label: assistantLabel(assistant),
+  }))
   const selectedKey = selectionKey(selection)
   const selectedEntry = selection === null ? undefined : tree.find((item) => item.channelId === selection.channelId)
   const selectedRow =
@@ -184,7 +178,7 @@ export function useBindings(state: ConfigState) {
     setPickerChannel,
     busy,
     error,
-    assistantIds,
+    assistantOptions,
     setAssistant,
     setTrigger,
     setDefaultOption,

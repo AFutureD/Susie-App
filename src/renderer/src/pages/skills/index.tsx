@@ -4,6 +4,7 @@ import { useAtomValue } from 'jotai'
 import { filterSkills, type SkillEntry, type SkillScope } from '../../../../shared/skills'
 import { Button, ErrorText, Select, TextInput } from '../../components/form'
 import { Page, PlaceholderCard } from '../../components/page'
+import { assistantLabel } from '../../lib/assistant-label'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { useIpcQuery } from '../../lib/ipc-query'
@@ -90,7 +91,7 @@ export function SkillsPage() {
             <Select value={effectiveAssistant} onChange={(event) => setAssistantId(event.target.value)}>
               {assistants.map((assistant) => (
                 <option key={assistant.id} value={assistant.id}>
-                  {assistant.id}
+                  {assistantLabel(assistant)}
                 </option>
               ))}
             </Select>

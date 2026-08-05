@@ -8,9 +8,9 @@ import type { ChannelTree } from './model'
 import { useBindings, type Selection } from './use-bindings'
 
 // 两栏主从式：左栏 channel → chat 树形导航，右栏为选中会话的配置。
-// 绑定 = 路由：会话 → 助手 + 触发/输出配置；通道默认选「无」= 其余会话无助手承接。
+// 绑定 = 路由：会话 → 助手 + 是否响应 + 触发/输出配置；通道默认的 respond 决定未列出会话是否响应。
 // 发送者的权限（响应/审核/忽略）在「用户」页按私聊/群设置，与绑定无关。
-// 状态与写操作全部住在 use-bindings.ts（config 是唯一事实源），本文件只组合视图。
+// 状态与写操作全部住在 use-bindings.ts（config 是唯一事实源），本文件只组合视图；页面壳在「会话」页。
 
 export function BindingsPanel({ state }: { state: ConfigState }) {
   const intl = useIntl()
@@ -21,9 +21,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
   const channelLabel = (channelId: string): string => identityMap.get(channelId)?.name ?? channelId
 
   return (
-    <section className="mt-10">
-      <h2 className="mb-3 text-base font-semibold">{intl.formatMessage({ id: 'bindings.title' })}</h2>
-      <p className="mb-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'bindings.hint' })}</p>
+    <div>
       <ErrorText message={panel.error} />
       {tree.length === 0 ? (
         <div className="rounded-xl border border-dashed border-line bg-raised/50 p-6 text-sm text-ink-muted">
@@ -55,7 +53,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
               <DefaultDetail
                 key={`${selectedKey}@${state.version}`}
                 entry={selectedEntry}
-                assistantIds={panel.assistantIds}
+                assistantOptions={panel.assistantOptions}
                 busy={busy}
                 onAssign={(assistantId) => panel.setAssistant(selection, assistantId)}
                 onOption={(patch) => panel.setDefaultOption(selection.channelId, patch)}
@@ -65,7 +63,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
               <ChatDetail
                 key={`${selectedKey}@${state.version}`}
                 row={selectedRow}
-                assistantIds={panel.assistantIds}
+                assistantOptions={panel.assistantOptions}
                 busy={busy}
                 onAssign={(assistantId) => panel.setAssistant(selection, assistantId)}
                 onTrigger={panel.setTrigger}
@@ -89,7 +87,7 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
           onClose={() => panel.setPickerChannel(null)}
         />
       )}
-    </section>
+    </div>
   )
 }
 
@@ -153,7 +151,11 @@ function ChannelSection({
         title={intl.formatMessage({ id: 'bindings.tree.defaultChat' })}
         titleClass="text-ink-muted italic"
         subtitle={
-          entry.defaultAssignment === null ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' }) : null
+          entry.defaultAssignment === null
+            ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' })
+            : entry.defaultAssignment.respond
+              ? null
+              : intl.formatMessage({ id: 'bindings.tree.mute' })
         }
       />
       {entry.rows.map((row) => (
@@ -164,6 +166,7 @@ function ChannelSection({
           title={row.name ?? row.chatId}
           titleClass={row.name === null ? 'font-mono text-xs' : ''}
           subtitle={chatTypeLabel(intl, row.chatType)}
+          muted={row.assignment?.respond === false}
         />
       ))}
     </div>
@@ -176,13 +179,17 @@ function TreeRow({
   title,
   titleClass,
   subtitle,
+  muted = false,
 }: {
   selected: boolean
   onClick: () => void
   title: string
   titleClass: string
   subtitle: string | null
+  /** respond=false 的静音标记 */
+  muted?: boolean
 }) {
+  const intl = useIntl()
   return (
     <button
       type="button"
@@ -191,7 +198,14 @@ function TreeRow({
         selected ? 'bg-accent/10' : ''
       }`}
     >
-      <span className={`block min-w-0 truncate text-sm ${titleClass}`}>{title}</span>
+      <span className="flex items-center gap-2">
+        <span className={`block min-w-0 flex-1 truncate text-sm ${titleClass}`}>{title}</span>
+        {muted && (
+          <span className="shrink-0 rounded bg-ink/5 px-1.5 py-0.5 text-[11px] text-ink-muted">
+            {intl.formatMessage({ id: 'bindings.tree.defaultChat.none' })}
+          </span>
+        )}
+      </span>
       {subtitle !== null && <span className="mt-0.5 block text-[11px] text-ink-muted">{subtitle}</span>}
     </button>
   )

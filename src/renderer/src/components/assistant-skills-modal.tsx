@@ -10,7 +10,16 @@ import { Modal } from './modal'
  * 助手可用技能弹窗：只列该 agent 能读取的技能（main 侧按 skillDirsForAgent 过滤——
  * 如 claude 不显示 .agents/skills 中的），工作目录/全局分组只读展示。
  */
-export function AssistantSkillsModal({ assistantId, onClose }: { assistantId: string; onClose: () => void }) {
+export function AssistantSkillsModal({
+  assistantId,
+  label,
+  onClose,
+}: {
+  assistantId: string
+  /** 展示名（name ?? id）；缺省回退 id */
+  label?: string
+  onClose: () => void
+}) {
   const intl = useIntl()
   const [query, setQuery] = useState('')
   const { data, loading, error } = useIpcQuery(
@@ -25,7 +34,7 @@ export function AssistantSkillsModal({ assistantId, onClose }: { assistantId: st
 
   return (
     <Modal
-      title={intl.formatMessage({ id: 'assistants.skills.title' }, { id: assistantId })}
+      title={intl.formatMessage({ id: 'assistants.skills.title' }, { id: label ?? assistantId })}
       panelClassName="flex max-h-[70vh] w-[30rem] flex-col p-5"
       onClose={onClose}
     >

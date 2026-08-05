@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useIntl, type IntlShape } from 'react-intl'
+import { Link } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ChatInfo, MessagePart, StoredMessage } from '../../../shared/messages'
-import { Button, TextInput } from '../components/form'
-import { ipc, onIpcEvent } from '../lib/ipc'
-import { useBotIdentityMap, useChatsQuery } from '../lib/ipc-query'
+import type { ChatInfo, MessagePart, StoredMessage } from '../../../../shared/messages'
+import { Button, TextInput } from '../../components/form'
+import { ipc, onIpcEvent } from '../../lib/ipc'
+import { useBotIdentityMap, useChatsQuery } from '../../lib/ipc-query'
 
 const REPLY_PREVIEW_MAX = 90
 
@@ -124,7 +125,8 @@ function MessageRow({
   )
 }
 
-export function HistoryPage() {
+/** 会话历史（「会话」模块的二级页面）：保留全高双栏布局，不套 Page 壳 */
+export function ChatHistoryPage() {
   const intl = useIntl()
   const [selected, setSelected] = useState<{ channelId: string; chatId: string } | null>(null)
   const [messages, setMessages] = useState<StoredMessage[]>([])
@@ -132,6 +134,8 @@ export function HistoryPage() {
   const [searchResults, setSearchResults] = useState<StoredMessage[] | null>(null)
   const [draft, setDraft] = useState('')
   const [sendError, setSendError] = useState<string | null>(null)
+  // 按渠道折叠（默认全展开；本地状态即可，不持久化）
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
@@ -208,103 +212,136 @@ export function HistoryPage() {
     setDraft('')
   }
 
-  return (
-    <div className="flex h-full gap-4">
-      <aside className="flex w-64 shrink-0 flex-col gap-2">
-        <div className="flex gap-1.5">
-          <TextInput
-            placeholder={intl.formatMessage({ id: 'history.search.placeholder' })}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') void runSearch()
-            }}
-          />
-        </div>
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          {chats.length === 0 && (
-            <p className="px-1 py-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'history.empty' })}</p>
-          )}
-          <div className="flex flex-col gap-1">
-            {chatGroups.map(([channelId, groupChats]) => (
-              <div key={channelId}>
-                <div className="truncate px-2 py-1.5 text-xs font-semibold text-ink-muted">
-                  {identityMap.get(channelId)?.name ?? channelId}
-                </div>
-                <div className="flex flex-col gap-0.5">
-                  {groupChats.map((chat) => {
-                    const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
-                    return (
-                      <button
-                        key={chatKey(chat.channelId, chat.chatId)}
-                        onClick={() => {
-                          setSearchResults(null)
-                          setSelected({ channelId: chat.channelId, chatId: chat.chatId })
-                        }}
-                        className={`rounded-lg py-2 pr-3 pl-4 text-left transition-colors ${
-                          active ? 'bg-raised shadow-sm' : 'hover:bg-raised/60'
-                        }`}
-                      >
-                        <div className="truncate text-sm font-medium">{chat.name ?? chat.chatId}</div>
-                        <div className="truncate font-mono text-[11px] text-ink-muted">{chat.chatId}</div>
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </aside>
+  const toggleGroup = (channelId: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(channelId)) next.delete(channelId)
+      else next.add(channelId)
+      return next
+    })
+  }
 
-      <section className="flex min-w-0 flex-1 flex-col rounded-xl border border-line bg-surface">
-        {searchResults !== null ? (
-          <div className="min-h-0 flex-1 overflow-y-auto p-4">
-            <div className="mb-3 flex items-center justify-between">
-              <span className="text-xs text-ink-muted">
-                {intl.formatMessage({ id: 'history.search.results' }, { count: String(searchResults.length) })}
-              </span>
-              <Button onClick={() => setSearchResults(null)}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-            </div>
-            <div className="flex flex-col gap-2">
-              {searchResults.map((message) => (
-                <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInSearch} />
-              ))}
+  return (
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex items-center gap-3">
+        <Link to="/chats" className="text-xs text-ink-muted underline-offset-2 hover:underline">
+          {intl.formatMessage({ id: 'chats.history.back' })}
+        </Link>
+        <h1 className="text-base font-semibold">{intl.formatMessage({ id: 'page.chatsHistory.title' })}</h1>
+      </div>
+      <div className="flex min-h-0 flex-1 gap-4">
+        <aside className="flex w-64 shrink-0 flex-col gap-2">
+          <div className="flex gap-1.5">
+            <TextInput
+              placeholder={intl.formatMessage({ id: 'history.search.placeholder' })}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') void runSearch()
+              }}
+            />
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            {chats.length === 0 && (
+              <p className="px-1 py-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'history.empty' })}</p>
+            )}
+            <div className="flex flex-col gap-1">
+              {chatGroups.map(([channelId, groupChats]) => {
+                const isCollapsed = collapsed.has(channelId)
+                return (
+                  <div key={channelId}>
+                    <button
+                      type="button"
+                      aria-expanded={!isCollapsed}
+                      onClick={() => toggleGroup(channelId)}
+                      className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised/60"
+                    >
+                      <span className="text-[10px] text-ink-muted">{isCollapsed ? '▸' : '▾'}</span>
+                      <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink-muted">
+                        {identityMap.get(channelId)?.name ?? channelId}
+                      </span>
+                      {isCollapsed && (
+                        <span className="shrink-0 text-[11px] text-ink-muted/70">{groupChats.length}</span>
+                      )}
+                    </button>
+                    {!isCollapsed && (
+                      <div className="flex flex-col gap-0.5">
+                        {groupChats.map((chat) => {
+                          const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
+                          return (
+                            <button
+                              key={chatKey(chat.channelId, chat.chatId)}
+                              onClick={() => {
+                                setSearchResults(null)
+                                setSelected({ channelId: chat.channelId, chatId: chat.chatId })
+                              }}
+                              className={`rounded-lg py-2 pr-3 pl-4 text-left transition-colors ${
+                                active ? 'bg-raised shadow-sm' : 'hover:bg-raised/60'
+                              }`}
+                            >
+                              <div className="truncate text-sm font-medium">{chat.name ?? chat.chatId}</div>
+                              <div className="truncate font-mono text-[11px] text-ink-muted">{chat.chatId}</div>
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
-        ) : selected === null ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
-            {intl.formatMessage({ id: 'history.pick' })}
-          </div>
-        ) : (
-          <>
+        </aside>
+
+        <section className="flex min-w-0 flex-1 flex-col rounded-xl border border-line bg-surface">
+          {searchResults !== null ? (
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
-              <div className="flex flex-col gap-2.5">
-                {messages.map((message) => (
-                  <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInMessages} />
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs text-ink-muted">
+                  {intl.formatMessage({ id: 'history.search.results' }, { count: String(searchResults.length) })}
+                </span>
+                <Button onClick={() => setSearchResults(null)}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+              </div>
+              <div className="flex flex-col gap-2">
+                {searchResults.map((message) => (
+                  <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInSearch} />
                 ))}
-                <div ref={bottomRef} />
               </div>
             </div>
-            <div className="border-t border-line p-3">
-              {sendError !== null && <p className="mb-2 text-xs text-red-500">{sendError}</p>}
-              <div className="flex gap-2">
-                <TextInput
-                  placeholder={intl.formatMessage({ id: 'history.composer.placeholder' })}
-                  value={draft}
-                  onChange={(event) => setDraft(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' && !event.nativeEvent.isComposing) void send()
-                  }}
-                />
-                <Button variant="primary" disabled={draft.trim() === ''} onClick={() => void send()}>
-                  {intl.formatMessage({ id: 'history.composer.send' })}
-                </Button>
-              </div>
+          ) : selected === null ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
+              {intl.formatMessage({ id: 'history.pick' })}
             </div>
-          </>
-        )}
-      </section>
+          ) : (
+            <>
+              <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                <div className="flex flex-col gap-2.5">
+                  {messages.map((message) => (
+                    <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInMessages} />
+                  ))}
+                  <div ref={bottomRef} />
+                </div>
+              </div>
+              <div className="border-t border-line p-3">
+                {sendError !== null && <p className="mb-2 text-xs text-red-500">{sendError}</p>}
+                <div className="flex gap-2">
+                  <TextInput
+                    placeholder={intl.formatMessage({ id: 'history.composer.placeholder' })}
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && !event.nativeEvent.isComposing) void send()
+                    }}
+                  />
+                  <Button variant="primary" disabled={draft.trim() === ''} onClick={() => void send()}>
+                    {intl.formatMessage({ id: 'history.composer.send' })}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </section>
+      </div>
     </div>
   )
 }

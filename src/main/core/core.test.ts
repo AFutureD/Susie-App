@@ -116,6 +116,7 @@ function makeManager(
         channel: 'tg',
         chat_id: '*',
         assistant_id: 'default',
+        respond: true,
         only_mention: true,
         send_output: options.sendOutput ?? false,
       },

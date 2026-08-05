@@ -1,25 +1,26 @@
 import { Fragment, useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
-import type { ConfigState } from '../../../../shared/config'
+import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
 import { ipc } from '../../lib/ipc'
 import { configStateAtom } from '../../lib/config-atoms'
-import { reconcileDefaultAssistant, shouldOnboard } from './model'
+import { canonicalizeBindings, expandBindings } from '../../../../shared/bindings'
+import { needsFallbackBinding, reconcileDefaultAssistant, shouldOnboard } from './model'
 import { AgentStep } from './agent-step'
 import { BindingStep } from './binding-step'
 import { BotStep, DoneStep, ManagerStep, OwnerStep } from './steps'
 
-// 首启引导：五步（添加 Manager Bot → 绑定 owner → 用 Manager 添加 Bot → 会话绑定 → 准备 agent），
-// 把「Manager 接入 + 用户管理 + 托管建 bot + 会话绑定面板 + Agent 页」的最小路径串起来。
+// 首启引导：五步（准备 Agent → 添加 Manager Bot → 绑定 owner → 用 Manager 添加 Bot → 绑定默认助手），
+// 与 APP 的使用逻辑同构：Agent 是核心第一步 → 有 Agent 才有（default）助手 → 再把助手绑到渠道/会话。
 // owner 绑在 manager 上：之后托管落地的渠道由主进程自动继承 manager 的 owner（创建者兜底）。
 // 进入只看 config.toml 是否存在（shouldOnboard），无 localStorage 标记；步骤推进全在向导内部。
 // config 仍是唯一事实源：向导所有写操作走既有 IPC，界面随 config:state 广播重派生。
-// 「跳过引导」在前四步关闭整个向导；agent 步只跳过该步（进完成页）。
+// 「跳过引导」任一步可用：渠道已建但绑定步被打断时补写回落绑定（default 助手 + 不响应）。
 
-type WizardStep = 'pending' | 'manager' | 'owner' | 'bot' | 'binding' | 'agent' | 'done' | 'closed'
+type WizardStep = 'pending' | 'agent' | 'manager' | 'owner' | 'bot' | 'binding' | 'done' | 'closed'
 
 /** 顶部步骤指示器的顺序（done 视为全部完成） */
-const STEP_ORDER = ['manager', 'owner', 'bot', 'binding', 'agent'] as const
+const STEP_ORDER = ['agent', 'manager', 'owner', 'bot', 'binding'] as const
 
 export function OnboardingOverlay() {
   const intl = useIntl()
@@ -28,17 +29,16 @@ export function OnboardingOverlay() {
   const [managerId, setManagerId] = useState<string | null>(null)
   const [managerUsername, setManagerUsername] = useState<string | null>(null)
   const [channelId, setChannelId] = useState<string | null>(null)
-  const [botUsername, setBotUsername] = useState<string | null>(null)
 
   // 首次拿到配置时决定是否进入向导；此后步骤只由向导内部推进
   useEffect(() => {
     if (step !== 'pending' || state === null) return
-    setStep(shouldOnboard(state) ? 'manager' : 'closed')
+    setStep(shouldOnboard(state) ? 'agent' : 'closed')
   }, [step, state])
 
   if (step === 'pending' || step === 'closed' || state === null) return null
 
-  // 引导期间依赖对象被外部删除时回退：manager 没了回第 1 步；渠道没了回「添加 Bot」步
+  // 引导期间依赖对象被外部删除时回退：manager 没了回添加 Manager 步；渠道没了回「添加 Bot」步
   const managerReady = managerId !== null && managerId in state.config.manager_bots
   const channelReady = channelId !== null && channelId in state.config.channels
   let effectiveStep = step
@@ -48,11 +48,19 @@ export function OnboardingOverlay() {
   const stepIndex =
     effectiveStep === 'done' ? STEP_ORDER.length : STEP_ORDER.indexOf(effectiveStep as (typeof STEP_ORDER)[number])
 
-  // agent 步收尾（「下一步」/「跳过此步」共用）：default 助手 schema 默认指向 codex，
+  // agent 步收尾（「下一步」即离开该步）：default 助手 schema 默认指向 codex，
   // 用户可能只准备了其他 agent——离开该步时把不可用的指向改到首个可用候选
   const finishAgentStep = () => {
     void fixDefaultAssistantAgent(state)
-    setStep('done')
+    setStep('manager')
+  }
+
+  // 「跳过引导」统一出口：渠道已建但绑定步被打断 → 补写回落绑定（不变量：添加渠道必有默认绑定）
+  const closeWizard = () => {
+    if (channelId !== null && needsFallbackBinding(state, channelId)) {
+      void writeFallbackBinding(state, channelId)
+    }
+    setStep('closed')
   }
 
   return (
@@ -68,6 +76,7 @@ export function OnboardingOverlay() {
 
           <StepIndicator current={stepIndex} />
 
+          {effectiveStep === 'agent' && <AgentStep onNext={finishAgentStep} />}
           {effectiveStep === 'manager' && (
             <ManagerStep
               state={state}
@@ -90,50 +99,43 @@ export function OnboardingOverlay() {
             <BotStep
               state={state}
               managerId={managerId}
-              onCreated={(id, username) => {
+              onCreated={(id) => {
                 setChannelId(id)
-                setBotUsername(username)
                 setStep('binding')
               }}
             />
           )}
           {effectiveStep === 'binding' && channelId !== null && (
-            <BindingStep
-              state={state}
-              channelId={channelId}
-              botUsername={botUsername}
-              onFinish={() => setStep('agent')}
-            />
+            <BindingStep state={state} channelId={channelId} onFinish={() => setStep('done')} />
           )}
-          {effectiveStep === 'agent' && <AgentStep onNext={finishAgentStep} />}
           {effectiveStep === 'done' && <DoneStep onClose={() => setStep('closed')} />}
 
           {effectiveStep !== 'done' && (
             <div className="mt-8">
-              {effectiveStep === 'agent' ? (
-                // agent 步是最后一步：这里只跳过本步（进完成页），不关闭整个向导
-                <button
-                  type="button"
-                  onClick={finishAgentStep}
-                  className="text-xs text-ink-muted underline-offset-2 hover:underline"
-                >
-                  {intl.formatMessage({ id: 'onboarding.agent.skip' })}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setStep('closed')}
-                  className="text-xs text-ink-muted underline-offset-2 hover:underline"
-                >
-                  {intl.formatMessage({ id: 'onboarding.skip' })}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={closeWizard}
+                className="text-xs text-ink-muted underline-offset-2 hover:underline"
+              >
+                {intl.formatMessage({ id: 'onboarding.skip' })}
+              </button>
             </div>
           )}
         </div>
       </div>
     </div>
   )
+}
+
+/** 跳过向导的回落绑定：default 助手 + 不响应（fire-and-forget；失败留待用户在会话页配置） */
+async function writeFallbackBinding(state: ConfigState, channelId: string): Promise<void> {
+  const assistantId =
+    state.config.assistants.find((assistant) => assistant.id === DEFAULT_ASSISTANT_ID)?.id ??
+    state.config.assistants[0]?.id ??
+    DEFAULT_ASSISTANT_ID
+  const assignments = expandBindings(state.config.bindings)
+  assignments.wildcard[channelId] = { assistantId, respond: false, onlyMention: true, sendOutput: false }
+  await ipc.config.setBindings({ bindings: canonicalizeBindings(assignments), expectedVersion: state.version })
 }
 
 /** default 助手指向不可用 agent 时改指首个可用候选（决策在 reconcileDefaultAssistant）；失败静默保持原配置 */

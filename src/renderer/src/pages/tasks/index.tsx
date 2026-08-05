@@ -6,6 +6,7 @@ import type { ConfigState, ScheduledTask } from '../../../../shared/config'
 import type { ChatInfo, TaskStatus } from '../../../../shared/messages'
 import { Button, ErrorText, Field, FieldGroup, Select, TextArea, TextInput } from '../../components/form'
 import { Page, PlaceholderCard } from '../../components/page'
+import { assistantLabel } from '../../lib/assistant-label'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { useConfigMutation } from '../../lib/ipc-mutation'
@@ -40,6 +41,8 @@ export function TasksPage() {
   const tasks = state.config.scheduled_tasks
   const statusMap = new Map((statuses.data ?? []).map((status) => [status.taskId, status]))
   const chatList = chats.data ?? []
+  // 助手徽标显示 name ?? id；引用已删除助手时回退裸 id
+  const assistantLabels = new Map(state.config.assistants.map((assistant) => [assistant.id, assistantLabel(assistant)]))
 
   const deleteTask = async (task: ScheduledTask) => {
     if (!window.confirm(intl.formatMessage({ id: 'tasks.deleteConfirm' }, { name: task.name }))) return
@@ -81,7 +84,7 @@ export function TasksPage() {
                   <div className="flex items-center gap-2">
                     <span className="truncate text-sm font-semibold">{task.name}</span>
                     <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                      {task.assistant_id}
+                      {assistantLabels.get(task.assistant_id) ?? task.assistant_id}
                     </span>
                     {task.skill !== undefined && (
                       <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
@@ -202,7 +205,10 @@ function TaskForm({
   onDone: () => void
 }) {
   const intl = useIntl()
-  const assistants = state.config.assistants.map((assistant) => assistant.id)
+  const assistants = state.config.assistants.map((assistant) => ({
+    id: assistant.id,
+    label: assistantLabel(assistant),
+  }))
   const initialMode: 'custom' | 'skill' = initial?.skill !== undefined ? 'skill' : 'custom'
   const [name, setName] = useState(initial?.name ?? '')
   const [mode, setMode] = useState<'custom' | 'skill'>(initialMode)
@@ -211,7 +217,7 @@ function TaskForm({
   const [content, setContent] = useState(initialMode === 'custom' ? (initial?.content ?? '') : '')
   const [extra, setExtra] = useState(initialMode === 'skill' ? (initial?.content ?? '') : '')
   const [skillValue, setSkillValue] = useState(initial?.skill ?? '')
-  const [assistantId, setAssistantId] = useState(initial?.assistant_id ?? assistants[0] ?? '')
+  const [assistantId, setAssistantId] = useState(initial?.assistant_id ?? assistants[0]?.id ?? '')
   const [schedule, setSchedule] = useState(initial?.schedule ?? DEFAULT_CRON)
   const [targets, setTargets] = useState(initial?.targets ?? [])
   const [error, setError] = useState<string | null>(null)
@@ -247,9 +253,11 @@ function TaskForm({
     onDone()
   }
 
-  // 编辑既有任务时 assistant 可能已被删除：保留为额外选项防误改
+  // 编辑既有任务时 assistant 可能已被删除：保留为额外选项（裸 id）防误改
   const assistantOptions =
-    assistantId !== '' && !assistants.includes(assistantId) ? [assistantId, ...assistants] : assistants
+    assistantId !== '' && !assistants.some((assistant) => assistant.id === assistantId)
+      ? [{ id: assistantId, label: assistantId }, ...assistants]
+      : assistants
 
   // option 值 = 技能目录名（与配置存储一致）；执行解析工作目录优先于全局，同名全局项隐藏
   const workspaceOptions = (assistantSkills.data?.workspace ?? []).map((entry) => ({
@@ -287,9 +295,9 @@ function TaskForm({
               setSkillValue('')
             }}
           >
-            {assistantOptions.map((id) => (
-              <option key={id} value={id}>
-                {id}
+            {assistantOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
               </option>
             ))}
           </Select>

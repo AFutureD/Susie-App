@@ -11,6 +11,7 @@ import {
 } from '../../../../shared/skills'
 import { Button, ErrorText, Field, FieldGroup, Select, TextInput } from '../../components/form'
 import { Modal } from '../../components/modal'
+import { assistantLabel } from '../../lib/assistant-label'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { useIpcQuery } from '../../lib/ipc-query'
@@ -391,7 +392,7 @@ function InstallTargetModal({
               >
                 {assistants.map((assistant) => (
                   <option key={assistant.id} value={assistant.id}>
-                    {assistant.id}
+                    {assistantLabel(assistant)}
                   </option>
                 ))}
               </Select>

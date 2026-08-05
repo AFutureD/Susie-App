@@ -15,7 +15,9 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     channels: {},
     manager_bots: {},
     assistants: [{ id: 'default', agent_id: 'codex' }],
-    bindings: [{ channel: 'tg', chat_id: '*', assistant_id: 'default', only_mention: true, send_output: false }],
+    bindings: [
+      { channel: 'tg', chat_id: '*', assistant_id: 'default', respond: true, only_mention: true, send_output: false },
+    ],
     users: [
       { channel: 'tg', user_id: OWNER_ID, name: 'Boss', role: 'owner', private: 'review', groups: {} },
       { channel: 'tg', user_id: '100', role: 'user', private: 'review', groups: {} },

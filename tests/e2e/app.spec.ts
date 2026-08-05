@@ -78,9 +78,13 @@ test.afterAll(async () => {
   await new Promise((resolve) => tgStub?.close(resolve))
 })
 
-test('首次启动：出现 onboarding 引导，跳过后进入主界面', async () => {
-  // 启动时 config.toml 不存在（firstRun）→ 引导第 1 步（添加 Manager Bot，含步骤指示器与示范视频）
+test('首次启动：出现 onboarding 引导（Agent 最先），跳过后进入主界面', async () => {
+  // 启动时 config.toml 不存在（firstRun）→ 引导第 1 步（准备 Agent——Agent 是核心第一步）
   await expect(win.getByText('欢迎使用 Susie')).toBeVisible()
+  await expect(win.getByRole('heading', { name: '准备 Agent' })).toBeVisible()
+
+  // 第 2 步：添加 Manager Bot（含示范视频）
+  await win.getByRole('button', { name: '下一步' }).click()
   await expect(win.getByRole('heading', { name: '添加 Manager Bot' })).toBeVisible()
   await expect(win.getByText(/Bot Management Mode/)).toBeVisible()
   await expect(win.locator('video')).toBeVisible()
@@ -88,12 +92,13 @@ test('首次启动：出现 onboarding 引导，跳过后进入主界面', async
   await win.getByRole('button', { name: /跳过引导/ }).click()
   await expect(win.getByText('欢迎使用 Susie')).toHaveCount(0)
 
-  // 主界面：侧边栏挂载，首页为 NAV_ROUTES[0]（助手页，导航清单同源 shared/nav.ts）
+  // 主界面：侧边栏挂载，首页为 NAV_ROUTES[0]（助手页，导航清单同源 shared/nav.ts）；
+  // default 助手随默认配置存在且不可删除（无删除按钮）
   await expect(win.locator('nav a')).toHaveCount(NAV_ROUTES.length)
-  await expect(win.getByText('还没有配置任何渠道')).toBeVisible()
+  await expect(win.getByText('default', { exact: true }).first()).toBeVisible()
 })
 
-test('UI 新建渠道并落盘 config.toml；随即进入 Owner 绑定', async () => {
+test('UI 新建渠道并落盘 config.toml；随即进入 Owner 绑定与默认助手绑定', async () => {
   await win.getByRole('link', { name: '渠道' }).click()
   await win.getByRole('button', { name: '新增', exact: true }).click()
   await win.getByPlaceholder('my_bot').fill('e2e_bot')
@@ -109,6 +114,12 @@ test('UI 新建渠道并落盘 config.toml；随即进入 Owner 绑定', async (
   await win.getByRole('button', { name: '稍后在「用户」页设置' }).click()
   await expect(win.getByRole('heading', { name: '绑定 Owner' })).toHaveCount(0)
 
+  // Owner 之后必弹「绑定默认助手」；直接关闭 → 回落 default 助手 + 默认不响应
+  await expect(win.getByRole('heading', { name: '绑定默认助手' })).toBeVisible()
+  await win.getByRole('button', { name: /暂不选择/ }).click()
+  await expect(win.getByRole('heading', { name: '绑定默认助手' })).toHaveCount(0)
+  await expect.poll(() => readFileSync(configPath, 'utf-8')).toContain('[[bindings]]')
+
   // 渠道行：getMe 身份 → 标题 display name、副标题 @username（token 不再出现在列表）
   await expect(win.getByText('E2E Bot', { exact: true })).toBeVisible()
   await expect(win.getByText('@e2e_bot')).toBeVisible()
@@ -116,6 +127,11 @@ test('UI 新建渠道并落盘 config.toml；随即进入 Owner 绑定', async (
   const text = readFileSync(configPath, 'utf-8')
   expect(text).toContain('[channels.e2e_bot]')
   expect(text).toContain('10001:e2e-token')
+  // 回落绑定：通道默认 + default 助手 + respond=false
+  expect(text).toContain('channel = "e2e_bot"')
+  expect(text).toContain('chat_id = "*"')
+  expect(text).toContain('assistant_id = "default"')
+  expect(text).toContain('respond = false')
 })
 
 test('外部编辑 config.toml 热加载进 UI', async () => {
@@ -124,20 +140,23 @@ test('外部编辑 config.toml 热加载进 UI', async () => {
   await expect(win.getByText('hot_bot', { exact: true })).toBeVisible()
 })
 
-test('树形面板把「默认」会话指派给助手并落盘', async () => {
-  await win.getByRole('link', { name: '助手' }).click()
+test('会话页树形面板：切换通道默认的「是否响应」并落盘', async () => {
+  await win.getByRole('link', { name: '会话', exact: true }).click()
 
-  // 左栏树：渠道行（display name）+ 每渠道恒存的「默认」行（e2e_bot 先于 hot_bot 声明，取第一个）
+  // 左栏树：渠道行（display name）+ 每渠道恒存的「默认」行（e2e_bot 的默认绑定由上一步回落写入）
   await expect(win.getByText('E2E Bot', { exact: true })).toBeVisible()
   const defaultRow = win.getByText('默认（其余会话）').first()
   await expect(defaultRow).toBeVisible()
 
-  // 选中「默认」行 → 右栏详情选择助手
+  // 选中「默认」行 → 右栏详情：助手已是 default（回落写入），打开「响应未列出的会话」。
+  // 受控 checkbox 经 IPC 写盘 + config 广播后才更新，用 click + 重试断言而非 check()
   await defaultRow.click()
-  await win.getByLabel('助手').selectOption('default')
+  await expect(win.getByLabel('助手')).toHaveValue('default')
+  await win.getByLabel('响应未列出的会话').click()
+  await expect(win.getByLabel('响应未列出的会话')).toBeChecked()
 
-  // 通道默认绑定落盘为 chat_id = "*"（'*' 仅存在于数据层，UI 不出现）
-  await expect.poll(() => readFileSync(configPath, 'utf-8')).toContain('[[bindings]]')
+  // respond 翻转落盘（canonical 序列化省写默认值 true 与否取决于 schema——此处断言不再是 false）
+  await expect.poll(() => readFileSync(configPath, 'utf-8')).not.toContain('respond = false')
   const text = readFileSync(configPath, 'utf-8')
   expect(text).toContain('channel = "e2e_bot"')
   expect(text).toContain('assistant_id = "default"')
@@ -194,10 +213,38 @@ test('技能页：维度切换、搜索与获取入口', async () => {
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
 })
 
-test('会话页：空态与会话列表骨架', async () => {
-  await win.getByRole('link', { name: '会话' }).click()
+test('会话页：绑定为主页面，会话历史降为二级页面', async () => {
+  await win.getByRole('link', { name: '会话', exact: true }).click()
+  // 主页面 = 会话绑定树
+  await expect(win.getByText('默认（其余会话）').first()).toBeVisible()
+
+  // 二级页面 = 会话历史（空态 + 搜索框），可返回
+  await win.getByRole('link', { name: '会话历史' }).click()
   await expect(win.getByText('还没有任何消息记录')).toBeVisible()
   await expect(win.getByPlaceholder('搜索全部历史（回车）')).toBeVisible()
+  await win.getByRole('link', { name: '← 返回会话' }).click()
+  await expect(win.getByText('默认（其余会话）').first()).toBeVisible()
+})
+
+test('会话页：添加会话即落盘（跟随渠道默认助手）', async () => {
+  // e2e_bot 的 ＋ 按钮 → 无历史会话 → 手动输入兜底
+  await win.getByRole('button', { name: '添加会话' }).first().click()
+  await expect(win.getByText(/添加会话到/)).toBeVisible()
+  await win.getByPlaceholder('P:123456').fill('P:77')
+  await win.getByRole('button', { name: '添加', exact: true }).click()
+  await expect(win.getByText(/添加会话到/)).toHaveCount(0)
+
+  // 添加即写入精确绑定：chat_id 落盘、assistant_id 省写（跟随渠道默认）
+  await expect.poll(() => readFileSync(configPath, 'utf-8')).toContain('chat_id = "P:77"')
+  const section = readFileSync(configPath, 'utf-8')
+    .split('[[bindings]]')
+    .find((part) => part.includes('chat_id = "P:77"'))
+  expect(section).toBeDefined()
+  expect(section).not.toContain('assistant_id')
+
+  // 右栏详情默认选中新会话：跟随渠道默认 + 响应开启
+  await expect(win.getByLabel('助手')).toHaveValue('')
+  await expect(win.getByLabel('响应此会话')).toBeChecked()
 })
 
 test('任务页：新建定时任务（默认调度 + 弹窗选会话）并落盘', async () => {

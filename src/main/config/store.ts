@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import {
+  DEFAULT_ASSISTANT_ID,
   ID_PATTERN,
   configSchema,
   type AssistantConfig,
@@ -16,7 +17,7 @@ import {
   type ScheduledTask,
 } from '../../shared/config'
 import { transferOwner } from '../../shared/users'
-import { deepEqual, defaultConfig, parseConfigText, serializeConfig } from './load'
+import { deepEqual, defaultConfig, ensureDefaultAssistant, parseConfigText, serializeConfig } from './load'
 
 export type Unsubscribe = () => void
 
@@ -76,7 +77,17 @@ export class ConfigStore {
       const text = fs.readFileSync(configPath, 'utf-8')
       const result = parseConfigText(text)
       if (result.ok) {
-        return new ConfigStore(configPath, result.config, null, firstRun)
+        // default 助手缺失时补建并回写（watcher 尚未启动且 ignoreInitial，无回环）；
+        // 落盘失败降级为仅内存补建——配置本身是健康的，不设 lastError
+        const healed = ensureDefaultAssistant(result.config)
+        if (healed.changed) {
+          try {
+            atomicWrite(configPath, serializeConfig(healed.config))
+          } catch {
+            /* 内存补建仍生效，落盘等下次写入 */
+          }
+        }
+        return new ConfigStore(configPath, healed.config, null, firstRun)
       }
       return new ConfigStore(configPath, defaultConfig(), result.error, firstRun)
     } catch (error) {
@@ -129,14 +140,22 @@ export class ConfigStore {
     this.applyExternalText(text)
   }
 
-  /** 应用一段外部配置文本；失败保留 last-good。 */
+  /** 应用一段外部配置文本；失败保留 last-good。default 助手被手删时补建并回写（hash 抑制回环，幂等收敛）。 */
   applyExternalText(text: string): void {
     const result = parseConfigText(text)
     if (!result.ok) {
       this.setError(result.error)
       return
     }
-    this.applySnapshot(result.config)
+    const healed = ensureDefaultAssistant(result.config)
+    if (healed.changed) {
+      try {
+        this.writeToDisk(serializeConfig(healed.config))
+      } catch {
+        /* 内存补建仍生效，落盘等下次热加载重试 */
+      }
+    }
+    this.applySnapshot(healed.config)
   }
 
   // ---------- 引用与订阅 ----------
@@ -247,7 +266,9 @@ export class ConfigStore {
   }
 
   deleteAssistant(id: string, expectedVersion: number): ConfigMutationResult {
-    // 被绑定引用的助手由 schema 引用校验拦截；无引用即可删（不再有全局兜底特权助手）
+    // default 是不可删除的兜底助手（onboarding 与渠道弹窗回落都指向它）；
+    // 其余助手被绑定引用时由 schema 引用校验拦截，无引用即可删
+    if (id === DEFAULT_ASSISTANT_ID) return fail('默认助手 default 不可删除')
     return this.mutate(expectedVersion, (draft) => {
       const index = draft.assistants.findIndex((a) => a.id === id)
       if (index < 0) throw new Error(`助手不存在：${id}`)
@@ -292,11 +313,14 @@ export class ConfigStore {
     })
   }
 
-  /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。 */
+  /** Raw 编辑器整文件保存：按用户书写的原文落盘（不 canonical 化）。缺 default 助手直接拒绝——静默改写与原文契约冲突。 */
   saveRaw(text: string, expectedVersion: number): ConfigMutationResult {
     if (expectedVersion !== this.version) return conflict(this.version, expectedVersion)
     const result = parseConfigText(text)
     if (!result.ok) return fail(result.error)
+    if (!result.config.assistants.some((assistant) => assistant.id === DEFAULT_ASSISTANT_ID)) {
+      return fail('默认助手 default 不可删除')
+    }
 
     try {
       this.writeToDisk(text)

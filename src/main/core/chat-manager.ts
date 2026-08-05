@@ -1,4 +1,5 @@
-import { isTriggerSatisfied, resolveBinding } from '../../shared/bindings'
+import { isTriggerSatisfied, resolveEffectiveBinding } from '../../shared/bindings'
+import { channelOwner } from '../../shared/users'
 import { decodeChatId } from '../../shared/chat-id'
 import type { AssistantConfig, ChatBinding } from '../../shared/config'
 import { errorMessage } from '../../shared/errors'
@@ -33,7 +34,8 @@ interface InboundContext {
   /** owner 批准重放：跳过身份门与免打扰窗（路由仍要重查——绑定可能已失效） */
   readonly preapproved: boolean
   readonly chatType: string | null
-  binding: ChatBinding | null
+  /** ① 路由结论；resolveRoute 通过后必有助手（三种不响应都在该阶段收敛） */
+  route: { assistantId: string; onlyMention: boolean; sendOutput: boolean } | null
   command: { name: string; args: string[] } | null
   gate: GateDecision | null
 }
@@ -110,15 +112,16 @@ export class ChatManager {
       handler: (ctx) => ctx.chatId,
     })
     // binding 变化 → 按会话比对路由结论，结论变了才失效（改一条无关绑定不再殃及全部活跃会话）。
-    // 只比较 assistant_id：only_mention 在触发判定时现读、send_output 在发送时现读（变更即时生效），
-    // 会话 runtime 的构造输入里来自 binding 的只有 assistant_id。
+    // 只比较有效助手（含精确绑定跟随通道默认时的 fallback 变化）：respond/only_mention 逐消息现读、
+    // send_output 发送时现读（变更即时生效，静音不销毁会话——保留 agent 上下文），
+    // 会话 runtime 的构造输入里来自 binding 的只有助手 id。
     this.unsubs.push(
       deps.store.subscribePath('bindings', (next, prev) => {
         const prevBindings = (prev ?? []) as ChatBinding[]
         const nextBindings = (next ?? []) as ChatBinding[]
         for (const entry of Array.from(this.chats.values())) {
-          const before = resolveBinding(prevBindings, entry.channelId, entry.chatId)?.assistant_id ?? null
-          const after = resolveBinding(nextBindings, entry.channelId, entry.chatId)?.assistant_id ?? null
+          const before = resolveEffectiveBinding(prevBindings, entry.channelId, entry.chatId)?.assistantId ?? null
+          const after = resolveEffectiveBinding(nextBindings, entry.channelId, entry.chatId)?.assistantId ?? null
           if (before !== after) {
             this.deps.log.info(`bindings 变更：chat ${entry.key} 路由结论变化，会话失效（下条消息重建）`)
             void this.disposeChat(entry.key)
@@ -316,27 +319,46 @@ export class ChatManager {
       key: chatKey(message.channelId, message.chatId),
       preapproved: opts.preapproved === true,
       chatType: decodeChatId(message.chatId)?.chatType ?? null,
-      binding: null,
+      route: null,
       command: null,
       gate: null,
     }
   }
 
-  /** ① 路由：绑定命中 + 触发条件（群内 @ 提及）。未命中静默——不是权限拒绝，是无路由。 */
+  /** ① 路由：绑定命中 + respond + 有助手承接 + 触发条件（群内 @ 提及）。未通过静默——不是权限拒绝，是无路由。 */
   private resolveRoute(ctx: InboundContext): boolean {
-    const binding = resolveBinding(this.deps.store.current.bindings, ctx.message.channelId, ctx.message.chatId)
-    if (binding === null) {
-      this.deps.log.info(
-        `chat ${ctx.key} 无绑定且通道无默认助手，不响应${ctx.preapproved ? '（审核通过但绑定已失效）' : ''}`,
-      )
+    const staleHint = ctx.preapproved ? '（审核通过但绑定已失效）' : ''
+    const eff = resolveEffectiveBinding(this.deps.store.current.bindings, ctx.message.channelId, ctx.message.chatId)
+    if (eff === null) {
+      this.deps.log.info(`chat ${ctx.key} 无绑定且通道无默认助手，不响应${staleHint}`)
       return false
     }
-    if (!isTriggerSatisfied(binding, { chatType: ctx.chatType, mentioned: ctx.envelope.mentioned })) {
+    if (!eff.respond) {
+      // Owner 直通：渠道始终响应 owner 本人，即便其会话未被列入绑定（respond 静音对 owner 不生效）；
+      // 触发条件与助手解析照常
+      if (!this.isChannelOwner(ctx)) {
+        this.deps.log.info(`chat ${ctx.key} 绑定已设为不响应（respond=false），不响应${staleHint}`)
+        return false
+      }
+      this.deps.log.info(`chat ${ctx.key} 绑定不响应，但发送者是渠道 owner，直通`)
+    }
+    if (eff.assistantId === null) {
+      this.deps.log.info(`chat ${ctx.key} 精确绑定未指定助手且通道无默认助手，不响应${staleHint}`)
+      return false
+    }
+    if (!isTriggerSatisfied(eff.onlyMention, { chatType: ctx.chatType, mentioned: ctx.envelope.mentioned })) {
       this.deps.log.info(`chat ${ctx.key} 群消息未 @ 提及，不触发`)
       return false
     }
-    ctx.binding = binding
+    ctx.route = { assistantId: eff.assistantId, onlyMention: eff.onlyMention, sendOutput: eff.sendOutput }
     return true
+  }
+
+  /** 发送者是否该渠道的 owner（respond 静音的直通判定） */
+  private isChannelOwner(ctx: InboundContext): boolean {
+    if (ctx.message.senderId === null) return false
+    const owner = channelOwner(this.deps.store.current.users, ctx.message.channelId)
+    return owner !== null && owner.user_id === ctx.message.senderId
   }
 
   /** ② 命令先于身份门解析：命令有权限分类（免审命令无权限也响应） */
@@ -346,10 +368,10 @@ export class ChatManager {
 
   /** ④ 会话确保（身份门之后——被拦/暂存的消息不建 runtime）；失败给会话内 Error 反馈 */
   private async ensureChatOrReply(ctx: InboundContext): Promise<ChatEntry | null> {
-    const binding = ctx.binding
-    if (binding === null) return null
+    const route = ctx.route
+    if (route === null) return null
     try {
-      return await this.ensureChat(ctx.message.channelId, ctx.message.chatId, binding.assistant_id)
+      return await this.ensureChat(ctx.message.channelId, ctx.message.chatId, route.assistantId)
     } catch (error) {
       const detail = errorMessage(error)
       this.deps.log.error(`chat ${ctx.key} 无 agent 承接：${detail}`)
@@ -414,8 +436,8 @@ export class ChatManager {
           // agent 运行期间的直接产出（过程 quote 与结果文本）默认不发送——回复走 MCP send_message；
           // 绑定开启 send_output 后才整体发到会话（发送时现取配置，开关即时生效）。
           // 失败时的 Error 提示是本层的反馈，不受开关影响。
-          const binding = resolveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
-          const sendOutput = binding?.send_output === true
+          const eff = resolveEffectiveBinding(this.deps.store.current.bindings, message.channelId, message.chatId)
+          const sendOutput = eff?.sendOutput === true
           const parts = sendOutput ? [...turn.parts] : []
           if (!sendOutput && turn.parts.length > 0) {
             this.deps.log.info(`chat ${entry.key} 已按绑定配置省略 ${turn.parts.length} 段 agent 直接输出`)

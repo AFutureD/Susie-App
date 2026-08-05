@@ -3,16 +3,19 @@ import type { ConfigState } from '../../../../shared/config'
 import { ManagedBotCreatePanel } from '../../components/managed-bot-create'
 
 // 「添加托管 Bot」弹窗：面板逻辑在 components/managed-bot-create.tsx（与 onboarding 共用），
-// 这里只包弹窗壳；点「添加」落地为渠道后关闭窗口。
+// 这里只包弹窗壳；点「添加」落地为渠道后经 onAdded 通知页面层（接「绑定默认助手」弹窗）。
 
 export function AddManagedBotModal({
   state,
   managerId,
   onClose,
+  onAdded,
 }: {
   state: ConfigState
   managerId: string
   onClose: () => void
+  /** 托管 Bot 落地为渠道后回调（channelId = bot username）；页面层据此接后续弹窗 */
+  onAdded: (channelId: string) => void
 }) {
   const intl = useIntl()
 
@@ -27,7 +30,7 @@ export function AddManagedBotModal({
           <p className="mt-1 text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'managedBot.subtitle' })}</p>
         </div>
 
-        <ManagedBotCreatePanel state={state} managerId={managerId} onAdded={onClose} />
+        <ManagedBotCreatePanel state={state} managerId={managerId} onAdded={(channelId) => onAdded(channelId)} />
 
         <button
           type="button"

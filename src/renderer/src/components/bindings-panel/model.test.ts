@@ -32,6 +32,7 @@ describe('buildTree', () => {
     expect(tree).toHaveLength(1)
     expect(tree[0]?.defaultAssignment).toEqual({
       assistantId: 'default',
+      respond: true,
       onlyMention: true,
       sendOutput: false,
     })
@@ -42,7 +43,7 @@ describe('buildTree', () => {
         name: '大群',
         chatType: 'supergroup',
         threadId: null,
-        assignment: { assistantId: 'ops', onlyMention: false, sendOutput: false },
+        assignment: { assistantId: 'ops', respond: true, onlyMention: false, sendOutput: false },
       },
     ])
   })
@@ -54,6 +55,23 @@ describe('buildTree', () => {
     const tree = buildTree(config, [], [])
     expect(tree[0]?.defaultAssignment).toBeNull()
     expect(tree[0]?.rows[0]?.assignment?.assistantId).toBe('ops')
+  })
+
+  it('carries respond=false and follow-default (assistantId null) through to the tree', () => {
+    const config = makeConfig({
+      bindings: [
+        { channel: 'bot', chat_id: 'P:1', respond: false },
+        { channel: 'bot', chat_id: '*', assistant_id: 'default', respond: false },
+      ],
+    })
+    const tree = buildTree(config, [], [])
+    expect(tree[0]?.defaultAssignment?.respond).toBe(false)
+    expect(tree[0]?.rows[0]?.assignment).toEqual({
+      assistantId: null,
+      respond: false,
+      onlyMention: true,
+      sendOutput: false,
+    })
   })
 
   it('keeps drafts visible (assignment null) and marks dead-channel bindings as ghosts', () => {

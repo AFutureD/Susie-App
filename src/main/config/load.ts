@@ -1,6 +1,6 @@
 import { parse, stringify } from 'smol-toml'
 import type { ZodError } from 'zod'
-import { configSchema, type Config } from '../../shared/config'
+import { DEFAULT_ASSISTANT_ID, assistantSchema, configSchema, type Config } from '../../shared/config'
 
 export type ParseConfigResult = { ok: true; config: Config } | { ok: false; error: string }
 
@@ -48,6 +48,21 @@ export function serializeConfig(config: Config): string {
 
 export function defaultConfig(): Config {
   return configSchema.parse({})
+}
+
+/**
+ * default 助手保障：id='default' 的助手是不可删除的兜底（onboarding 绑定步、
+ * 渠道弹窗回落都指向它）。配置合法但缺失时补建最小配置（agent_id 走 schema 默认），
+ * prepend 使形态与默认配置一致；调用方负责把 changed 的结果落盘。
+ */
+export function ensureDefaultAssistant(config: Config): { config: Config; changed: boolean } {
+  if (config.assistants.some((assistant) => assistant.id === DEFAULT_ASSISTANT_ID)) {
+    return { config, changed: false }
+  }
+  return {
+    config: { ...config, assistants: [assistantSchema.parse({ id: DEFAULT_ASSISTANT_ID }), ...config.assistants] },
+    changed: true,
+  }
 }
 
 // stableStringify / deepEqual 已上移 shared/equal.ts（renderer 的 configAtom 选择器复用）
