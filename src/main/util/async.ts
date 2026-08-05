@@ -24,6 +24,24 @@ export async function withDeadline<T>(promise: Promise<T>, ms: number, label: st
   }
 }
 
+/** 可中断睡眠：abort 立即 resolve（不 reject）；signal 缺省则纯 setTimeout */
+export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal === undefined) {
+      setTimeout(resolve, ms)
+      return
+    }
+    const finish = (): void => {
+      clearTimeout(timer)
+      signal.removeEventListener('abort', finish)
+      resolve()
+    }
+    const timer = setTimeout(finish, ms)
+    if (signal.aborted) finish()
+    else signal.addEventListener('abort', finish, { once: true })
+  })
+}
+
 /** 串行闸门：acquire() 排队取锁，返回 release（ACP turn 串行与 Codex steer-or-start 判定的公共形态） */
 export class SerialGate {
   private tail: Promise<void> = Promise.resolve()

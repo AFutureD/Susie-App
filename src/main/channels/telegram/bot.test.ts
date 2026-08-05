@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { EventEmitter } from 'node:events'
+import type TelegramBot from 'node-telegram-bot-api'
+import { TelegramError } from 'node-telegram-bot-api'
+import { describe, expect, it, vi } from 'vitest'
 import { decodeChatId, encodeChatId } from '../../../shared/chat-id'
-import { isHtmlEntityError, toBotCommands, toInlineKeyboard } from './bot'
+import type { TelegramBotChannelSettings } from '../../../shared/config'
+import type { ConfigRef } from '../../config/store'
+import { TelegramBotChannel, isHtmlEntityError, toBotCommands, toInlineKeyboard } from './bot'
 import { markdownToTelegramHtml } from './markdown'
 import { escapeHtml, renderMessageHtml, renderMessagePlain } from './render'
 
@@ -178,5 +183,126 @@ describe('markdown → telegram html', () => {
 
   it('drops nul bytes so placeholders cannot be forged', () => {
     expect(markdownToTelegramHtml('a\u00000\u0000b `c`')).toBe('a0b <code>c</code>')
+  })
+})
+
+// ---------- 生命周期与轮询自愈 ----------
+
+/** 最小 fake：instrumentPollingRecovery 会包装实例上的 getUpdates，
+ * 测试直接 await fake.getUpdates() 即模拟库轮询的下一次调用（走的正是包装后的方法） */
+class FakeBot extends EventEmitter {
+  getMe = vi.fn(async () => ({ id: 42, is_bot: true as const, first_name: 'Bot', username: 'test_bot' }))
+  startPolling = vi.fn(async () => {})
+  stopPolling = vi.fn(async () => {})
+  getUpdates = vi.fn(async () => [])
+  setMyCommands = vi.fn(async () => true)
+}
+
+function makeChannel() {
+  const fake = new FakeBot()
+  const settingsRef: ConfigRef<TelegramBotChannelSettings> = {
+    path: 'channels.tg',
+    current: { type: 'telegram_bot', token: 'T:tg', enabled: true, drop_pending_updates: false },
+    onChange: () => () => {},
+  }
+  const statuses: string[] = []
+  const channel = new TelegramBotChannel({
+    id: 'tg',
+    settingsRef,
+    attachmentsDir: '/tmp/unused',
+    listCommands: () => [],
+    listPrivilegedUserIds: () => [],
+    onMessage: () => {},
+    onCallback: () => {},
+    onStatus: (status) => statuses.push(`${status.state}:${status.detail ?? ''}`),
+    log: { info: () => {}, error: () => {} },
+    createBot: () => fake as unknown as TelegramBot,
+    timings: { getMeRetryBaseMs: 5, getMeRetryCapMs: 10 },
+  })
+  return { channel, fake, statuses }
+}
+
+describe('TelegramBotChannel 生命周期', () => {
+  it('启动成功 → starting → running', async () => {
+    const { channel, statuses } = makeChannel()
+    await channel.start()
+    expect(statuses).toEqual(['starting:', 'running:@test_bot'])
+    await channel.stop()
+  })
+
+  it('polling_error 置 error；下一次 getUpdates 成功即回写 running', async () => {
+    const { channel, fake } = makeChannel()
+    await channel.start()
+    fake.emit('polling_error', new Error('fetch failed'))
+    expect(channel.status().state).toBe('error')
+
+    await fake.getUpdates()
+    expect(channel.status().state).toBe('running')
+    expect(channel.status().detail).toBe('@test_bot')
+    await channel.stop()
+  })
+
+  it('409 结构化判定（TelegramError.response.status），恢复后回 running', async () => {
+    const { channel, fake } = makeChannel()
+    await channel.start()
+    fake.emit('polling_error', new TelegramError('ETELEGRAM: 409 Conflict', { status: 409 }))
+    expect(channel.status().detail).toContain('409 Conflict')
+
+    await fake.getUpdates()
+    expect(channel.status().state).toBe('running')
+    await channel.stop()
+  })
+
+  it('相同 polling_error 不重复广播', async () => {
+    const { channel, fake, statuses } = makeChannel()
+    await channel.start()
+    const before = statuses.length
+    fake.emit('polling_error', new Error('fetch failed'))
+    fake.emit('polling_error', new Error('fetch failed'))
+    expect(statuses.length).toBe(before + 1)
+    await channel.stop()
+  })
+
+  it('getMe 网络错误退避重试直到成功', async () => {
+    const { channel, fake, statuses } = makeChannel()
+    fake.getMe.mockRejectedValueOnce(new Error('network down')).mockRejectedValueOnce(new Error('network down'))
+    await channel.start()
+    expect(fake.getMe).toHaveBeenCalledTimes(3)
+    expect(channel.status().state).toBe('running')
+    expect(statuses).toContain('error:getMe 失败（自动重试中）：network down')
+    await channel.stop()
+  })
+
+  it('getMe 401 → token 终态，不再重试', async () => {
+    const { channel, fake } = makeChannel()
+    fake.getMe.mockRejectedValue(new TelegramError('ETELEGRAM: 401 Unauthorized', { status: 401 }))
+    await channel.start()
+    expect(channel.status().state).toBe('error')
+    expect(channel.status().detail).toContain('token 校验失败')
+    expect(fake.getMe).toHaveBeenCalledTimes(1)
+  })
+
+  it('getMe 重试等待中 stop() 立即退出，不再发起请求', async () => {
+    const { channel, fake } = makeChannel()
+    fake.getMe.mockRejectedValue(new Error('network down'))
+    const started = channel.start()
+    await vi.waitFor(() => expect(fake.getMe).toHaveBeenCalled())
+
+    await channel.stop()
+    await started
+    expect(channel.status().state).toBe('stopped')
+    const callsAfterStop = fake.getMe.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    expect(fake.getMe.mock.calls.length).toBe(callsAfterStop)
+  })
+
+  it('stop 后旧实例的 getUpdates 成功不复活状态', async () => {
+    const { channel, fake } = makeChannel()
+    await channel.start()
+    fake.emit('polling_error', new Error('fetch failed'))
+    await channel.stop()
+
+    await fake.getUpdates()
+    expect(channel.status().state).toBe('stopped')
   })
 })

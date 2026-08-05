@@ -2,18 +2,21 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import TelegramBot, {
+  TelegramError,
   type BotCommand,
   type BotCommandScope,
   type Chat,
   type InlineKeyboardMarkup,
   type Message,
+  type TelegramBotOptions,
   type User,
 } from 'node-telegram-bot-api'
 import type { TelegramBotChannelSettings } from '../../../shared/config'
 import type { ChannelStatus, ChatMessage, InboundEnvelope, MessagePart } from '../../../shared/messages'
 import type { ConfigRef } from '../../config/store'
 import type { CommandSpec } from '../../core/commands'
-import { withDeadline, withTimeout } from '../../util/async'
+import { sleep, withDeadline, withTimeout } from '../../util/async'
+import { Backoff } from '../../util/backoff'
 import type { Logger } from '../../util/logger'
 import { decodeChatId, encodeChatId, type DecodedChatId } from '../../../shared/chat-id'
 import { resolveTelegramChatId, signalsFromCallbackSource, signalsFromMessage } from './chat-id'
@@ -37,6 +40,28 @@ export interface TelegramBotChannelDeps {
   onCallback: (event: ChannelCallbackEvent) => void
   onStatus: (status: ChannelStatus) => void
   log: Logger
+  /** 测试注入点：替换 TelegramBot 构造 */
+  createBot?: (token: string, options: TelegramBotOptions) => TelegramBot
+  timings?: Partial<TelegramBotChannelTimings>
+}
+
+/** 自愈重试参数（测试可注入缩短） */
+export interface TelegramBotChannelTimings {
+  /** getMe 启动失败的重试退避（离线启动的渠道在网络恢复后自动完成启动） */
+  getMeRetryBaseMs: number
+  getMeRetryCapMs: number
+  /** 单次 getUpdates 尝试硬上界：网络黑洞时请求可能挂到 undici 默认的数百秒，
+   * 这个上界同时决定「报 error / 回 running」的最大延迟 */
+  getUpdatesAttemptTimeoutMs: number
+}
+
+/** getUpdates 长轮询秒数（固化库默认值；调大时须同步调大 getUpdatesAttemptTimeoutMs） */
+const GETUPDATES_LONG_POLL_S = 10
+
+const DEFAULT_TIMINGS: TelegramBotChannelTimings = {
+  getMeRetryBaseMs: 1_000,
+  getMeRetryCapMs: 30_000,
+  getUpdatesAttemptTimeoutMs: 25_000,
 }
 
 /** Bot API 对命令的硬性约束：名称 1-32 位小写字母/数字/下划线，描述 1-256 字符 */
@@ -76,10 +101,13 @@ export class TelegramBotChannel implements Channel {
   private meId: number | null = null
   private meUsername: string | null = null
   private state: ChannelStatus
+  private readonly timings: TelegramBotChannelTimings
+  private abort = new AbortController()
 
   constructor(deps: TelegramBotChannelDeps) {
     this.id = deps.id
     this.deps = deps
+    this.timings = { ...DEFAULT_TIMINGS, ...deps.timings }
     this.state = { id: deps.id, state: 'stopped', detail: null }
   }
 
@@ -88,10 +116,11 @@ export class TelegramBotChannel implements Channel {
   }
 
   private setStatus(state: ChannelStatus['state'], detail: string | null = null): void {
-    const prev = this.state
+    // 状态未变不重发：离线时 polling 每 300ms 报一次错，重复广播只是 IPC 噪音
+    if (this.state.state === state && this.state.detail === detail) return
     this.state = { id: this.id, state, detail }
-    // 状态徽标只在 UI 上；error 状态必须同时留日志（按状态转变去重，防 polling 重试刷屏）
-    if (state === 'error' && (prev.state !== 'error' || prev.detail !== detail)) {
+    // 状态徽标只在 UI 上；error 状态必须同时留日志
+    if (state === 'error') {
       this.deps.log.error(`channel ${this.id}: ${detail ?? 'error'}`)
     }
     this.deps.onStatus(this.state)
@@ -102,19 +131,15 @@ export class TelegramBotChannel implements Channel {
     if (settings === undefined) throw new Error(`channel 配置不存在：${this.id}`)
 
     this.setStatus('starting')
-    const bot = new TelegramBot(settings.token, { polling: false })
+    this.abort = new AbortController()
+    const bot = this.createBotInstance(settings.token)
     this.bot = bot
+    this.instrumentPollingRecovery(bot)
 
-    try {
-      // 网络被墙/黑洞时请求可能长挂，必须有 deadline
-      const me = await withDeadline(bot.getMe(), 15_000, 'getMe')
-      this.meId = me.id
-      this.meUsername = me.username ?? null
-    } catch (error) {
-      this.setStatus('error', `token 校验失败：${describeTelegramError(error)}`)
-      this.bot = null
-      return
-    }
+    const me = await this.getMeWithRetry(bot)
+    if (me === null) return // token 终态，或等待期间被 stop()
+    this.meId = me.id
+    this.meUsername = me.username ?? null
     if (this.bot !== bot) return // 等待期间被 stop()
 
     // 命令菜单注册不阻塞启动，失败只留日志
@@ -140,8 +165,8 @@ export class TelegramBotChannel implements Channel {
         this.handleInbound(message)
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
+        // 只留日志不动状态：消息能到达说明 polling 正常，恢复回写由 getUpdates 包装层负责
         this.deps.log.error(`channel ${this.id}: 入站处理异常，消息被丢弃：${detail}`)
-        this.setStatus('running', `入站处理异常：${detail}`)
       }
     })
 
@@ -154,7 +179,6 @@ export class TelegramBotChannel implements Channel {
       } catch (error) {
         const detail = error instanceof Error ? error.message : String(error)
         this.deps.log.error(`channel ${this.id}: 频道贴文处理异常，消息被丢弃：${detail}`)
-        this.setStatus('running', `频道贴文处理异常：${detail}`)
       }
     })
 
@@ -189,8 +213,11 @@ export class TelegramBotChannel implements Channel {
 
     bot.on('polling_error', (error) => {
       const text = describeTelegramError(error)
-      if (text.includes('409')) {
+      const status = telegramHttpStatus(error)
+      if (status === 409 || text.includes('409')) {
         this.setStatus('error', '409 Conflict：该 token 正被其他进程轮询（老的 Python susie 还在跑？）')
+      } else if (status === 401 || status === 404) {
+        this.setStatus('error', `token 已失效：${text}`)
       } else {
         this.setStatus('error', `polling 错误：${text}`)
       }
@@ -198,6 +225,62 @@ export class TelegramBotChannel implements Channel {
 
     await bot.startPolling()
     this.setStatus('running', `@${this.meUsername ?? '?'}`)
+  }
+
+  /** 构造 bot 实例：固化 getUpdates 长轮询参数，并给每次 getUpdates 尝试加硬上界
+   *（网络黑洞时单次请求可能挂起数百秒，polling_error 迟迟不来，状态会长时间失真） */
+  private createBotInstance(token: string): TelegramBot {
+    const attemptMs = this.timings.getUpdatesAttemptTimeoutMs
+    const boundedFetch: typeof fetch = (input, init) => {
+      if (init?.signal != null && String(input).endsWith('/getUpdates')) {
+        return fetch(input, { ...init, signal: AbortSignal.any([init.signal, AbortSignal.timeout(attemptMs)]) })
+      }
+      return fetch(input, init)
+    }
+    const options: TelegramBotOptions = {
+      polling: { autoStart: false, params: { timeout: GETUPDATES_LONG_POLL_S } },
+      request: { fetch: boundedFetch },
+    }
+    return this.deps.createBot?.(token, options) ?? new TelegramBot(token, options)
+  }
+
+  /** 库轮询的每次 getUpdates 都经由实例方法发请求（dist/polling.js _getUpdates），
+   * 包装它即得「轮询成功」的直接信号：error 状态下成功即回写 running。
+   * 依赖库的这条内部调用路径——单测锁定；失效的最坏结果只是退回「恢复不回写」。 */
+  private instrumentPollingRecovery(bot: TelegramBot): void {
+    const original = bot.getUpdates.bind(bot)
+    bot.getUpdates = async (form?: Parameters<TelegramBot['getUpdates']>[0]) => {
+      const updates = await original(form)
+      // 仅 error→running：starting 期间（drop_pending 的 getUpdates）不抢跑；stop/重启后的旧实例不复活
+      if (this.bot === bot && this.state.state === 'error') {
+        this.deps.log.info(`channel ${this.id}: polling 已恢复`)
+        this.setStatus('running', `@${this.meUsername ?? '?'}`)
+      }
+      return updates
+    }
+  }
+
+  /** 启动 getMe 校验：网络类失败退避重试直到成功（离线启动的渠道在网络恢复后自动完成启动）；
+   * 401/404 是 token 终态，等 token 变更由 hub 重启。返回 null = 终态或已被 stop()。 */
+  private async getMeWithRetry(bot: TelegramBot): Promise<User | null> {
+    const backoff = new Backoff(this.timings.getMeRetryBaseMs, this.timings.getMeRetryCapMs)
+    while (this.bot === bot) {
+      try {
+        // 网络被墙/黑洞时请求可能长挂，必须有 deadline
+        return await withDeadline(bot.getMe(), 15_000, 'getMe')
+      } catch (error) {
+        if (this.bot !== bot) return null
+        const status = telegramHttpStatus(error)
+        if (status === 401 || status === 404) {
+          this.setStatus('error', `token 校验失败：${describeTelegramError(error)}`)
+          this.bot = null
+          return null
+        }
+        this.setStatus('error', `getMe 失败（自动重试中）：${describeTelegramError(error)}`)
+        await sleep(backoff.next(), this.abort.signal)
+      }
+    }
+    return null
   }
 
   private async registerBotCommands(bot: TelegramBot): Promise<void> {
@@ -244,6 +327,7 @@ export class TelegramBotChannel implements Channel {
   }
 
   async stop(): Promise<void> {
+    this.abort.abort() // 唤醒 getMe 重试等待
     const bot = this.bot
     this.bot = null
     if (bot !== null) {
@@ -452,7 +536,6 @@ export class TelegramBotChannel implements Channel {
       .catch((error: unknown) => {
         const detail = error instanceof Error ? error.message : String(error)
         this.deps.log.error(`channel ${this.id}: 入站消息构建失败，消息被丢弃：${detail}`)
-        this.setStatus('running', `入站处理异常：${detail}`)
       })
   }
 
@@ -545,6 +628,18 @@ export class TelegramBotChannel implements Channel {
 function describeTelegramError(error: unknown): string {
   if (error instanceof Error) return error.message
   return String(error)
+}
+
+/** 库的结构化错误 → HTTP 状态码（Bot API 错误才有；网络类 FatalError 返回 null） */
+function telegramHttpStatus(error: unknown): number | null {
+  if (!(error instanceof TelegramError)) return null
+  if (typeof error.response?.status === 'number') return error.response.status
+  const body = error.response?.body
+  if (typeof body === 'object' && body !== null && 'error_code' in body) {
+    const code = (body as { error_code?: unknown }).error_code
+    if (typeof code === 'number') return code
+  }
+  return null
 }
 
 /**

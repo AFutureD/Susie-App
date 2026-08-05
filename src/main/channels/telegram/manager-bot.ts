@@ -4,6 +4,8 @@ import { errorMessage } from '../../../shared/errors'
 import type { ChannelStatus, ChatMessage, InboundEnvelope, MessagePart } from '../../../shared/messages'
 import type { ConfigRef } from '../../config/store'
 import { botCopy } from '../../copy/bot-copy'
+import { sleep } from '../../util/async'
+import { Backoff } from '../../util/backoff'
 import type { Logger } from '../../util/logger'
 import { isHtmlEntityError } from './bot'
 import {
@@ -39,29 +41,6 @@ const DEFAULT_TIMINGS: ManagerBotTimings = {
   conflictRetryMs: 30_000,
   backoffBaseMs: 1_000,
   backoffCapMs: 30_000,
-}
-
-/** 指数退避（无抖动；单通道单飞不需要） */
-export class Backoff {
-  private readonly baseMs: number
-  private readonly capMs: number
-  private current: number
-
-  constructor(baseMs: number, capMs: number) {
-    this.baseMs = baseMs
-    this.capMs = capMs
-    this.current = baseMs
-  }
-
-  next(): number {
-    const value = this.current
-    this.current = Math.min(this.current * 2, this.capMs)
-    return value
-  }
-
-  reset(): void {
-    this.current = this.baseMs
-  }
 }
 
 export interface TelegramManagerBotDeps {
@@ -101,10 +80,10 @@ export class TelegramManagerBotChannel implements Channel {
   }
 
   private setStatus(state: ChannelStatus['state'], detail: string | null = null): void {
-    const prev = this.state
+    // 状态未变不重发：离线时轮询每次失败都会调到这里，重复广播只是 IPC 噪音
+    if (this.state.state === state && this.state.detail === detail) return
     this.state = { id: this.id, state, detail }
-    // 同 bot.ts：error 必须留日志，按状态转变去重防轮询重试刷屏
-    if (state === 'error' && (prev.state !== 'error' || prev.detail !== detail)) {
+    if (state === 'error') {
       this.deps.log.error(`manager ${this.id}: ${detail ?? 'error'}`)
     }
     this.deps.onStatus(this.state)
@@ -150,8 +129,10 @@ export class TelegramManagerBotChannel implements Channel {
       } catch (error) {
         if (!this.running) return
         if (error instanceof BotApiError && (error.code === 401 || error.code === 404)) {
+          // 不是终态：BotFather revoke 后重新启用同 token 时低频重查可自愈；换 token 仍由 registry 重启
           this.setStatus('error', `token 校验失败：${error.message}`)
-          return // 终态：等 token 变更由 registry 重启
+          await this.sleep(this.timings.manageModeRecheckMs)
+          continue
         }
         this.setStatus('error', `getMe 失败：${errorMessage(error)}`)
         await this.sleep(this.backoff.next())
@@ -194,8 +175,10 @@ export class TelegramManagerBotChannel implements Channel {
         if (!this.running) return
         if (error instanceof BotApiError) {
           if (error.code === 401 || error.code === 404) {
+            // 同阶段一：低频重试而非终态，token 重新启用后下一轮 getUpdates 自然复验
             this.setStatus('error', `token 已失效：${error.message}`)
-            return
+            await this.sleep(this.timings.manageModeRecheckMs)
+            continue
           }
           if (error.code === 409) {
             this.setStatus('error', '409 Conflict：该 token 正被其他进程轮询')
@@ -343,16 +326,6 @@ export class TelegramManagerBotChannel implements Channel {
 
   /** 可中断睡眠：stop() 的 abort 立即唤醒 */
   private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => {
-      const signal = this.abort.signal
-      const finish = (): void => {
-        clearTimeout(timer)
-        signal.removeEventListener('abort', finish)
-        resolve()
-      }
-      const timer = setTimeout(finish, ms)
-      if (signal.aborted) finish()
-      else signal.addEventListener('abort', finish, { once: true })
-    })
+    return sleep(ms, this.abort.signal)
   }
 }

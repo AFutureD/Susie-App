@@ -3,7 +3,7 @@ import type { ManagerBotConfig } from '../../../shared/config'
 import type { InboundEnvelope } from '../../../shared/messages'
 import type { ConfigRef } from '../../config/store'
 import type { TgManagedBotUpdated } from './bot-api'
-import { Backoff, TelegramManagerBotChannel, type TelegramManagerBotDeps } from './manager-bot'
+import { TelegramManagerBotChannel, type TelegramManagerBotDeps } from './manager-bot'
 
 // 脚本化 fetch：按 Bot API method 名路由；handler 返回值包成 { ok: true, result }，
 // 返回 Response 则原样使用。尊重 init.signal——stop() 的 abort 必须能打断挂起的长轮询。
@@ -176,19 +176,28 @@ describe('TelegramManagerBotChannel', () => {
     await channel.stop()
   })
 
-  it('getUpdates 401 → 终态 error，循环退出', async () => {
-    const { channel, calls } = makeChannel({
+  it('getUpdates 401 → error 后低频重试，token 恢复有效即自愈到 running', async () => {
+    let revoked = true
+    let recoveredCalls = 0
+    const { channel } = makeChannel({
       getMe: () => ME,
-      getUpdates: () => new Response(JSON.stringify({ ok: false, error_code: 401, description: 'Unauthorized' })),
+      // 恢复后首轮返回空 update（running 回写发生在 getUpdates 成功返回之后），后续挂起模拟长轮询
+      getUpdates: () => {
+        if (revoked) return new Response(JSON.stringify({ ok: false, error_code: 401, description: 'Unauthorized' }))
+        recoveredCalls += 1
+        return recoveredCalls === 1 ? [] : hang()
+      },
     })
     await channel.start()
 
     await vi.waitFor(() => {
       expect(channel.status().detail ?? '').toContain('token 已失效')
     })
-    const countWhenFailed = calls.filter((c) => c.method === 'getUpdates').length
-    await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(calls.filter((c) => c.method === 'getUpdates')).toHaveLength(countWhenFailed)
+
+    revoked = false
+    await vi.waitFor(() => {
+      expect(channel.status().state).toBe('running')
+    })
     await channel.stop()
   })
 
@@ -204,14 +213,5 @@ describe('TelegramManagerBotChannel', () => {
       Promise.race([stopped, new Promise((_r, reject) => setTimeout(() => reject(new Error('stop 超时')), 1000))]),
     ).resolves.toBeUndefined()
     expect(channel.status().state).toBe('stopped')
-  })
-})
-
-describe('Backoff', () => {
-  it('指数递增封顶，reset 归位', () => {
-    const backoff = new Backoff(100, 400)
-    expect([backoff.next(), backoff.next(), backoff.next(), backoff.next()]).toEqual([100, 200, 400, 400])
-    backoff.reset()
-    expect(backoff.next()).toBe(100)
   })
 })
