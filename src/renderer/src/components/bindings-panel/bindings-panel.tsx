@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { ConfigState } from '../../../../shared/config'
 import { useBotIdentityMap } from '../../lib/ipc-query'
+import { Chevron } from '../chevron'
 import { ErrorText } from '../form'
 import { ChatDetail, DefaultDetail, GhostDetail, chatTypeLabel } from './chat-detail'
 import { ChatPickerModal } from './chat-picker'
@@ -111,6 +113,8 @@ function ChannelSection({
   onAddChat: () => void
 }) {
   const intl = useIntl()
+  // 折叠只藏树行，不影响选中态；本地状态即可，不持久化
+  const [collapsed, setCollapsed] = useState(false)
 
   if (entry.ghost) {
     const key = `ghost:${entry.channelId}`
@@ -133,43 +137,62 @@ function ChannelSection({
   const defaultKey = `default:${entry.channelId}`
   return (
     <div className="mb-1">
-      <div className="flex items-center gap-2 px-2 py-1.5">
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-line/40"
+        >
+          <Chevron open={!collapsed} />
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
+          {collapsed && (
+            <span className="shrink-0 text-[11px] text-ink-muted/70 tabular-nums">{entry.rows.length}</span>
+          )}
+        </button>
         <button
           type="button"
           title={intl.formatMessage({ id: 'bindings.tree.addChat' })}
           aria-label={intl.formatMessage({ id: 'bindings.tree.addChat' })}
           disabled={busy}
-          onClick={onAddChat}
+          onClick={() => {
+            // 折叠时点＋先展开，避免新增的会话行被藏住
+            setCollapsed(false)
+            onAddChat()
+          }}
           className="rounded-md px-1.5 text-base leading-6 text-ink-muted transition-colors hover:bg-line/50 hover:text-ink disabled:opacity-40"
         >
           ＋
         </button>
       </div>
-      <TreeRow
-        selected={selectedKey === defaultKey}
-        onClick={() => onSelect({ kind: 'default', channelId: entry.channelId })}
-        title={intl.formatMessage({ id: 'bindings.tree.defaultChat' })}
-        titleClass="text-ink-muted italic"
-        subtitle={
-          entry.defaultAssignment === null
-            ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' })
-            : entry.defaultAssignment.respond
-              ? null
-              : intl.formatMessage({ id: 'bindings.tree.mute' })
-        }
-      />
-      {entry.rows.map((row) => (
-        <TreeRow
-          key={row.chatId}
-          selected={selectedKey === `chat:${entry.channelId}:${row.chatId}`}
-          onClick={() => onSelect({ kind: 'chat', channelId: entry.channelId, chatId: row.chatId })}
-          title={row.name ?? row.chatId}
-          titleClass={row.name === null ? 'font-mono text-xs' : ''}
-          subtitle={chatTypeLabel(intl, row.chatType)}
-          muted={row.assignment?.respond === false}
-        />
-      ))}
+      {!collapsed && (
+        <>
+          <TreeRow
+            selected={selectedKey === defaultKey}
+            onClick={() => onSelect({ kind: 'default', channelId: entry.channelId })}
+            title={intl.formatMessage({ id: 'bindings.tree.defaultChat' })}
+            titleClass="text-ink-muted italic"
+            subtitle={
+              entry.defaultAssignment === null
+                ? intl.formatMessage({ id: 'bindings.tree.defaultChat.none' })
+                : entry.defaultAssignment.respond
+                  ? null
+                  : intl.formatMessage({ id: 'bindings.tree.mute' })
+            }
+          />
+          {entry.rows.map((row) => (
+            <TreeRow
+              key={row.chatId}
+              selected={selectedKey === `chat:${entry.channelId}:${row.chatId}`}
+              onClick={() => onSelect({ kind: 'chat', channelId: entry.channelId, chatId: row.chatId })}
+              title={row.name ?? row.chatId}
+              titleClass={row.name === null ? 'font-mono text-xs' : ''}
+              subtitle={chatTypeLabel(intl, row.chatType)}
+              muted={row.assignment?.respond === false}
+            />
+          ))}
+        </>
+      )}
     </div>
   )
 }
@@ -195,7 +218,7 @@ function TreeRow({
     <button
       type="button"
       onClick={onClick}
-      className={`block w-full rounded-md py-1.5 pr-2 pl-5 text-left transition-colors hover:bg-line/40 ${
+      className={`block w-full rounded-md py-1.5 pr-2 pl-6 text-left transition-colors hover:bg-line/40 ${
         selected ? 'bg-accent/10' : ''
       }`}
     >

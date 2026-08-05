@@ -3,8 +3,11 @@ import { useIntl } from 'react-intl'
 import { ipc } from '../../lib/ipc'
 import { tgResolveLink } from '../../lib/telegram'
 
-/** 渠道行副标题：@username 点击复制，尾随跳转 icon 经 tg:// 打开与 bot 的对话 */
-export function BotUsername({ username }: { username: string }) {
+/**
+ * @username 点击复制，尾随跳转 icon 经 tg:// 打开与 bot 的对话。
+ * subtitle = 渠道行副标题；title = 顶行标题（bot 显示名与 username 相同时顶替标题，避免重复展示两遍）。
+ */
+export function BotUsername({ username, variant = 'subtitle' }: { username: string; variant?: 'subtitle' | 'title' }) {
   const intl = useIntl()
   const [copied, setCopied] = useState(false)
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -24,12 +27,16 @@ export function BotUsername({ username }: { username: string }) {
   }
 
   return (
-    <span className="flex min-w-0 items-center gap-1 font-mono text-xs text-ink-muted">
+    <span
+      className={`flex min-w-0 items-center gap-1 font-mono ${
+        variant === 'title' ? 'text-sm font-semibold text-ink' : 'text-xs text-ink-muted'
+      }`}
+    >
       <button
         type="button"
         title={intl.formatMessage({ id: 'channels.username.copy' })}
         onClick={() => void copy()}
-        className="truncate transition-colors hover:text-ink"
+        className={`truncate transition-colors ${variant === 'title' ? 'hover:text-accent' : 'hover:text-ink'}`}
       >
         @{username}
       </button>

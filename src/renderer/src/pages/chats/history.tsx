@@ -4,6 +4,7 @@ import { Link } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ChatInfo, MessagePart, StoredMessage } from '../../../../shared/messages'
+import { Chevron } from '../../components/chevron'
 import { Button, TextInput } from '../../components/form'
 import { ipc, onIpcEvent } from '../../lib/ipc'
 import { useBotIdentityMap, useChatsQuery } from '../../lib/ipc-query'
@@ -245,27 +246,26 @@ export function ChatHistoryPage() {
             {chats.length === 0 && (
               <p className="px-1 py-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'history.empty' })}</p>
             )}
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1.5">
               {chatGroups.map(([channelId, groupChats]) => {
                 const isCollapsed = collapsed.has(channelId)
                 return (
                   <div key={channelId}>
+                    {/* sticky 组头：滚动时钉在列表顶部，随时知道身处哪个渠道 */}
                     <button
                       type="button"
                       aria-expanded={!isCollapsed}
                       onClick={() => toggleGroup(channelId)}
-                      className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-raised/60"
+                      className="sticky top-0 z-10 flex w-full items-center gap-1.5 rounded-md bg-surface px-2 py-1.5 text-left transition-colors hover:bg-raised/80"
                     >
-                      <span className="text-[10px] text-ink-muted">{isCollapsed ? '▸' : '▾'}</span>
+                      <Chevron open={!isCollapsed} />
                       <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink-muted">
                         {identityMap.get(channelId)?.name ?? channelId}
                       </span>
-                      {isCollapsed && (
-                        <span className="shrink-0 text-[11px] text-ink-muted/70">{groupChats.length}</span>
-                      )}
+                      <span className="shrink-0 text-[11px] text-ink-muted/70 tabular-nums">{groupChats.length}</span>
                     </button>
                     {!isCollapsed && (
-                      <div className="flex flex-col gap-0.5">
+                      <div className="mt-0.5 ml-3.5 flex flex-col gap-0.5 border-l border-line/70 pl-1.5">
                         {groupChats.map((chat) => {
                           const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
                           return (
@@ -275,12 +275,20 @@ export function ChatHistoryPage() {
                                 setSearchResults(null)
                                 setSelected({ channelId: chat.channelId, chatId: chat.chatId })
                               }}
-                              className={`rounded-lg py-2 pr-3 pl-4 text-left transition-colors ${
-                                active ? 'bg-raised shadow-sm' : 'hover:bg-raised/60'
+                              className={`rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                                active ? 'bg-accent/10' : 'hover:bg-raised/60'
                               }`}
                             >
-                              <div className="truncate text-sm font-medium">{chat.name ?? chat.chatId}</div>
-                              <div className="truncate font-mono text-[11px] text-ink-muted">{chat.chatId}</div>
+                              <div
+                                className={`truncate ${chat.name === null ? 'font-mono text-xs' : 'text-[13px] font-medium'}`}
+                              >
+                                {chat.name ?? chat.chatId}
+                              </div>
+                              {chat.name !== null && (
+                                <div className="mt-0.5 truncate font-mono text-[11px] text-ink-muted">
+                                  {chat.chatId}
+                                </div>
+                              )}
                             </button>
                           )
                         })}
@@ -333,7 +341,12 @@ export function ChatHistoryPage() {
                       if (event.key === 'Enter' && !event.nativeEvent.isComposing) void send()
                     }}
                   />
-                  <Button variant="primary" disabled={draft.trim() === ''} onClick={() => void send()}>
+                  <Button
+                    variant="primary"
+                    className="shrink-0"
+                    disabled={draft.trim() === ''}
+                    onClick={() => void send()}
+                  >
                     {intl.formatMessage({ id: 'history.composer.send' })}
                   </Button>
                 </div>

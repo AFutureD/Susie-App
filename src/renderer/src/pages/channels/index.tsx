@@ -52,6 +52,48 @@ function StatusDetail({ status }: { status: ChannelStatus | undefined }) {
 }
 
 /**
+ * 渠道标题块：显示名 + 类型徽标 + 状态详情，副行 @username。
+ * 显示名与 username 相同（bot 未单独设置显示名）时只渲染一次——@username 直接顶替标题。
+ */
+function ChannelIdentity({
+  id,
+  identity,
+  badge,
+  status,
+}: {
+  id: string
+  identity: BotIdentity | undefined
+  badge: string | null
+  status: ChannelStatus | undefined
+}) {
+  const title = identity?.name ?? id
+  const username = identity?.username ?? null
+  const duplicate = username !== null && (title === username || title === `@${username}`)
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex items-center gap-2">
+        {duplicate ? (
+          <BotUsername username={username} variant="title" />
+        ) : (
+          <span className="truncate text-sm font-semibold">{title}</span>
+        )}
+        {badge !== null && (
+          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
+            {badge}
+          </span>
+        )}
+        <StatusDetail status={status} />
+      </div>
+      {!duplicate && username !== null && (
+        <div className="mt-1 flex">
+          <BotUsername username={username} />
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * 单个渠道行。card = 顶层独立卡片；row = manager 卡片内的成员行
  * （hairline 分隔的扁平行——避免卡片套卡片）。
  */
@@ -93,22 +135,12 @@ function ChannelRow({
     <div className={variant === 'card' ? 'rounded-xl border border-line bg-raised p-4' : 'py-3'}>
       <div className="flex items-center gap-3">
         <StatusDot status={status} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="truncate text-sm font-semibold">{identity?.name ?? id}</span>
-            {variant === 'card' && (
-              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                {settings.type}
-              </span>
-            )}
-            <StatusDetail status={status} />
-          </div>
-          {identity?.username != null && (
-            <div className="mt-1 flex">
-              <BotUsername username={identity.username} />
-            </div>
-          )}
-        </div>
+        <ChannelIdentity
+          id={id}
+          identity={identity}
+          badge={variant === 'card' ? settings.type : null}
+          status={status}
+        />
         <Button onClick={() => void toggleEnabled()}>
           {intl.formatMessage({ id: settings.enabled ? 'channels.disable' : 'channels.enable' })}
         </Button>
@@ -221,20 +253,7 @@ export function ChannelsPage() {
             <div key={id} className="rounded-xl border border-line bg-raised p-4">
               <div className="flex items-center gap-3">
                 <StatusDot status={status} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-semibold">{identity?.name ?? id}</span>
-                    <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                      manager
-                    </span>
-                    <StatusDetail status={status} />
-                  </div>
-                  {identity?.username != null && (
-                    <div className="mt-1 flex">
-                      <BotUsername username={identity.username} />
-                    </div>
-                  )}
-                </div>
+                <ChannelIdentity id={id} identity={identity} badge="manager" status={status} />
                 <Button variant="primary" onClick={() => setAddManagedFor(id)}>
                   {intl.formatMessage({ id: 'managerBots.addManaged' })}
                 </Button>

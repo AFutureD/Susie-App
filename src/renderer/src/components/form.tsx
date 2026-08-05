@@ -30,6 +30,19 @@ export function FieldGroup({ label, hint, children }: { label: string; hint?: st
   )
 }
 
+/** 表单分节：小节标题 + 右延 hairline，内容纵向 gap-3（用于较长的编辑表单，如助手编辑） */
+export function FormSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="shrink-0 text-xs font-semibold text-ink-muted">{title}</span>
+        <span className="h-px flex-1 bg-line/70" />
+      </div>
+      <div className="flex flex-col gap-3">{children}</div>
+    </section>
+  )
+}
+
 const controlClass =
   'w-full rounded-md border border-line bg-surface px-2.5 py-1.5 text-sm outline-none focus:border-accent/60'
 

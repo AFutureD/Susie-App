@@ -6,7 +6,7 @@ import { THINKING_LEVELS } from '../../../shared/config'
 import { DEFAULT_ASSISTANT_ID } from '../../../shared/config'
 import type { AgentModelOption } from '../../../shared/messages'
 import { AssistantSkillsModal } from '../components/assistant-skills-modal'
-import { Button, ErrorText, Field, Select, TextInput } from '../components/form'
+import { Button, ErrorText, Field, FormSection, Select, TextInput } from '../components/form'
 import { Page } from '../components/page'
 import { DEFAULT_ASSISTANT_LABEL, assistantLabel } from '../lib/assistant-label'
 import { configStateAtom } from '../lib/config-atoms'
@@ -204,47 +204,84 @@ function AssistantForm({
   const modelMissing = model !== '' && !models.some((option) => option.value === model)
 
   return (
-    <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={intl.formatMessage({ id: 'assistants.field.id' })}>
-          <TextInput value={id} onChange={(event) => setId(event.target.value)} disabled={initial !== undefined} />
-        </Field>
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.name' })}
-          hint={intl.formatMessage({
-            id: isDefault ? 'assistants.field.name.fixedHint' : 'assistants.field.name.hint',
-          })}
-        >
-          <TextInput
-            value={isDefault ? DEFAULT_ASSISTANT_LABEL : name}
-            disabled={isDefault}
-            onChange={(event) => setName(event.target.value)}
-            placeholder={id.trim() === '' ? undefined : id.trim()}
-          />
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.agent' })}
-          hint={intl.formatMessage({ id: 'assistants.field.agent.hint' })}
-        >
-          <Select
-            value={agentId}
-            onChange={(event) => {
-              // 换 agent 后旧模型大概率无效，回落到 agent 默认
-              setAgentId(event.target.value)
-              setModel('')
-            }}
+    <div className="mt-4 flex flex-col gap-5 border-t border-line pt-4">
+      <FormSection title={intl.formatMessage({ id: 'assistants.section.basic' })}>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={intl.formatMessage({ id: 'assistants.field.id' })}>
+            <TextInput value={id} onChange={(event) => setId(event.target.value)} disabled={initial !== undefined} />
+          </Field>
+          <Field
+            label={intl.formatMessage({ id: 'assistants.field.name' })}
+            hint={intl.formatMessage({
+              id: isDefault ? 'assistants.field.name.fixedHint' : 'assistants.field.name.hint',
+            })}
           >
-            {agentOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
+            <TextInput
+              value={isDefault ? DEFAULT_ASSISTANT_LABEL : name}
+              disabled={isDefault}
+              onChange={(event) => setName(event.target.value)}
+              placeholder={id.trim() === '' ? undefined : id.trim()}
+            />
+          </Field>
+        </div>
+      </FormSection>
+
+      <FormSection title={intl.formatMessage({ id: 'assistants.section.agent' })}>
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label={intl.formatMessage({ id: 'assistants.field.agent' })}
+            hint={intl.formatMessage({ id: 'assistants.field.agent.hint' })}
+          >
+            <Select
+              value={agentId}
+              onChange={(event) => {
+                // 换 agent 后旧模型大概率无效，回落到 agent 默认
+                setAgentId(event.target.value)
+                setModel('')
+              }}
+            >
+              {agentOptions.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <Field
+            label={intl.formatMessage({ id: 'assistants.field.model' })}
+            hint={intl.formatMessage({ id: 'assistants.field.model.hint' })}
+          >
+            <Select value={model} onChange={(event) => setModel(event.target.value)}>
+              <option value="">
+                {intl.formatMessage({
+                  id: modelOptions === null ? 'assistants.models.loading' : 'assistants.model.default',
+                })}
               </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
+              {modelMissing && <option value={model}>{model}</option>}
+              {models.map((option) => (
+                <option key={option.value} value={option.value} title={option.description}>
+                  {option.name === option.value ? option.value : `${option.name} · ${option.value}`}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label={intl.formatMessage({ id: 'assistants.field.thinking' })}
+            hint={intl.formatMessage({ id: 'assistants.field.thinking.hint' })}
+          >
+            <Select value={thinkingLevel} onChange={(event) => setThinkingLevel(event.target.value)}>
+              <option value="">{intl.formatMessage({ id: 'assistants.thinking.default' })}</option>
+              {THINKING_LEVELS.map((level) => (
+                <option key={level} value={level}>
+                  {level}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        {/* 路径可能很长，工作目录独占整行 */}
         <Field
           label={intl.formatMessage({ id: 'assistants.field.workdir' })}
           hint={intl.formatMessage({ id: 'assistants.field.workdir.hint' })}
@@ -255,53 +292,28 @@ function AssistantForm({
               onChange={(event) => setWorkDir(event.target.value)}
               placeholder="/absolute/path"
             />
-            <Button onClick={() => void pickWorkDir()}>{intl.formatMessage({ id: 'assistants.pickDir' })}</Button>
+            <Button className="shrink-0" onClick={() => void pickWorkDir()}>
+              {intl.formatMessage({ id: 'assistants.pickDir' })}
+            </Button>
           </div>
         </Field>
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.forward' })}
-          hint={intl.formatMessage({ id: 'assistants.field.forward.hint' })}
-        >
-          <TextInput
-            value={forwardTo}
-            onChange={(event) => setForwardTo(event.target.value)}
-            placeholder="G:-100123456"
-          />
-        </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.model' })}
-          hint={intl.formatMessage({ id: 'assistants.field.model.hint' })}
-        >
-          <Select value={model} onChange={(event) => setModel(event.target.value)}>
-            <option value="">
-              {intl.formatMessage({
-                id: modelOptions === null ? 'assistants.models.loading' : 'assistants.model.default',
-              })}
-            </option>
-            {modelMissing && <option value={model}>{model}</option>}
-            {models.map((option) => (
-              <option key={option.value} value={option.value} title={option.description}>
-                {option.name === option.value ? option.value : `${option.name} · ${option.value}`}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.thinking' })}
-          hint={intl.formatMessage({ id: 'assistants.field.thinking.hint' })}
-        >
-          <Select value={thinkingLevel} onChange={(event) => setThinkingLevel(event.target.value)}>
-            <option value="">{intl.formatMessage({ id: 'assistants.thinking.default' })}</option>
-            {THINKING_LEVELS.map((level) => (
-              <option key={level} value={level}>
-                {level}
-              </option>
-            ))}
-          </Select>
-        </Field>
-      </div>
+      </FormSection>
+
+      <FormSection title={intl.formatMessage({ id: 'assistants.section.misc' })}>
+        <div className="grid grid-cols-2 gap-3">
+          <Field
+            label={intl.formatMessage({ id: 'assistants.field.forward' })}
+            hint={intl.formatMessage({ id: 'assistants.field.forward.hint' })}
+          >
+            <TextInput
+              value={forwardTo}
+              onChange={(event) => setForwardTo(event.target.value)}
+              placeholder="G:-100123456"
+            />
+          </Field>
+        </div>
+      </FormSection>
+
       <ErrorText message={error} />
       <div className="flex gap-2">
         <Button variant="primary" disabled={busy || id.trim() === ''} onClick={() => void submit()}>
