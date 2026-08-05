@@ -118,7 +118,6 @@ export const zhHans: Record<string, string> = {
   'managedBot.subtitle': '在 Telegram 中一键创建新 bot；创建完成后会实时出现在下方列表，点「添加」才会成为渠道。',
   'managedBot.field.username': 'Bot 用户名',
   'managedBot.field.username.hint': '固定格式 susie_[用户输入]_bot，只需填写中间部分。',
-  'managedBot.field.name': '显示名称',
   'managedBot.create': '在 Telegram 中创建',
   'managedBot.waiting': '正在等待 Telegram 的创建通知…',
   'managedBot.add': '添加',
