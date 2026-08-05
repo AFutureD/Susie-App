@@ -47,6 +47,20 @@ describe('mergeLoginShellPath', () => {
     expect(log.errors).toEqual([])
   })
 
+  it('在独立进程组中运行，避免交互式 shell 接管父终端', async () => {
+    const shell = fakeShell(`
+eval_command=$4
+set -- $(/bin/ps -o pgid= -p $$)
+[ "$1" = "$$" ] || exit 1
+PATH="/detached/session/bin:/usr/bin"
+eval "$eval_command"
+`)
+    const log = collectLogger()
+    expect(await mergeLoginShellPath(log, { shell })).toBe(true)
+    expect(process.env['PATH']?.startsWith('/detached/session/bin:/usr/bin')).toBe(true)
+    expect(log.errors).toEqual([])
+  })
+
   it('输出无标记时降级：PATH 不变，记 error', async () => {
     const shell = fakeShell(`echo "broken shell"`)
     const log = collectLogger()

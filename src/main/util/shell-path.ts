@@ -55,7 +55,14 @@ export function mergePathEntries(current: string, resolved: string): string {
 
 function loginShellOutput(shell: string, command: string, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn(shell, ['-l', '-i', '-c', command], { stdio: ['ignore', 'pipe', 'ignore'] })
+    // 交互式 shell 会启用 job control。若它与终端启动的 Susie 共用 session，
+    // 会把自己的进程组设为终端前台；退出后 npm/dev 收不到 Ctrl-C，下一次
+    // 读取终端还会因 SIGTTIN 被挂起。独立 session 保留 -i 的 rc 加载能力，
+    // 同时从操作系统层面隔离其终端 job control。
+    const child = spawn(shell, ['-l', '-i', '-c', command], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
     let output = ''
     const timer = setTimeout(() => {
       child.kill('SIGKILL')
