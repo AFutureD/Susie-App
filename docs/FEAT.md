@@ -90,3 +90,4 @@ Manager Bot 只需要 Owner：它的卡片上只能绑定或转让 Owner，不�
 - 「Agent」可检测、安装、更新和卸载本机 Agent，并提示 MCP 兼容性。
 - 「日志」可自动刷新全部日志，或只查看错误。
 - 「设置」可启用登录时后台启动、检查更新，并在需要时校验后直接编辑 `config.toml`。
+- Susie 同时提供 Apple Silicon 和 Intel Mac 安装包；应用更新会自动选择当前 Mac 对应的版本。

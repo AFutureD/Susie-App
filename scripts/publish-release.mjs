@@ -14,11 +14,14 @@ const root = path.resolve(import.meta.dirname, '..')
 const { version } = JSON.parse(readFileSync(path.join(root, 'package.json'), 'utf-8'))
 const tag = `v${version}`
 
+const macArchitectures = ['arm64', 'x64']
 const assets = [
-  `Susie-${version}-arm64.zip`,
-  `Susie-${version}-arm64.zip.blockmap`,
-  `Susie-${version}-arm64.dmg`,
-  `Susie-${version}-arm64.dmg.blockmap`,
+  ...macArchitectures.flatMap((arch) => [
+    `Susie-${version}-${arch}.zip`,
+    `Susie-${version}-${arch}.zip.blockmap`,
+    `Susie-${version}-${arch}.dmg`,
+    `Susie-${version}-${arch}.dmg.blockmap`,
+  ]),
   'latest-mac.yml',
 ]
 

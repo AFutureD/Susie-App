@@ -23,12 +23,12 @@ npm run check          # typecheck + lint + format:check + vitest
 npm run smoke          # headless 冒烟：启动即自检退出
 npm run test:e2e       # Playwright E2E（先 npm run build）
 npm run pack           # electron-builder --dir（本地验证；无签名、自动更新禁用）
-npm run dist           # dmg + zip（需签名/公证凭证）
+npm run dist           # arm64 + x64 的 dmg + zip（需签名/公证凭证）
 ```
 
 ## 发布
 
-发布一律走 CI（推 `v*` tag 触发 `.github/workflows/release.yml`：构建 → Developer ID 签名 →
+发布一律走 CI（推 `v*` tag 触发 `.github/workflows/release.yml`：构建 arm64 + x64 → Developer ID 签名 →
 公证 → 上传 GitHub Release → 产物核对）。**先 bump 版本再打 tag**，CI 会校验两者一致：
 
 ```bash

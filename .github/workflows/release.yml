@@ -1,4 +1,4 @@
-# 发布：推 v* tag（或手动触发）→ 构建 + Developer ID 签名 + 公证 + 上传 GitHub Release。
+# 发布：推 v* tag（或手动触发）→ 构建 arm64 + x64 → Developer ID 签名 + 公证 + 上传 GitHub Release。
 # 所需 Secrets（Settings → Secrets and variables → Actions）：
 #   CSC_LINK            Developer ID Application 证书 .p12 的 base64
 #   CSC_KEY_PASSWORD    .p12 导出密码
@@ -41,7 +41,7 @@ jobs:
         env:
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
 
-      - name: 构建、签名、公证并发布
+      - name: 构建 arm64 + x64、签名、公证并发布
         run: npm run release
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
