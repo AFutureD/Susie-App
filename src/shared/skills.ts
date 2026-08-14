@@ -52,18 +52,6 @@ export interface RemoteSkillEntry {
 export type RepoSkillsResult =
   { ok: true; sessionId: string; repoLabel: string; skills: RemoteSkillEntry[] } | { ok: false; message: string }
 
-/** skillhubs registry 搜索结果行 */
-export interface RegistrySkillEntry {
-  name: string
-  version: string
-  description: string
-  author: string | null
-  downloadCount: number | null
-  tags: string[]
-}
-
-export type RegistrySearchResult = { ok: true; skills: RegistrySkillEntry[] } | { ok: false; message: string }
-
 export type SkillInstallResult =
   | { ok: true; path: string }
   | {

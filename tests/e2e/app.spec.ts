@@ -211,12 +211,11 @@ test('技能页：维度切换、搜索与获取入口', async () => {
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()
   await expect(win.getByText(/^目录 /)).toBeVisible()
 
-  // 获取技能弹窗：GitHub 与 skillhubs 两个来源
+  // 获取技能弹窗只保留 GitHub 来源
   await win.getByRole('button', { name: '获取技能' }).click()
   await expect(win.getByText('从 GitHub 仓库')).toBeVisible()
   await expect(win.getByPlaceholder('owner/repo 或 https://github.com/...')).toBeVisible()
-  await expect(win.getByText('从 skillhubs registry')).toBeVisible()
-  await expect(win.getByRole('button', { name: '搜索', exact: true })).toBeVisible()
+  await expect(win.getByText(/skillhubs/i)).toHaveCount(0)
   await win.getByRole('button', { name: '关闭' }).click()
   await expect(win.getByText('从 GitHub 仓库')).not.toBeVisible()
   await expect(win.getByPlaceholder('搜索技能')).toBeVisible()

@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.7.2 · 2026-08-14
+
+- 「获取技能」仅保留 GitHub 仓库来源，移除 skillhubs 搜索与安装入口。
+
 ## v0.7.1 · 2026-08-11
 
 - 新增 Intel Mac（x86_64）安装包；Apple Silicon 与 Intel 版本会同时签名、公证并发布。

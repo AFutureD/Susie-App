@@ -3,7 +3,6 @@ import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import {
   skillDirsForAgent,
-  type RegistrySkillEntry,
   type RemoteSkillEntry,
   type SkillDir,
   type SkillInstallResult,
@@ -18,15 +17,14 @@ import { useIpcQuery } from '../../lib/ipc-query'
 import { toast } from '../../lib/toast'
 import { ScopeChip } from './index'
 
-// 获取技能弹窗（技能页入口）：GitHub 仓库（owner/repo 或链接）与 skillhubs registry 两个来源；
+// 获取技能弹窗（技能页入口）：从 GitHub 仓库（owner/repo 或链接）选择技能；
 // 安装目标在二级弹窗中选择：位置（全局/助手）决定根目录，agent 多选决定容器目录集合
 // （agent→目录映射去重后逐个安装），目标已存在时二次确认覆盖。
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
 
-type InstallRequest =
-  { kind: 'repo'; sessionId: string; relPath: string; label: string } | { kind: 'registry'; name: string }
+type InstallRequest = { sessionId: string; relPath: string; label: string }
 
 export function SkillsAcquireModal({ onClose, onInstalled }: { onClose: () => void; onInstalled: () => void }) {
   const intl = useIntl()
@@ -41,9 +39,6 @@ export function SkillsAcquireModal({ onClose, onInstalled }: { onClose: () => vo
       >
         <div className="min-h-0 flex-1 overflow-y-auto">
           <RepoSection onInstall={setRequest} />
-          <div className="mt-5 border-t border-line pt-5">
-            <RegistrySection onInstall={setRequest} />
-          </div>
         </div>
         <div className="mt-4 flex shrink-0 justify-end border-t border-line pt-4">
           <Button onClick={onClose}>{intl.formatMessage({ id: 'common.close' })}</Button>
@@ -130,106 +125,12 @@ function RepoSection({ onInstall }: { onInstall: (request: InstallRequest) => vo
                     className="shrink-0"
                     onClick={() =>
                       onInstall({
-                        kind: 'repo',
                         sessionId: result.sessionId,
                         relPath: skill.relPath,
                         label: `${result.repoLabel} · ${skill.name}`,
                       })
                     }
                   >
-                    {intl.formatMessage({ id: 'skills.install' })}
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </section>
-  )
-}
-
-function RegistrySection({ onInstall }: { onInstall: (request: InstallRequest) => void }) {
-  const intl = useIntl()
-  const [keyword, setKeyword] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [result, setResult] = useState<RegistrySkillEntry[] | null>(null)
-
-  const search = async () => {
-    if (busy) return
-    setBusy(true)
-    setError(null)
-    const res = await ipc.skills.searchRegistry({ keyword })
-    setBusy(false)
-    if (res.ok) {
-      setResult(res.skills)
-    } else {
-      setResult(null)
-      setError(res.message)
-    }
-  }
-
-  return (
-    <section>
-      <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'skills.remote.registry.title' })}</h2>
-      <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'skills.remote.registry.hint' })}</p>
-      <div className="mt-3 flex gap-2">
-        <TextInput
-          value={keyword}
-          placeholder={intl.formatMessage({ id: 'skills.remote.registry.placeholder' })}
-          onChange={(event) => setKeyword(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter') void search()
-          }}
-        />
-        <Button className="shrink-0" disabled={busy} onClick={() => void search()}>
-          {intl.formatMessage({ id: busy ? 'skills.remote.registry.searching' : 'skills.remote.registry.search' })}
-        </Button>
-      </div>
-      {error !== null && (
-        <div className="mt-3">
-          <ErrorText message={error} />
-        </div>
-      )}
-      {result !== null && (
-        <div className="mt-3">
-          {result.length === 0 ? (
-            <p className="text-sm text-ink-muted">{intl.formatMessage({ id: 'skills.remote.registry.empty' })}</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {result.map((skill) => (
-                <div
-                  key={skill.name}
-                  className="flex items-center gap-3 rounded-lg border border-line bg-surface px-3 py-2"
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-sm font-medium">{skill.name}</span>
-                      {skill.version !== '' && (
-                        <span className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] text-accent">
-                          v{skill.version}
-                        </span>
-                      )}
-                    </div>
-                    {skill.description !== '' && (
-                      <p className="mt-0.5 truncate text-xs text-ink-muted">{skill.description}</p>
-                    )}
-                    <p className="mt-0.5 truncate text-[11px] text-ink-muted/80">
-                      {[
-                        skill.tags.join(' · '),
-                        skill.downloadCount !== null
-                          ? intl.formatMessage(
-                              { id: 'skills.remote.registry.downloads' },
-                              { count: skill.downloadCount },
-                            )
-                          : '',
-                      ]
-                        .filter((part) => part !== '')
-                        .join(' · ')}
-                    </p>
-                  </div>
-                  <Button className="shrink-0" onClick={() => onInstall({ kind: 'registry', name: skill.name })}>
                     {intl.formatMessage({ id: 'skills.install' })}
                   </Button>
                 </div>
@@ -301,9 +202,7 @@ function InstallTargetModal({
 
   const doInstall = (dir: SkillDir, overwrite: boolean): Promise<SkillInstallResult> => {
     const target = { scope, ...(scope === 'assistant' ? { assistantId: effectiveAssistant } : {}), dir }
-    return request.kind === 'repo'
-      ? ipc.skills.installFromRepo({ sessionId: request.sessionId, relPath: request.relPath, target, overwrite })
-      : ipc.skills.installFromRegistry({ name: request.name, target, overwrite })
+    return ipc.skills.installFromRepo({ sessionId: request.sessionId, relPath: request.relPath, target, overwrite })
   }
 
   const submit = async () => {
@@ -340,7 +239,6 @@ function InstallTargetModal({
     // done 为空且用户放弃覆盖：什么都没发生，留在弹窗
   }
 
-  const sourceLabel = request.kind === 'repo' ? request.label : `skillhubs · ${request.name}`
   const rootLabel = scope === 'global' ? '~' : intl.formatMessage({ id: 'skills.install.dir.workdir' })
   const missingAssistant = scope === 'assistant' && effectiveAssistant === ''
 
@@ -351,7 +249,7 @@ function InstallTargetModal({
       onClose={onClose}
     >
       <p className="truncate rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs text-ink-muted">
-        {sourceLabel}
+        {request.label}
       </p>
       <div className="mt-4 flex flex-col gap-4">
         <FieldGroup label={intl.formatMessage({ id: 'skills.install.scope' })}>

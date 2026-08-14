@@ -33,13 +33,7 @@ import type {
   UpdateState,
 } from '../messages'
 import { SKILL_DIRS, SKILL_SCOPES } from '../skills'
-import type {
-  AssistantSkills,
-  LocalSkillList,
-  RegistrySearchResult,
-  RepoSkillsResult,
-  SkillInstallResult,
-} from '../skills'
+import type { AssistantSkills, LocalSkillList, RepoSkillsResult, SkillInstallResult } from '../skills'
 
 export interface AppInfo {
   name: string
@@ -247,13 +241,6 @@ export const ipcContract = {
         target: skillInstallTarget,
         overwrite: z.boolean().default(false),
       }),
-      res: res<SkillInstallResult>(),
-    },
-    /** skillhubs registry 关键词搜索 */
-    searchRegistry: { req: z.object({ keyword: z.string() }), res: res<RegistrySearchResult>() },
-    /** 从 skillhubs registry 安装（取最新版本） */
-    installFromRegistry: {
-      req: z.object({ name: z.string().min(1), target: skillInstallTarget, overwrite: z.boolean().default(false) }),
       res: res<SkillInstallResult>(),
     },
   },

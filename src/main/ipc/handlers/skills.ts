@@ -16,7 +16,5 @@ export function skillsHandlers({ service }: ServiceHandlerDeps): IpcHandlers['sk
 
     listRepo: ({ source }) => service.skills.listRepo(source),
     installFromRepo: (req) => service.skills.installFromRepo(req),
-    searchRegistry: ({ keyword }) => service.skills.searchRegistry(keyword),
-    installFromRegistry: (req) => service.skills.installFromRegistry(req),
   }
 }
