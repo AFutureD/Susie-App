@@ -1,7 +1,11 @@
 import { useIntl } from 'react-intl'
 import type { ChatAssignment } from '../../../../shared/bindings'
 import type { BotIdentity } from '../../../../shared/messages'
-import { Button, CheckboxField, Field, Select } from '../form'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { GroupPrivacyNotice } from './group-privacy-notice'
 import type { ChannelTree, ChatRow } from './model'
 import type { AssignmentPatch } from './use-bindings'
@@ -52,36 +56,44 @@ export function DefaultDetail({
           {entry.channelId} · {intl.formatMessage({ id: 'bindings.detail.default.hint' })}
         </p>
       </div>
-      <Field label={intl.formatMessage({ id: 'bindings.detail.assistant' })}>
-        <Select
+      <Field>
+        <FieldLabel htmlFor="default-detail-assistant">
+          {intl.formatMessage({ id: 'bindings.detail.assistant' })}
+        </FieldLabel>
+        <NativeSelect
+          id="default-detail-assistant"
+          className="w-full"
           value={entry.defaultAssignment?.assistantId ?? ''}
           disabled={busy}
           onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
         >
           {/* 通道默认必须指定助手（不响应用下方开关表达）；legacy 无默认绑定时显示占位 */}
           {entry.defaultAssignment === null && (
-            <option value="" disabled>
+            <NativeSelectOption value="" disabled>
               {intl.formatMessage({ id: 'bindings.detail.assistant.unset' })}
-            </option>
+            </NativeSelectOption>
           )}
           {assistantOptions.map((option) => (
-            <option key={option.id} value={option.id}>
+            <NativeSelectOption key={option.id} value={option.id}>
               {option.label}
-            </option>
+            </NativeSelectOption>
           ))}
-        </Select>
+        </NativeSelect>
       </Field>
       {entry.defaultAssignment !== null && (
         <>
           <fieldset disabled={busy} className="flex flex-col gap-1 border-t border-line pt-3">
-            <CheckboxField
-              label={intl.formatMessage({ id: 'bindings.detail.respond.default' })}
-              checked={entry.defaultAssignment.respond}
-              onChange={(value) => onOption({ respond: value })}
-            />
-            <span className="text-xs text-ink-muted/70">
-              {intl.formatMessage({ id: 'bindings.detail.respond.default.hint' })}
-            </span>
+            <Field orientation="horizontal">
+              <Checkbox
+                id="default-detail-respond"
+                checked={entry.defaultAssignment.respond}
+                onCheckedChange={(value) => onOption({ respond: value === true })}
+              />
+              <FieldLabel htmlFor="default-detail-respond">
+                {intl.formatMessage({ id: 'bindings.detail.respond.default' })}
+              </FieldLabel>
+            </Field>
+            <FieldDescription>{intl.formatMessage({ id: 'bindings.detail.respond.default.hint' })}</FieldDescription>
           </fieldset>
           <OutputOptions assignment={entry.defaultAssignment} busy={busy} onOption={onOption} />
         </>
@@ -105,14 +117,17 @@ function OutputOptions({
     <div className="flex flex-col gap-2 border-t border-line pt-3">
       <span className="text-xs font-medium text-ink-muted">{intl.formatMessage({ id: 'bindings.detail.output' })}</span>
       <fieldset disabled={busy} className="flex flex-col gap-1">
-        <CheckboxField
-          label={intl.formatMessage({ id: 'bindings.detail.output.sendOutput' })}
-          checked={assignment.sendOutput}
-          onChange={(value) => onOption({ sendOutput: value })}
-        />
-        <span className="text-xs text-ink-muted/70">
-          {intl.formatMessage({ id: 'bindings.detail.output.sendOutput.hint' })}
-        </span>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="binding-send-output"
+            checked={assignment.sendOutput}
+            onCheckedChange={(value) => onOption({ sendOutput: value === true })}
+          />
+          <FieldLabel htmlFor="binding-send-output">
+            {intl.formatMessage({ id: 'bindings.detail.output.sendOutput' })}
+          </FieldLabel>
+        </Field>
+        <FieldDescription>{intl.formatMessage({ id: 'bindings.detail.output.sendOutput.hint' })}</FieldDescription>
       </fieldset>
     </div>
   )
@@ -150,36 +165,46 @@ export function ChatDetail({
       <div>
         <div className="flex items-center gap-2">
           <h3 className="min-w-0 truncate text-sm font-semibold">{row.name ?? row.chatId}</h3>
-          {typeLabel !== null && (
-            <span className="shrink-0 rounded bg-ink/5 px-1.5 py-0.5 text-[11px] text-ink-muted">{typeLabel}</span>
-          )}
+          {typeLabel !== null && <Badge variant="secondary">{typeLabel}</Badge>}
         </div>
         <p className="mt-1 font-mono text-xs text-ink-muted">
           {row.channelId} · {row.chatId}
         </p>
       </div>
 
-      <Field label={intl.formatMessage({ id: 'bindings.detail.assistant' })}>
-        <Select
+      <Field>
+        <FieldLabel htmlFor="chat-detail-assistant">
+          {intl.formatMessage({ id: 'bindings.detail.assistant' })}
+        </FieldLabel>
+        <NativeSelect
+          id="chat-detail-assistant"
+          className="w-full"
           value={assignment.assistantId ?? ''}
           disabled={busy}
           onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
         >
-          <option value="">{intl.formatMessage({ id: 'bindings.detail.assistant.follow' })}</option>
+          <NativeSelectOption value="">
+            {intl.formatMessage({ id: 'bindings.detail.assistant.follow' })}
+          </NativeSelectOption>
           {assistantOptions.map((option) => (
-            <option key={option.id} value={option.id}>
+            <NativeSelectOption key={option.id} value={option.id}>
               {option.label}
-            </option>
+            </NativeSelectOption>
           ))}
-        </Select>
+        </NativeSelect>
       </Field>
 
       <fieldset disabled={busy} className="flex flex-col gap-1 border-t border-line pt-3">
-        <CheckboxField
-          label={intl.formatMessage({ id: 'bindings.detail.respond.chat' })}
-          checked={assignment.respond}
-          onChange={(value) => onTrigger(row, { respond: value })}
-        />
+        <Field orientation="horizontal">
+          <Checkbox
+            id="chat-detail-respond"
+            checked={assignment.respond}
+            onCheckedChange={(value) => onTrigger(row, { respond: value === true })}
+          />
+          <FieldLabel htmlFor="chat-detail-respond">
+            {intl.formatMessage({ id: 'bindings.detail.respond.chat' })}
+          </FieldLabel>
+        </Field>
         <span className="text-xs text-ink-muted/70">
           {intl.formatMessage({ id: 'bindings.detail.respond.chat.hint' })}
         </span>
@@ -192,11 +217,16 @@ export function ChatDetail({
           </span>
           <GroupPrivacyNotice channelId={row.channelId} chatType={row.chatType} identity={identity} />
           <fieldset disabled={busy} className="flex flex-col gap-2">
-            <CheckboxField
-              label={intl.formatMessage({ id: 'bindings.detail.group.onlyMention' })}
-              checked={assignment.onlyMention}
-              onChange={(value) => onTrigger(row, { onlyMention: value })}
-            />
+            <Field orientation="horizontal">
+              <Checkbox
+                id="chat-detail-only-mention"
+                checked={assignment.onlyMention}
+                onCheckedChange={(value) => onTrigger(row, { onlyMention: value === true })}
+              />
+              <FieldLabel htmlFor="chat-detail-only-mention">
+                {intl.formatMessage({ id: 'bindings.detail.group.onlyMention' })}
+              </FieldLabel>
+            </Field>
           </fieldset>
         </div>
       )}
@@ -204,7 +234,7 @@ export function ChatDetail({
       <OutputOptions assignment={assignment} busy={busy} onOption={(patch) => onTrigger(row, patch)} />
 
       <div className="border-t border-line pt-3">
-        <Button variant="danger" disabled={busy} onClick={() => onRemove(row)}>
+        <Button variant="destructive" disabled={busy} onClick={() => onRemove(row)}>
           {intl.formatMessage({ id: 'bindings.detail.remove' })}
         </Button>
         <p className="mt-1 text-xs text-ink-muted/70">{intl.formatMessage({ id: 'bindings.detail.remove.hint' })}</p>
@@ -229,7 +259,7 @@ export function GhostDetail({
         {intl.formatMessage({ id: 'bindings.missingChannel' }, { id: channelId })}
       </h3>
       <div>
-        <Button variant="danger" disabled={busy} onClick={() => onCleanup(channelId)}>
+        <Button variant="destructive" disabled={busy} onClick={() => onCleanup(channelId)}>
           {intl.formatMessage({ id: 'bindings.detail.ghost.cleanup' })}
         </Button>
       </div>

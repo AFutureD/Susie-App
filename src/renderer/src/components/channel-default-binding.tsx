@@ -4,7 +4,12 @@ import { expandBindings } from '../../../shared/bindings'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../shared/config'
 import { assistantLabel } from '../lib/assistant-label'
 import { useBindingsWriter } from './bindings-panel/use-bindings-writer'
-import { Button, ErrorText, Field, Select } from './form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 // 「绑定默认助手」：渠道/Bot 新增后为通道默认绑定（chat_id='*'）选助手 + 是否响应。
 // 弹窗（渠道页两条添加路径）与 onboarding 绑定步共用同一面板；
@@ -44,67 +49,68 @@ export function ChannelDefaultBindingPanel({
 
   return (
     <div className="flex flex-col gap-3">
-      <Field label={intl.formatMessage({ id: 'defaultBinding.assistant' })}>
-        <Select value={assistantId} disabled={writer.busy} onChange={(event) => setAssistantId(event.target.value)}>
+      <Field>
+        <FieldLabel htmlFor="default-binding-assistant">
+          {intl.formatMessage({ id: 'defaultBinding.assistant' })}
+        </FieldLabel>
+        <NativeSelect
+          id="default-binding-assistant"
+          className="w-full"
+          value={assistantId}
+          disabled={writer.busy}
+          onChange={(event) => setAssistantId(event.target.value)}
+        >
           {state.config.assistants.map((assistant) => (
-            <option key={assistant.id} value={assistant.id}>
+            <NativeSelectOption key={assistant.id} value={assistant.id}>
               {assistantLabel(assistant)}
-            </option>
+            </NativeSelectOption>
           ))}
-        </Select>
+        </NativeSelect>
       </Field>
 
-      <RespondOption
-        title={intl.formatMessage({ id: 'defaultBinding.respond.yes.title' })}
-        desc={intl.formatMessage({ id: 'defaultBinding.respond.yes.desc' })}
-        selected={respond === true}
-        disabled={writer.busy}
-        onPick={() => setRespond(true)}
-      />
-      <RespondOption
-        title={intl.formatMessage({ id: 'defaultBinding.respond.no.title' })}
-        desc={intl.formatMessage({ id: 'defaultBinding.respond.no.desc' })}
-        selected={respond === false}
-        disabled={writer.busy}
-        onPick={() => setRespond(false)}
-      />
+      <ToggleGroup
+        orientation="vertical"
+        variant="outline"
+        className="w-full"
+        value={respond === null ? [] : [respond ? 'yes' : 'no']}
+        onValueChange={(value) => {
+          const next = value[0]
+          if (next === 'yes' || next === 'no') setRespond(next === 'yes')
+        }}
+      >
+        <ToggleGroupItem
+          value="yes"
+          disabled={writer.busy}
+          className="h-auto w-full flex-col items-start p-4 text-left whitespace-normal"
+        >
+          <span className="font-semibold">{intl.formatMessage({ id: 'defaultBinding.respond.yes.title' })}</span>
+          <span className="text-xs leading-5 text-muted-foreground">
+            {intl.formatMessage({ id: 'defaultBinding.respond.yes.desc' })}
+          </span>
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="no"
+          disabled={writer.busy}
+          className="h-auto w-full flex-col items-start p-4 text-left whitespace-normal"
+        >
+          <span className="font-semibold">{intl.formatMessage({ id: 'defaultBinding.respond.no.title' })}</span>
+          <span className="text-xs leading-5 text-muted-foreground">
+            {intl.formatMessage({ id: 'defaultBinding.respond.no.desc' })}
+          </span>
+        </ToggleGroupItem>
+      </ToggleGroup>
 
-      <ErrorText message={writer.error} />
+      {writer.error !== null && (
+        <Alert variant="destructive">
+          <AlertDescription>{writer.error}</AlertDescription>
+        </Alert>
+      )}
       <div>
-        <Button variant="primary" disabled={writer.busy || respond === null} onClick={() => void confirm()}>
+        <Button disabled={writer.busy || respond === null} onClick={() => void confirm()}>
           {intl.formatMessage({ id: 'defaultBinding.confirm' })}
         </Button>
       </div>
     </div>
-  )
-}
-
-function RespondOption({
-  title,
-  desc,
-  selected,
-  disabled,
-  onPick,
-}: {
-  title: string
-  desc: string
-  selected: boolean
-  disabled: boolean
-  onPick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onPick}
-      aria-pressed={selected}
-      className={`rounded-xl border p-4 text-left transition-colors disabled:opacity-50 ${
-        selected ? 'border-accent bg-accent/5' : 'border-line bg-raised hover:border-accent/60'
-      }`}
-    >
-      <span className="block text-sm font-semibold">{title}</span>
-      <span className="mt-1 block text-xs leading-5 text-ink-muted">{desc}</span>
-    </button>
   )
 }
 
@@ -147,24 +153,17 @@ export function ChannelDefaultBindingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={dismiss}>
-      <div
-        className="flex max-h-[80vh] w-[28rem] flex-col gap-3 overflow-y-auto rounded-xl border border-line bg-raised p-4 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div>
-          <h3 className="text-sm font-semibold">{intl.formatMessage({ id: 'defaultBinding.title' })}</h3>
-          <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'defaultBinding.subtitle' })}</p>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && dismiss()}>
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-[28rem]">
+        <DialogHeader>
+          <DialogTitle>{intl.formatMessage({ id: 'defaultBinding.title' })}</DialogTitle>
+          <DialogDescription>{intl.formatMessage({ id: 'defaultBinding.subtitle' })}</DialogDescription>
+        </DialogHeader>
         <ChannelDefaultBindingPanel state={state} channelId={channelId} onDone={finish} />
-        <button
-          type="button"
-          onClick={dismiss}
-          className="self-start text-xs text-ink-muted underline-offset-2 hover:underline"
-        >
+        <Button variant="link" className="justify-self-start" onClick={dismiss}>
           {intl.formatMessage({ id: 'defaultBinding.later' })}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </DialogContent>
+    </Dialog>
   )
 }

@@ -2,6 +2,7 @@ import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { Link } from 'react-router'
 import { BindingsPanel } from '../../components/bindings-panel/bindings-panel'
+import { Button } from '@/components/ui/button'
 import { Page } from '../../components/page'
 import { configStateAtom } from '../../lib/config-atoms'
 
@@ -19,12 +20,9 @@ export function ChatsPage() {
     <Page
       titleId="page.chats.title"
       actions={
-        <Link
-          to="/chats/history"
-          className="rounded-md border border-line px-3 py-1.5 text-sm font-medium text-ink transition-colors hover:bg-raised"
-        >
+        <Button variant="outline" render={<Link to="/chats/history" />}>
           {intl.formatMessage({ id: 'chats.history.open' })}
-        </Link>
+        </Button>
       }
     >
       <p className="mb-4 text-xs text-ink-muted">{intl.formatMessage({ id: 'bindings.hint' })}</p>

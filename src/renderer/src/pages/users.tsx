@@ -14,7 +14,20 @@ import {
   upsertUser,
   type PermissionScope,
 } from '../../../shared/users'
-import { Button, Select } from '../components/form'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { MemberPickerModal, useSenders } from '../components/member-picker'
 import { OwnerBindModal } from '../components/owner-bind'
 import { Page } from '../components/page'
@@ -73,9 +86,9 @@ export function UsersPage() {
       <div className="flex flex-col gap-3">
         <p className="text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'users.hint' })}</p>
         {channelIds.length === 0 && (
-          <div className="rounded-xl border border-dashed border-line bg-raised/50 p-6 text-sm text-ink-muted">
-            {intl.formatMessage({ id: 'users.empty' })}
-          </div>
+          <Empty>
+            <EmptyDescription>{intl.formatMessage({ id: 'users.empty' })}</EmptyDescription>
+          </Empty>
         )}
         {channelIds.map((channelId) => (
           <ChannelUsersCard
@@ -112,6 +125,7 @@ function ChannelUsersCard({
   const [pickerOpen, setPickerOpen] = useState(false)
   const [ownerBindOpen, setOwnerBindOpen] = useState(false)
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [confirmAction, setConfirmAction] = useState<{ kind: 'transfer' | 'remove'; user: ChannelUser } | null>(null)
 
   const users = channelUsers(state.config.users, channelId).toSorted(
     (a, b) => (a.role === 'owner' ? 0 : 1) - (b.role === 'owner' ? 0 : 1),
@@ -132,19 +146,26 @@ function ChannelUsersCard({
   }
 
   const makeOwner = (user: ChannelUser): void => {
-    if (
-      owner !== null &&
-      !window.confirm(intl.formatMessage({ id: 'users.transfer.confirm' }, { name: displayName(user) }))
-    ) {
+    if (owner !== null) {
+      setConfirmAction({ kind: 'transfer', user })
       return
     }
     void save(transferOwner(state.config.users, channelId, user.user_id, user.name))
   }
 
   const remove = (user: ChannelUser): void => {
-    const key = user.role === 'owner' ? 'users.remove.owner.confirm' : 'users.remove.confirm'
-    if (!window.confirm(intl.formatMessage({ id: key }, { name: displayName(user) }))) return
-    void save(removeUser(state.config.users, channelId, user.user_id))
+    setConfirmAction({ kind: 'remove', user })
+  }
+
+  const confirmPendingAction = (): void => {
+    if (confirmAction === null) return
+    const { kind, user } = confirmAction
+    setConfirmAction(null)
+    if (kind === 'transfer') {
+      void save(transferOwner(state.config.users, channelId, user.user_id, user.name))
+    } else {
+      void save(removeUser(state.config.users, channelId, user.user_id))
+    }
   }
 
   const addMember = (id: string): void => {
@@ -156,18 +177,12 @@ function ChannelUsersCard({
     <div className="rounded-xl border border-line bg-raised p-4">
       <div className="flex items-center gap-2">
         <span className="truncate text-sm font-semibold">{channelLabel}</span>
-        {manager && (
-          <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">manager</span>
-        )}
-        {ghost && (
-          <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] font-medium text-red-500">
-            {intl.formatMessage({ id: 'users.ghost' })}
-          </span>
-        )}
+        {manager && <Badge>manager</Badge>}
+        {ghost && <Badge variant="destructive">{intl.formatMessage({ id: 'users.ghost' })}</Badge>}
         <div className="flex-1" />
         {/* manager 不参与会话循环，权限档位无意义：不提供添加用户，只管理 Owner（供托管渠道继承） */}
         {!ghost && !manager && (
-          <Button disabled={mutation.busy} onClick={() => setPickerOpen(true)}>
+          <Button variant="outline" disabled={mutation.busy} onClick={() => setPickerOpen(true)}>
             {intl.formatMessage({ id: 'users.add' })}
           </Button>
         )}
@@ -176,7 +191,12 @@ function ChannelUsersCard({
       {owner === null && !ghost && (
         <div className="mt-2 flex items-center gap-3">
           <p className="min-w-0 flex-1 text-xs text-red-500">{intl.formatMessage({ id: 'users.channel.noOwner' })}</p>
-          <Button className="shrink-0" disabled={mutation.busy} onClick={() => setOwnerBindOpen(true)}>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            disabled={mutation.busy}
+            onClick={() => setOwnerBindOpen(true)}
+          >
             {intl.formatMessage({ id: 'ownerBind.title' })}
           </Button>
         </div>
@@ -216,6 +236,44 @@ function ChannelUsersCard({
         />
       )}
       {ownerBindOpen && <OwnerBindModal state={state} channelId={channelId} onClose={() => setOwnerBindOpen(false)} />}
+      <AlertDialog
+        open={confirmAction !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {intl.formatMessage({ id: confirmAction?.kind === 'transfer' ? 'users.makeOwner' : 'users.remove' })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmAction === null
+                ? ''
+                : intl.formatMessage(
+                    {
+                      id:
+                        confirmAction.kind === 'transfer'
+                          ? 'users.transfer.confirm'
+                          : confirmAction.user.role === 'owner'
+                            ? 'users.remove.owner.confirm'
+                            : 'users.remove.confirm',
+                    },
+                    { name: displayName(confirmAction.user) },
+                  )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction
+              variant={confirmAction?.kind === 'transfer' ? 'default' : 'destructive'}
+              onClick={confirmPendingAction}
+            >
+              {intl.formatMessage({ id: confirmAction?.kind === 'transfer' ? 'users.makeOwner' : 'users.remove' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -232,13 +290,17 @@ function LevelSelect({
   const intl = useIntl()
   return (
     <div className="w-24 shrink-0">
-      <Select value={value} disabled={disabled} onChange={(event) => onChange(event.target.value as PermissionLevel)}>
+      <NativeSelect
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value as PermissionLevel)}
+      >
         {PERMISSION_LEVELS.map((level) => (
-          <option key={level} value={level}>
+          <NativeSelectOption key={level} value={level}>
             {intl.formatMessage({ id: `users.level.${level}` })}
-          </option>
+          </NativeSelectOption>
         ))}
-      </Select>
+      </NativeSelect>
     </div>
   )
 }
@@ -286,9 +348,7 @@ function UserRow({
         </div>
 
         {isOwner ? (
-          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-            {intl.formatMessage({ id: 'users.owner.badge' })}
-          </span>
+          <Badge className="shrink-0">{intl.formatMessage({ id: 'users.owner.badge' })}</Badge>
         ) : (
           <>
             {!ownerOnly && (
@@ -301,33 +361,19 @@ function UserRow({
                     onChange={(level) => onScope({ kind: 'private' }, level)}
                   />
                 </label>
-                <button
-                  type="button"
-                  onClick={onToggle}
-                  className="shrink-0 text-xs whitespace-nowrap text-ink-muted transition-colors hover:text-ink"
-                >
+                <Button variant="ghost" onClick={onToggle} className="shrink-0">
                   {intl.formatMessage({ id: 'users.scope.groups' })} {expanded ? '▾' : '▸'}
-                </button>
+                </Button>
               </>
             )}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onMakeOwner}
-              className="shrink-0 text-xs whitespace-nowrap text-ink-muted transition-colors hover:text-ink disabled:opacity-40"
-            >
+            <Button variant="ghost" disabled={busy} onClick={onMakeOwner} className="shrink-0">
               {intl.formatMessage({ id: 'users.makeOwner' })}
-            </button>
+            </Button>
           </>
         )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onRemove}
-          className="shrink-0 text-xs whitespace-nowrap text-ink-muted transition-colors hover:text-red-500 disabled:opacity-40"
-        >
+        <Button variant="ghost" disabled={busy} onClick={onRemove} className="shrink-0">
           {intl.formatMessage({ id: 'users.remove' })}
-        </button>
+        </Button>
       </div>
 
       {expanded && !isOwner && !ownerOnly && (

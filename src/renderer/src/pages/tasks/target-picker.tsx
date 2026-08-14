@@ -4,7 +4,10 @@ import { decodeChatId } from '../../../../shared/chat-id'
 import type { TaskTarget } from '../../../../shared/config'
 import type { ChatInfo } from '../../../../shared/messages'
 import { ChatPickerModal } from '../../components/bindings-panel/chat-picker'
-import { Button, Select } from '../../components/form'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Separator } from '@/components/ui/separator'
 
 // 投递目标：已选列表 + 「添加会话」弹窗（复用会话绑定的 ChatPickerModal：
 // 历史会话候选 + 手动输入兜底），私聊/群聊混选、可跨频道。
@@ -41,20 +44,21 @@ export function TargetPicker({
         const chat = chats.find((item) => item.channelId === target.channel && item.chatId === target.chat_id)
         return (
           <div key={`${target.channel} ${target.chat_id}`} className="flex items-center gap-2">
-            <span className="shrink-0 rounded bg-line/50 px-1 py-px font-mono text-[11px] text-ink-muted">
+            <Badge variant="secondary" className="shrink-0 font-mono">
               {target.channel}
-            </span>
+            </Badge>
             <span className="truncate text-sm">{chat?.name ?? target.chat_id}</span>
             <ChatTypeTag chatId={target.chat_id} />
             <span className="ml-auto shrink-0 font-mono text-[11px] text-ink-muted">{target.chat_id}</span>
-            <Button className="px-2 py-0.5 text-xs" onClick={() => remove(target)}>
+            <Button variant="outline" size="sm" onClick={() => remove(target)}>
               {intl.formatMessage({ id: 'tasks.targets.remove' })}
             </Button>
           </div>
         )
       })}
 
-      <div className="flex items-center gap-1.5 border-t border-line pt-2.5">
+      <Separator />
+      <div className="flex items-center gap-1.5">
         {channelIds.length === 0 ? (
           <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'tasks.targets.noChannel' })}</p>
         ) : (
@@ -62,16 +66,16 @@ export function TargetPicker({
             {channelIds.length > 1 && (
               // Select 自带 w-full，用容器限宽
               <div className="w-36 shrink-0">
-                <Select value={effectiveChannel} onChange={(event) => setChannel(event.target.value)}>
+                <NativeSelect value={effectiveChannel} onChange={(event) => setChannel(event.target.value)}>
                   {channelIds.map((id) => (
-                    <option key={id} value={id}>
+                    <NativeSelectOption key={id} value={id}>
                       {id}
-                    </option>
+                    </NativeSelectOption>
                   ))}
-                </Select>
+                </NativeSelect>
               </div>
             )}
-            <Button onClick={() => setPicking(effectiveChannel)}>
+            <Button variant="outline" onClick={() => setPicking(effectiveChannel)}>
               {intl.formatMessage({ id: 'tasks.targets.addChat' })}
             </Button>
           </>
@@ -109,8 +113,8 @@ function ChatTypeTag({ chatId }: { chatId: string }) {
           : null
   if (id === null) return null
   return (
-    <span className="shrink-0 rounded bg-line/50 px-1 py-px text-[11px] text-ink-muted">
+    <Badge variant="secondary" className="shrink-0">
       {intl.formatMessage({ id })}
-    </span>
+    </Badge>
   )
 }

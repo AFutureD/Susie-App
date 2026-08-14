@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { TelegramBotChannelSettings } from '../../../../shared/config'
-import { Button, CheckboxField, ErrorText, Field, TextInput } from '../../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { ipc } from '../../lib/ipc'
 import type { ChannelFormProps } from './form-types'
 
@@ -35,27 +39,47 @@ export function TelegramChannelForm({ channelId, initial: initialSettings, state
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
       <div className="grid grid-cols-2 gap-3">
-        <Field label={intl.formatMessage({ id: 'channels.field.id' })}>
-          <TextInput value={channelId} disabled />
+        <Field>
+          <FieldLabel htmlFor={`channel-${channelId}-id`}>{intl.formatMessage({ id: 'channels.field.id' })}</FieldLabel>
+          <Input id={`channel-${channelId}-id`} value={channelId} disabled />
         </Field>
-        <Field label={intl.formatMessage({ id: 'channels.field.token' })}>
-          <TextInput value={token} onChange={(event) => setToken(event.target.value)} placeholder="123456:bot-token" />
+        <Field>
+          <FieldLabel htmlFor={`channel-${channelId}-token`}>
+            {intl.formatMessage({ id: 'channels.field.token' })}
+          </FieldLabel>
+          <Input
+            id={`channel-${channelId}-token`}
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="123456:bot-token"
+          />
         </Field>
       </div>
 
       <div className="flex gap-6">
-        <CheckboxField
-          label={intl.formatMessage({ id: 'channels.field.dropPending' })}
-          checked={dropPending}
-          onChange={setDropPending}
-        />
+        <Field orientation="horizontal">
+          <Checkbox
+            id={`channel-${channelId}-drop-pending`}
+            checked={dropPending}
+            onCheckedChange={(value) => setDropPending(value === true)}
+          />
+          <FieldLabel htmlFor={`channel-${channelId}-drop-pending`}>
+            {intl.formatMessage({ id: 'channels.field.dropPending' })}
+          </FieldLabel>
+        </Field>
       </div>
-      <ErrorText message={error} />
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
+        <Button disabled={busy || token.trim() === ''} onClick={() => void submit()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
-        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+        <Button variant="outline" onClick={onDone}>
+          {intl.formatMessage({ id: 'common.cancel' })}
+        </Button>
       </div>
     </div>
   )

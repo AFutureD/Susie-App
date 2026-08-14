@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { AgentProgress } from '../../../shared/messages'
 import { useIpcEvent } from '../lib/ipc'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Progress, ProgressLabel } from '@/components/ui/progress'
 
 // agent 安装进度共享件（Agent 页与 onboarding 的「准备 Agent」步共用）：
 // 订阅 agents.progress 事件流 + 单行进度渲染。
@@ -42,9 +44,11 @@ export function AgentProgressLine({ progress }: { progress: AgentProgress }) {
 
   if (progress.phase === 'error') {
     return (
-      <p className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-500">
-        {intl.formatMessage({ id: 'agents.progress.error' }, { detail: progress.detail ?? '?' })}
-      </p>
+      <Alert variant="destructive" className="mt-3">
+        <AlertDescription>
+          {intl.formatMessage({ id: 'agents.progress.error' }, { detail: progress.detail ?? '?' })}
+        </AlertDescription>
+      </Alert>
     )
   }
 
@@ -66,18 +70,8 @@ export function AgentProgressLine({ progress }: { progress: AgentProgress }) {
         : intl.formatMessage({ id: 'agents.progress.extracting' })
 
   return (
-    <div className="mt-3">
-      <div className="text-[11px] text-ink-muted">{label}</div>
-      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-line">
-        {percent !== null ? (
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-300"
-            style={{ width: `${percent}%` }}
-          />
-        ) : (
-          <div className="h-full w-1/3 animate-pulse rounded-full bg-accent" />
-        )}
-      </div>
-    </div>
+    <Progress value={percent} className="mt-3">
+      <ProgressLabel>{label}</ProgressLabel>
+    </Progress>
   )
 }

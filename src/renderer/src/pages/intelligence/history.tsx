@@ -2,17 +2,20 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { Link } from 'react-router'
 import type { AutoReviewRecord, AutoReviewStatus } from '../../../../shared/messages'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Page } from '../../components/page'
 import { ipc, onIpcEvent } from '../../lib/ipc'
 
 // 自动审核历史子页（/intelligence/history）：审核记录实时刷新，入口在智能页「自动审核」卡片标题旁。
 
 /** 自动审核记录状态 → 徽章样式 */
-const STATUS_BADGE: Record<AutoReviewStatus, string> = {
-  running: 'bg-accent/10 text-accent',
-  passed: 'bg-emerald-500/10 text-emerald-600',
-  rejected: 'bg-amber-500/10 text-amber-600',
-  error: 'bg-red-500/10 text-red-500',
+const STATUS_BADGE: Record<AutoReviewStatus, 'default' | 'secondary' | 'outline' | 'destructive'> = {
+  running: 'default',
+  passed: 'secondary',
+  rejected: 'outline',
+  error: 'destructive',
 }
 
 export function AutoReviewHistoryPage() {
@@ -49,21 +52,25 @@ export function AutoReviewHistoryPage() {
         </Link>
       </div>
 
-      <section className="rounded-xl border border-line bg-raised p-5">
-        <p className="text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'intelligence.history.hint' })}</p>
+      <Card>
+        <CardContent>
+          <p className="text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'intelligence.history.hint' })}</p>
 
-        {records !== null && records.length === 0 && (
-          <p className="mt-3 text-sm text-ink-muted">{intl.formatMessage({ id: 'intelligence.history.empty' })}</p>
-        )}
+          {records !== null && records.length === 0 && (
+            <Empty>
+              <EmptyDescription>{intl.formatMessage({ id: 'intelligence.history.empty' })}</EmptyDescription>
+            </Empty>
+          )}
 
-        {records !== null && records.length > 0 && (
-          <div className="mt-3 divide-y divide-line/60">
-            {records.map((record) => (
-              <AutoReviewRow key={record.id} record={record} />
-            ))}
-          </div>
-        )}
-      </section>
+          {records !== null && records.length > 0 && (
+            <div className="mt-3 divide-y divide-line/60">
+              {records.map((record) => (
+                <AutoReviewRow key={record.id} record={record} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </Page>
   )
 }
@@ -74,9 +81,9 @@ function AutoReviewRow({ record }: { record: AutoReviewRecord }) {
 
   return (
     <div className="flex items-start gap-3 py-2.5">
-      <span className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium ${STATUS_BADGE[record.status]}`}>
+      <Badge variant={STATUS_BADGE[record.status]} className="mt-0.5 shrink-0">
         {intl.formatMessage({ id: `intelligence.history.status.${record.status}` })}
-      </span>
+      </Badge>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2 text-xs text-ink-muted">
           <span className="truncate">{record.sender ?? record.senderId ?? '未知用户'}</span>

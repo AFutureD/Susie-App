@@ -3,7 +3,11 @@ import { useIntl } from 'react-intl'
 import type { ConfigState } from '../../../../shared/config'
 import { ipc } from '../../lib/ipc'
 import { tgResolveLink } from '../../lib/telegram'
-import { Button, ErrorText, Field, TextInput } from '../form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { ManagedBotCreatePanel } from '../managed-bot-create'
 import { OwnerBindPanel } from '../owner-bind'
 import managerDemoVideo from '../../assets/onboarding-manager-bot.mp4'
@@ -55,50 +59,60 @@ export function ManagerStep({
   }
 
   return (
-    <section className="rounded-xl border border-line bg-raised p-5">
-      <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'onboarding.step.manager' })}</h2>
-      <div className="mt-3 flex gap-6">
-        <div className="min-w-0 flex-1">
-          <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-6 text-ink-muted">
-            <li>{intl.formatMessage({ id: 'onboarding.manager.guide.step1' })}</li>
-            <li>{intl.formatMessage({ id: 'onboarding.manager.guide.step2' })}</li>
-          </ol>
-          <div className="mt-3">
-            <Button onClick={() => void ipc.app.openExternal({ url: tgResolveLink('BotFather') })}>
-              {intl.formatMessage({ id: 'onboarding.manager.guide.open' })}
-            </Button>
-          </div>
-
-          <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4">
-            <Field label={intl.formatMessage({ id: 'channels.field.token' })}>
-              <TextInput
-                value={token}
-                autoFocus
-                placeholder="123456:bot-token"
-                onChange={(event) => setToken(event.target.value)}
-              />
-            </Field>
-            <ErrorText message={error} />
-            <div>
-              <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
-                {intl.formatMessage({ id: busy ? 'onboarding.manager.connecting' : 'onboarding.manager.submit' })}
+    <Card>
+      <CardContent>
+        <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'onboarding.step.manager' })}</h2>
+        <div className="mt-3 flex gap-6">
+          <div className="min-w-0 flex-1">
+            <ol className="flex list-decimal flex-col gap-2 pl-5 text-sm leading-6 text-ink-muted">
+              <li>{intl.formatMessage({ id: 'onboarding.manager.guide.step1' })}</li>
+              <li>{intl.formatMessage({ id: 'onboarding.manager.guide.step2' })}</li>
+            </ol>
+            <div className="mt-3">
+              <Button onClick={() => void ipc.app.openExternal({ url: tgResolveLink('BotFather') })}>
+                {intl.formatMessage({ id: 'onboarding.manager.guide.open' })}
               </Button>
             </div>
-          </div>
-        </div>
 
-        {/* Bot Management Mode 开启过程的示范录屏（竖屏），随包分发 */}
-        <video
-          src={managerDemoVideo}
-          className="w-52 shrink-0 self-start rounded-lg border border-line"
-          autoPlay
-          loop
-          muted
-          playsInline
-          controls
-        />
-      </div>
-    </section>
+            <div className="mt-5 flex flex-col gap-3 border-t border-line pt-4">
+              <Field>
+                <FieldLabel htmlFor="onboarding-manager-token">
+                  {intl.formatMessage({ id: 'channels.field.token' })}
+                </FieldLabel>
+                <Input
+                  id="onboarding-manager-token"
+                  value={token}
+                  autoFocus
+                  placeholder="123456:bot-token"
+                  onChange={(event) => setToken(event.target.value)}
+                />
+              </Field>
+              {error !== null && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
+              <div>
+                <Button disabled={busy || token.trim() === ''} onClick={() => void submit()}>
+                  {intl.formatMessage({ id: busy ? 'onboarding.manager.connecting' : 'onboarding.manager.submit' })}
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Bot Management Mode 开启过程的示范录屏（竖屏），随包分发 */}
+          <video
+            src={managerDemoVideo}
+            className="w-52 shrink-0 self-start rounded-lg border border-line"
+            autoPlay
+            loop
+            muted
+            playsInline
+            controls
+          />
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -172,9 +186,7 @@ export function DoneStep({ onClose }: { onClose: () => void }) {
       <h2 className="mt-2 text-base font-semibold">{intl.formatMessage({ id: 'onboarding.done.title' })}</h2>
       <p className="mt-2 text-sm leading-6 text-ink-muted">{intl.formatMessage({ id: 'onboarding.done.desc' })}</p>
       <div className="mt-5">
-        <Button variant="primary" onClick={onClose}>
-          {intl.formatMessage({ id: 'onboarding.done.cta' })}
-        </Button>
+        <Button onClick={onClose}>{intl.formatMessage({ id: 'onboarding.done.cta' })}</Button>
       </div>
     </section>
   )

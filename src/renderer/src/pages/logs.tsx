@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useIntl } from 'react-intl'
-import { Button, CheckboxField } from '../components/form'
+import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldLabel } from '@/components/ui/field'
 import { Page } from '../components/page'
 import { ipc } from '../lib/ipc'
 
@@ -39,16 +41,21 @@ export function LogsPage() {
     <Page titleId="page.logs.title">
       <div className="mb-3 flex items-center gap-3">
         <div className="flex gap-1">
-          <Button variant={file === 'main' ? 'primary' : 'ghost'} onClick={() => setFile('main')}>
+          <Button variant={file === 'main' ? 'default' : 'ghost'} onClick={() => setFile('main')}>
             {intl.formatMessage({ id: 'logs.file.main' })}
           </Button>
-          <Button variant={file === 'error' ? 'primary' : 'ghost'} onClick={() => setFile('error')}>
+          <Button variant={file === 'error' ? 'default' : 'ghost'} onClick={() => setFile('error')}>
             {intl.formatMessage({ id: 'logs.file.error' })}
           </Button>
         </div>
         <span className="flex-1 truncate font-mono text-xs text-ink-muted">{logPath}</span>
-        <CheckboxField label={intl.formatMessage({ id: 'logs.follow' })} checked={follow} onChange={setFollow} />
-        <Button onClick={() => refresh()}>{intl.formatMessage({ id: 'logs.refresh' })}</Button>
+        <Field orientation="horizontal" className="w-auto">
+          <Checkbox id="logs-follow" checked={follow} onCheckedChange={(value) => setFollow(value === true)} />
+          <FieldLabel htmlFor="logs-follow">{intl.formatMessage({ id: 'logs.follow' })}</FieldLabel>
+        </Field>
+        <Button variant="outline" onClick={() => refresh()}>
+          {intl.formatMessage({ id: 'logs.refresh' })}
+        </Button>
       </div>
       <div className="h-[calc(100vh-220px)] overflow-y-auto rounded-xl border border-line bg-raised p-4">
         <pre className="font-mono text-[11px] leading-4.5 whitespace-pre-wrap text-ink-muted select-text">

@@ -1,24 +1,77 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/inter';
 
-/* 语义设计 Token：原始值放 :root，@theme inline 映射成 Tailwind 工具类
-   （bg-surface / bg-raised / text-ink / text-ink-muted / text-accent / border-line）。 */
+/* shadcn 语义 token；兼容别名只服务现有业务布局，基础组件统一使用官方 token。 */
 :root {
-  --surface: #f6f6f4;
-  --raised: #ffffff;
-  --ink: #1c1c1a;
-  --ink-muted: #6f6f6a;
-  --accent: #b45309;
-  --line: #e4e4e0;
+  --background: #f6f5f4;
+  --foreground: #000000;
+  --card: #ffffff;
+  --card-foreground: #000000;
+  --popover: #ffffff;
+  --popover-foreground: #000000;
+  --primary: #0075de;
+  --primary-foreground: #ffffff;
+  --secondary: #ecebea;
+  --secondary-foreground: #31302e;
+  --muted: #ecebea;
+  --muted-foreground: #615d59;
+  --accent: #ecebea;
+  --accent-foreground: #000000;
+  --destructive: #c43830;
+  --border: #e6e6e6;
+  --input: #dddddd;
+  --ring: #62aef0;
+  --chart-1: #0075de;
+  --chart-2: #2a9d99;
+  --chart-3: #391c57;
+  --chart-4: #dd5b00;
+  --chart-5: #1aae39;
+  --radius: 0.625rem;
+  --sidebar: #f6f5f4;
+  --sidebar-foreground: #31302e;
+  --sidebar-primary: #0075de;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ffffff;
+  --sidebar-accent-foreground: #000000;
+  --sidebar-border: #e6e6e6;
+  --sidebar-ring: #62aef0;
+  --surface: var(--background);
+  --raised: var(--card);
+  --ink: var(--foreground);
+  --ink-muted: var(--muted-foreground);
+  --line: var(--border);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --surface: #151514;
-    --raised: #1f1f1e;
-    --ink: #ececea;
-    --ink-muted: #9a9a94;
-    --accent: #f59e0b;
-    --line: #2c2c2a;
+    --background: #151514;
+    --foreground: #ececea;
+    --card: #1f1f1e;
+    --card-foreground: #ececea;
+    --popover: #1f1f1e;
+    --popover-foreground: #ececea;
+    --primary: #62aef0;
+    --primary-foreground: #10253a;
+    --secondary: #2c2c2a;
+    --secondary-foreground: #ececea;
+    --muted: #2c2c2a;
+    --muted-foreground: #9a9a94;
+    --accent: #2c2c2a;
+    --accent-foreground: #ececea;
+    --destructive: #ff736a;
+    --border: #363633;
+    --input: #3b3b38;
+    --ring: #62aef0;
+    --sidebar: #151514;
+    --sidebar-foreground: #ececea;
+    --sidebar-primary: #62aef0;
+    --sidebar-primary-foreground: #10253a;
+    --sidebar-accent: #2c2c2a;
+    --sidebar-accent-foreground: #ececea;
+    --sidebar-border: #363633;
+    --sidebar-ring: #62aef0;
   }
 }
 
@@ -27,8 +80,46 @@
   --color-raised: var(--raised);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
-  --color-accent: var(--accent);
   --color-line: var(--line);
+  --font-heading: var(--font-sans);
+  --font-sans: 'Inter Variable', Inter, -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 html,
@@ -38,8 +129,6 @@ body,
 }
 
 body {
-  @apply bg-surface text-ink antialiased;
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Segoe UI', sans-serif;
   user-select: none;
 }
 
@@ -93,4 +182,16 @@ body {
   border: 1px solid var(--line);
   padding: 0.2rem 0.5rem;
   font-size: 0.9em;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
 }

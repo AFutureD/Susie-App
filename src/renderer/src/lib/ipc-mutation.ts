@@ -1,8 +1,8 @@
 import { getDefaultStore } from 'jotai'
 import { useCallback, useState } from 'react'
 import type { ConfigMutationResult } from '../../../shared/config'
+import { toast } from '@/components/ui/toast'
 import { configStateAtom } from './config-atoms'
-import { toast } from './toast'
 
 // 配置写操作的统一封装：自动注入 expectedVersion（现取最新 config 版本），
 // 失败/版本冲突统一 toast。需要内联展示错误的表单（频道/助手表单、Raw 编辑器）
@@ -22,7 +22,7 @@ export function useConfigMutation() {
         const result = await mutate(state.version)
         if (!result.ok) {
           // 冲突时 config.state 事件已把最新版本推给 UI，重试即可
-          toast(result.conflict ? CONFLICT_MESSAGE : result.message, 'error')
+          toast.add({ title: result.conflict ? CONFLICT_MESSAGE : result.message, type: 'error' })
           return false
         }
         return true

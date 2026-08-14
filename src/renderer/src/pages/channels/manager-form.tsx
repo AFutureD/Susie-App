@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { ConfigState, ManagerBotConfig } from '../../../../shared/config'
-import { Button, ErrorText, Field, TextInput } from '../../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { ipc } from '../../lib/ipc'
 
 // Manager bot 的行内编辑（新增走统一的 AddBotForm，凭 can_manage_bots 自动落到这一类）：
@@ -43,21 +46,36 @@ export function ManagerBotForm({
   return (
     <div className="mt-4 flex flex-col gap-3 border-t border-line pt-4">
       <div className="grid grid-cols-2 gap-3">
-        <Field label={intl.formatMessage({ id: 'channels.field.id' })}>
-          <TextInput value={managerId} disabled />
+        <Field>
+          <FieldLabel htmlFor={`manager-${managerId}-id`}>{intl.formatMessage({ id: 'channels.field.id' })}</FieldLabel>
+          <Input id={`manager-${managerId}-id`} value={managerId} disabled />
         </Field>
-        <Field label={intl.formatMessage({ id: 'channels.field.token' })}>
-          <TextInput value={token} onChange={(event) => setToken(event.target.value)} placeholder="123456:bot-token" />
+        <Field>
+          <FieldLabel htmlFor={`manager-${managerId}-token`}>
+            {intl.formatMessage({ id: 'channels.field.token' })}
+          </FieldLabel>
+          <Input
+            id={`manager-${managerId}-token`}
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="123456:bot-token"
+          />
         </Field>
       </div>
 
       <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'managerBots.hint' })}</p>
-      <ErrorText message={error} />
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
+        <Button disabled={busy || token.trim() === ''} onClick={() => void submit()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
-        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+        <Button variant="outline" onClick={onDone}>
+          {intl.formatMessage({ id: 'common.cancel' })}
+        </Button>
       </div>
     </div>
   )

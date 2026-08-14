@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { IntlProvider } from 'react-intl'
 import { HashRouter } from 'react-router'
 import { App } from './app'
+import { TooltipProvider } from '@/components/ui/tooltip'
 import { zhHans } from './i18n/zh-Hans'
 import './styles.css'
 
@@ -13,7 +14,9 @@ createRoot(container).render(
   <StrictMode>
     <IntlProvider locale="zh-Hans" defaultLocale="zh-Hans" messages={zhHans}>
       <HashRouter>
-        <App />
+        <TooltipProvider>
+          <App />
+        </TooltipProvider>
       </HashRouter>
     </IntlProvider>
   </StrictMode>,

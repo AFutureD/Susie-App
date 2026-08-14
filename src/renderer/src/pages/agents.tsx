@@ -2,15 +2,28 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { AgentInfo, AgentProgress, AgentsOverview } from '../../../shared/messages'
 import { AgentProgressLine, useAgentProgress } from '../components/agent-progress'
-import { Button } from '../components/form'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { Page } from '../components/page'
 import { ipc } from '../lib/ipc'
-import { toast } from '../lib/toast'
+import { toast } from '@/components/ui/toast'
 
 export function AgentsPage() {
   const intl = useIntl()
   const [overview, setOverview] = useState<AgentsOverview | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [uninstallId, setUninstallId] = useState<string | null>(null)
 
   const refresh = () => {
     void ipc.agents.overview().then(setOverview)
@@ -30,16 +43,18 @@ export function AgentsPage() {
   }
 
   const uninstall = async (id: string) => {
-    if (!window.confirm(intl.formatMessage({ id: 'agents.uninstallConfirm' }, { id }))) return
+    setUninstallId(null)
     const result = await ipc.agents.uninstall({ id })
-    if (!result.ok) toast(result.message, 'error')
+    if (!result.ok) toast.add({ title: result.message, type: 'error' })
     refresh()
   }
 
   return (
     <Page titleId="page.agents.title">
       <div className="mb-3 flex items-center justify-end">
-        <Button onClick={refresh}>{intl.formatMessage({ id: 'agents.refresh' })}</Button>
+        <Button variant="outline" onClick={refresh}>
+          {intl.formatMessage({ id: 'agents.refresh' })}
+        </Button>
       </div>
       <div className="flex flex-col gap-2">
         {overview === null && <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'common.loading' })}</p>}
@@ -50,15 +65,41 @@ export function AgentsPage() {
             busy={busyId === agent.id}
             progress={progress[agent.id]}
             onInstall={() => void install(agent.id)}
-            onUninstall={() => void uninstall(agent.id)}
+            onUninstall={() => setUninstallId(agent.id)}
           />
         ))}
         {overview !== null && overview.every((agent) => agent.source === null || agent.id === 'codex') && (
-          <p className="rounded-xl border border-dashed border-line p-5 text-xs text-ink-muted">
-            {intl.formatMessage({ id: 'agents.acp.empty' })}
-          </p>
+          <Empty>
+            <EmptyDescription>{intl.formatMessage({ id: 'agents.acp.empty' })}</EmptyDescription>
+          </Empty>
         )}
       </div>
+      <AlertDialog
+        open={uninstallId !== null}
+        onOpenChange={(open) => {
+          if (!open) setUninstallId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{intl.formatMessage({ id: 'agents.uninstall' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {intl.formatMessage({ id: 'agents.uninstallConfirm' }, { id: uninstallId ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (uninstallId !== null) void uninstall(uninstallId)
+              }}
+            >
+              {intl.formatMessage({ id: 'agents.uninstall' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   )
 }
@@ -101,19 +142,14 @@ function AgentRow({
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{agent.name}</span>
-            <span className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent">
-              {agent.id}
-            </span>
+            <Badge variant="secondary">{agent.id}</Badge>
             {agent.latestVersion !== null && (
               <span className="font-mono text-[11px] text-ink-muted">v{agent.latestVersion}</span>
             )}
             {available && agent.mcpHttp === false && (
-              <span
-                className="rounded bg-amber-500/10 px-1.5 py-0.5 text-[11px] font-medium text-amber-600"
-                title={intl.formatMessage({ id: 'agents.mcpUnsupported.hint' })}
-              >
+              <Badge variant="outline" title={intl.formatMessage({ id: 'agents.mcpUnsupported.hint' })}>
                 {intl.formatMessage({ id: 'agents.mcpUnsupported' })}
-              </span>
+              </Badge>
             )}
           </div>
           <div className="mt-0.5 text-xs text-ink-muted">{statusText()}</div>
@@ -121,17 +157,17 @@ function AgentRow({
         </div>
 
         {!available && (
-          <Button variant="primary" disabled={!agent.installable || busy} onClick={onInstall}>
+          <Button disabled={!agent.installable || busy} onClick={onInstall}>
             {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.install' })}
           </Button>
         )}
         {updatable && (
-          <Button variant="primary" disabled={busy} onClick={onInstall}>
+          <Button disabled={busy} onClick={onInstall}>
             {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.update' })}
           </Button>
         )}
         {agent.source === 'installed' && (
-          <Button variant="danger" onClick={onUninstall}>
+          <Button variant="destructive" onClick={onUninstall}>
             {intl.formatMessage({ id: 'agents.uninstall' })}
           </Button>
         )}

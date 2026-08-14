@@ -1,8 +1,12 @@
-import { useState, type ReactNode } from 'react'
+import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import { nextRunAt, parseCron } from '../../../../shared/schedule'
-import { Button, Field, Select, TextInput } from '../../components/form'
-import { Modal } from '../../components/modal'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Field, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { describeSchedule, fromCron, toCron, type PresetKind, type SchedulePreset } from './model'
 
 // 调度编辑：行内只显示人类可读描述，「编辑」打开弹窗。
@@ -20,7 +24,7 @@ export function ScheduleEditor({ value, onChange }: { value: string; onChange: (
   return (
     <div className="flex items-center gap-3 rounded-md border border-line bg-surface py-1 pr-1 pl-2.5">
       <span className="flex-1 truncate text-sm">{describeSchedule(intl, value)}</span>
-      <Button className="shrink-0" onClick={() => setOpen(true)}>
+      <Button variant="outline" className="shrink-0" onClick={() => setOpen(true)}>
         {intl.formatMessage({ id: 'common.edit' })}
       </Button>
       {open && (
@@ -70,92 +74,108 @@ function ScheduleModal({
   const nextTs = spec === null ? null : nextRunAt(spec, Date.now())
 
   return (
-    <Modal
-      title={intl.formatMessage({ id: 'tasks.schedule.modal.title' })}
-      panelClassName="max-h-[70vh] w-[26rem] overflow-y-auto p-5"
-      onClose={onCancel}
+    <Dialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onCancel()
+      }}
     >
-      <div className="mt-4 grid grid-cols-2 gap-4">
-        <Field label={intl.formatMessage({ id: 'tasks.schedule.field.kind' })}>
-          <Select value={preset?.kind ?? 'custom'} onChange={(event) => switchKind(event.target.value)}>
-            {preset === null && (
-              <option value="custom">{intl.formatMessage({ id: 'tasks.schedule.kind.custom' })}</option>
-            )}
-            {KINDS.map((kind) => (
-              <option key={kind} value={kind}>
-                {intl.formatMessage({ id: `tasks.schedule.kind.${kind}` })}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        {preset !== null && <ParamField preset={preset} onChange={apply} />}
-      </div>
+      <DialogContent className="max-h-[70vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{intl.formatMessage({ id: 'tasks.schedule.modal.title' })}</DialogTitle>
+        </DialogHeader>
+        <div className="mt-4 grid grid-cols-2 gap-4">
+          <Field>
+            <FieldLabel htmlFor="schedule-kind">{intl.formatMessage({ id: 'tasks.schedule.field.kind' })}</FieldLabel>
+            <NativeSelect
+              id="schedule-kind"
+              value={preset?.kind ?? 'custom'}
+              onChange={(event) => switchKind(event.target.value)}
+            >
+              {preset === null && (
+                <NativeSelectOption value="custom">
+                  {intl.formatMessage({ id: 'tasks.schedule.kind.custom' })}
+                </NativeSelectOption>
+              )}
+              {KINDS.map((kind) => (
+                <NativeSelectOption key={kind} value={kind}>
+                  {intl.formatMessage({ id: `tasks.schedule.kind.${kind}` })}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </Field>
+          {preset !== null && <ParamField preset={preset} onChange={apply} />}
+        </div>
 
-      {preset?.kind === 'weekly' && (
-        <Group label={intl.formatMessage({ id: 'tasks.schedule.field.weekdays' })}>
-          <div className="flex gap-1.5">
-            {WEEKDAY_ORDER.map((day) => (
-              <ToggleChip
-                key={day}
-                className="flex-1 py-1.5"
-                label={intl.formatMessage({ id: `tasks.weekday.${day}` })}
-                active={preset.weekdays.includes(day)}
-                onToggle={() => {
-                  const next = preset.weekdays.includes(day)
-                    ? preset.weekdays.filter((item) => item !== day)
-                    : [...preset.weekdays, day]
-                  // 至少保留一天
-                  if (next.length > 0) apply({ ...preset, weekdays: next })
-                }}
-              />
-            ))}
-          </div>
-        </Group>
-      )}
+        {preset?.kind === 'weekly' && (
+          <FieldSet className="mt-4">
+            <FieldLegend variant="label">{intl.formatMessage({ id: 'tasks.schedule.field.weekdays' })}</FieldLegend>
+            <ToggleGroup
+              multiple
+              variant="outline"
+              size="sm"
+              className="w-full"
+              value={preset.weekdays.map(String)}
+              onValueChange={(value) => {
+                if (value.length > 0) apply({ ...preset, weekdays: value.map(Number) })
+              }}
+            >
+              {WEEKDAY_ORDER.map((day) => (
+                <ToggleGroupItem key={day} value={String(day)} className="flex-1">
+                  {intl.formatMessage({ id: `tasks.weekday.${day}` })}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </FieldSet>
+        )}
 
-      {preset?.kind === 'monthly' && (
-        <Group label={intl.formatMessage({ id: 'tasks.schedule.field.days' })}>
-          <div className="grid grid-cols-7 gap-1">
-            {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
-              <ToggleChip
-                key={day}
-                className="py-1"
-                label={String(day)}
-                active={preset.days.includes(day)}
-                onToggle={() => {
-                  const next = preset.days.includes(day)
-                    ? preset.days.filter((item) => item !== day)
-                    : [...preset.days, day]
-                  if (next.length > 0) apply({ ...preset, days: next })
-                }}
-              />
-            ))}
-          </div>
-        </Group>
-      )}
+        {preset?.kind === 'monthly' && (
+          <FieldSet className="mt-4">
+            <FieldLegend variant="label">{intl.formatMessage({ id: 'tasks.schedule.field.days' })}</FieldLegend>
+            <ToggleGroup
+              multiple
+              variant="outline"
+              size="sm"
+              className="grid w-full grid-cols-7"
+              value={preset.days.map(String)}
+              onValueChange={(value) => {
+                if (value.length > 0) apply({ ...preset, days: value.map(Number) })
+              }}
+            >
+              {Array.from({ length: 31 }, (_, index) => index + 1).map((day) => (
+                <ToggleGroupItem key={day} value={String(day)} className="w-full">
+                  {day}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          </FieldSet>
+        )}
 
-      {preset === null && (
-        <p className="mt-3 text-xs leading-5 text-ink-muted">
-          {intl.formatMessage({ id: 'tasks.schedule.custom.hint' })}
-        </p>
-      )}
-
-      <div className="mt-4 rounded-lg border border-line bg-surface px-3.5 py-2.5">
-        <p className="text-sm font-medium">{describeSchedule(intl, cron)}</p>
-        {nextTs !== null && (
-          <p className="mt-0.5 text-xs text-ink-muted">
-            {intl.formatMessage({ id: 'tasks.schedule.next' }, { time: new Date(nextTs).toLocaleString() })}
+        {preset === null && (
+          <p className="mt-3 text-xs leading-5 text-ink-muted">
+            {intl.formatMessage({ id: 'tasks.schedule.custom.hint' })}
           </p>
         )}
-      </div>
 
-      <div className="mt-5 flex gap-2">
-        <Button variant="primary" onClick={() => onConfirm(cron)}>
-          {intl.formatMessage({ id: 'tasks.schedule.confirm' })}
-        </Button>
-        <Button onClick={onCancel}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-      </div>
-    </Modal>
+        <div className="mt-4 rounded-lg border border-line bg-surface px-3.5 py-2.5">
+          <p className="text-sm font-medium">{describeSchedule(intl, cron)}</p>
+          {nextTs !== null && (
+            <p className="mt-0.5 text-xs text-ink-muted">
+              {intl.formatMessage({ id: 'tasks.schedule.next' }, { time: new Date(nextTs).toLocaleString() })}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-5 flex gap-2">
+          <Button variant="default" onClick={() => onConfirm(cron)}>
+            {intl.formatMessage({ id: 'tasks.schedule.confirm' })}
+          </Button>
+          <Button variant="outline" onClick={onCancel}>
+            {intl.formatMessage({ id: 'common.cancel' })}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -166,8 +186,12 @@ function ParamField({ preset, onChange }: { preset: SchedulePreset; onChange: (n
   switch (preset.kind) {
     case 'every_minutes':
       return (
-        <Field label={intl.formatMessage({ id: 'tasks.schedule.field.minutes' })}>
+        <Field>
+          <FieldLabel htmlFor="schedule-minutes">
+            {intl.formatMessage({ id: 'tasks.schedule.field.minutes' })}
+          </FieldLabel>
           <NumberInput
+            id="schedule-minutes"
             value={preset.minutes}
             min={1}
             max={59}
@@ -177,16 +201,25 @@ function ParamField({ preset, onChange }: { preset: SchedulePreset; onChange: (n
       )
     case 'hourly':
       return (
-        <Field label={intl.formatMessage({ id: 'tasks.schedule.field.minute' })}>
-          <NumberInput value={preset.minute} min={0} max={59} onChange={(minute) => onChange({ ...preset, minute })} />
+        <Field>
+          <FieldLabel htmlFor="schedule-minute">{intl.formatMessage({ id: 'tasks.schedule.field.minute' })}</FieldLabel>
+          <NumberInput
+            id="schedule-minute"
+            value={preset.minute}
+            min={0}
+            max={59}
+            onChange={(minute) => onChange({ ...preset, minute })}
+          />
         </Field>
       )
     case 'daily':
     case 'weekly':
     case 'monthly':
       return (
-        <Field label={intl.formatMessage({ id: 'tasks.schedule.field.time' })}>
-          <TextInput
+        <Field>
+          <FieldLabel htmlFor="schedule-time">{intl.formatMessage({ id: 'tasks.schedule.field.time' })}</FieldLabel>
+          <Input
+            id="schedule-time"
             type="time"
             value={preset.time}
             onChange={(event) => {
@@ -198,29 +231,22 @@ function ParamField({ preset, onChange }: { preset: SchedulePreset; onChange: (n
   }
 }
 
-/** Field 的无 label 元素版：星期/日期这类按钮组不能包进 <label>（点击会误触第一个按钮） */
-function Group({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="mt-4">
-      <span className="mb-1 block text-xs font-medium text-ink-muted">{label}</span>
-      {children}
-    </div>
-  )
-}
-
 function NumberInput({
+  id,
   value,
   min,
   max,
   onChange,
 }: {
+  id: string
   value: number
   min: number
   max: number
   onChange: (value: number) => void
 }) {
   return (
-    <TextInput
+    <Input
+      id={id}
       type="number"
       value={value}
       min={min}
@@ -230,29 +256,5 @@ function NumberInput({
         if (Number.isInteger(next) && next >= min && next <= max) onChange(next)
       }}
     />
-  )
-}
-
-function ToggleChip({
-  label,
-  active,
-  onToggle,
-  className = '',
-}: {
-  label: string
-  active: boolean
-  onToggle: () => void
-  className?: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      className={`rounded-md px-2 text-xs font-medium transition-colors ${
-        active ? 'bg-accent text-white' : 'border border-line text-ink-muted hover:text-ink'
-      } ${className}`}
-    >
-      {label}
-    </button>
   )
 }

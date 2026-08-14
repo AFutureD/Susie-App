@@ -5,7 +5,17 @@ import { expandBindings } from '../../../../shared/bindings'
 import type { ChannelSettings, ConfigState } from '../../../../shared/config'
 import type { BotIdentity, ChannelStatus } from '../../../../shared/messages'
 import { ChannelDefaultBindingModal } from '../../components/channel-default-binding'
-import { Button } from '../../components/form'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
 import { OwnerBindModal } from '../../components/owner-bind'
 import { Page } from '../../components/page'
 import { configStateAtom } from '../../lib/config-atoms'
@@ -36,56 +46,30 @@ const STATE_DOT: Record<string, string> = {
 function StatusDot({ status }: { status: ChannelStatus | undefined }) {
   return (
     <span
-      className={`size-2.5 shrink-0 rounded-full ${STATE_DOT[status?.state ?? 'stopped']}`}
+      className={`size-2.5 shrink-0 self-center rounded-full ${STATE_DOT[status?.state ?? 'stopped']}`}
       title={status?.state ?? 'stopped'}
     />
   )
 }
 
-function StatusDetail({ status }: { status: ChannelStatus | undefined }) {
-  if (status?.detail === null || status?.detail === undefined) return null
-  return (
-    <span className={`truncate text-xs ${status.state === 'error' ? 'text-red-500' : 'text-ink-muted'}`}>
-      {status.detail}
-    </span>
-  )
-}
-
-/**
- * 渠道标题块：显示名 + 类型徽标 + 状态详情，副行 @username。
- * 显示名与 username 相同（bot 未单独设置显示名）时只渲染一次——@username 直接顶替标题。
- */
+/** 渠道身份块：首行只显示标题，副行只显示 @username。 */
 function ChannelIdentity({
   id,
   identity,
-  badge,
   status,
 }: {
   id: string
   identity: BotIdentity | undefined
-  badge: string | null
   status: ChannelStatus | undefined
 }) {
   const title = identity?.name ?? id
   const username = identity?.username ?? null
-  const duplicate = username !== null && (title === username || title === `@${username}`)
   return (
-    <div className="min-w-0 flex-1">
-      <div className="flex items-center gap-2">
-        {duplicate ? (
-          <BotUsername username={username} variant="title" />
-        ) : (
-          <span className="truncate text-sm font-semibold">{title}</span>
-        )}
-        {badge !== null && (
-          <span className="shrink-0 rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-            {badge}
-          </span>
-        )}
-        <StatusDetail status={status} />
-      </div>
-      {!duplicate && username !== null && (
-        <div className="mt-1 flex">
+    <div className="grid min-w-0 flex-1 grid-cols-[auto_minmax(0,1fr)] gap-x-2">
+      <StatusDot status={status} />
+      <span className="min-w-0 truncate text-sm font-semibold">{title}</span>
+      {username !== null && (
+        <div className="col-start-2 mt-0.5 flex min-w-0">
           <BotUsername username={username} />
         </div>
       )}
@@ -119,9 +103,10 @@ function ChannelRow({
   const intl = useIntl()
   const mutation = useConfigMutation()
   const typeUi = CHANNEL_UI[settings.type]
+  const [deleteOpen, setDeleteOpen] = useState(false)
 
   const deleteChannel = async () => {
-    if (!window.confirm(intl.formatMessage({ id: 'channels.deleteConfirm' }, { id }))) return
+    setDeleteOpen(false)
     await mutation.run((expectedVersion) => ipc.config.deleteChannel({ id, expectedVersion }))
   }
 
@@ -132,22 +117,16 @@ function ChannelRow({
   }
 
   return (
-    <div className={variant === 'card' ? 'rounded-xl border border-line bg-raised p-4' : 'py-3'}>
-      <div className="flex items-center gap-3">
-        <StatusDot status={status} />
-        <ChannelIdentity
-          id={id}
-          identity={identity}
-          badge={variant === 'card' ? settings.type : null}
-          status={status}
-        />
-        <Button onClick={() => void toggleEnabled()}>
+    <div className={variant === 'card' ? 'rounded-xl border border-line bg-raised p-3' : 'py-2.5'}>
+      <div className="flex items-center gap-2">
+        <ChannelIdentity id={id} identity={identity} status={status} />
+        <Button variant="outline" onClick={() => void toggleEnabled()}>
           {intl.formatMessage({ id: settings.enabled ? 'channels.disable' : 'channels.enable' })}
         </Button>
-        <Button onClick={() => setEditing(editing === id ? null : id)}>
+        <Button variant="outline" onClick={() => setEditing(editing === id ? null : id)}>
           {intl.formatMessage({ id: 'common.edit' })}
         </Button>
-        <Button variant="danger" onClick={() => void deleteChannel()}>
+        <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
           {intl.formatMessage({ id: 'common.delete' })}
         </Button>
       </div>
@@ -161,6 +140,22 @@ function ChannelRow({
           onDone={() => setEditing(null)}
         />
       )}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{intl.formatMessage({ id: 'common.delete' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {intl.formatMessage({ id: 'channels.deleteConfirm' }, { id })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void deleteChannel()}>
+              {intl.formatMessage({ id: 'common.delete' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -177,6 +172,7 @@ export function ChannelsPage() {
   /** 统一新增入口（token → getMe 自动识别普通渠道 / manager） */
   const [adding, setAdding] = useState(false)
   const [addManagedFor, setAddManagedFor] = useState<string | null>(null)
+  const [deleteManagerId, setDeleteManagerId] = useState<string | null>(null)
   // 新增后的弹窗流：直连渠道/manager 先 owner 绑定，普通渠道随后必绑默认助手；
   // 托管 Bot owner 自动继承 manager，直接进助手绑定
   const [postAdd, setPostAdd] = useState<{ channelId: string; stage: 'owner' | 'assistant' } | null>(null)
@@ -191,7 +187,7 @@ export function ChannelsPage() {
   const managerStatusById = new Map(managerStatuses.map((status) => [status.id, status]))
 
   const deleteManager = async (id: string) => {
-    if (!window.confirm(intl.formatMessage({ id: 'managerBots.deleteConfirm' }, { id }))) return
+    setDeleteManagerId(null)
     await mutation.run((expectedVersion) => ipc.config.deleteManagerBot({ id, expectedVersion }))
   }
 
@@ -209,13 +205,9 @@ export function ChannelsPage() {
   return (
     <Page
       titleId="page.channels.title"
-      actions={
-        <Button variant="primary" onClick={() => setAdding(!adding)}>
-          {intl.formatMessage({ id: 'channels.add' })}
-        </Button>
-      }
+      actions={<Button onClick={() => setAdding(!adding)}>{intl.formatMessage({ id: 'channels.add' })}</Button>}
     >
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {adding && (
           <div className="rounded-xl border border-line bg-raised p-4">
             <AddBotForm
@@ -250,17 +242,16 @@ export function ChannelsPage() {
           const identity = identityMap.get(id)
           const members = model.grouped.get(id) ?? []
           return (
-            <div key={id} className="rounded-xl border border-line bg-raised p-4">
-              <div className="flex items-center gap-3">
-                <StatusDot status={status} />
-                <ChannelIdentity id={id} identity={identity} badge="manager" status={status} />
-                <Button variant="primary" onClick={() => setAddManagedFor(id)}>
+            <div key={id} className="rounded-xl border border-line bg-raised p-3">
+              <div className="flex items-center gap-2">
+                <ChannelIdentity id={id} identity={identity} status={status} />
+                <Button onClick={() => setAddManagedFor(id)}>
                   {intl.formatMessage({ id: 'managerBots.addManaged' })}
                 </Button>
-                <Button onClick={() => setEditingManager(editingManager === id ? null : id)}>
+                <Button variant="outline" onClick={() => setEditingManager(editingManager === id ? null : id)}>
                   {intl.formatMessage({ id: 'common.edit' })}
                 </Button>
-                <Button variant="danger" onClick={() => void deleteManager(id)}>
+                <Button variant="destructive" onClick={() => setDeleteManagerId(id)}>
                   {intl.formatMessage({ id: 'common.delete' })}
                 </Button>
               </div>
@@ -319,6 +310,32 @@ export function ChannelsPage() {
           }}
         />
       )}
+      <AlertDialog
+        open={deleteManagerId !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteManagerId(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{intl.formatMessage({ id: 'common.delete' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {intl.formatMessage({ id: 'managerBots.deleteConfirm' }, { id: deleteManagerId ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (deleteManagerId !== null) void deleteManager(deleteManagerId)
+              }}
+            >
+              {intl.formatMessage({ id: 'common.delete' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   )
 }

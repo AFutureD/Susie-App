@@ -1,7 +1,10 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
 import type { ConfigState } from '../../../../shared/config'
-import { Button, ErrorText, Field, TextInput } from '../../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import { ipc } from '../../lib/ipc'
 
 // 统一新增入口：粘贴 token → getMe 自动识别类型——can_manage_bots 的 bot 作为
@@ -65,24 +68,35 @@ export function AddBotForm({
   return (
     <div className="flex flex-col gap-3">
       <div className="grid grid-cols-2 gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'channels.field.id' })}
-          hint={intl.formatMessage({ id: 'channels.field.id.hint' })}
-        >
-          <TextInput value={id} onChange={(event) => setId(event.target.value)} placeholder="my_bot" />
+        <Field>
+          <FieldLabel htmlFor="add-channel-id">{intl.formatMessage({ id: 'channels.field.id' })}</FieldLabel>
+          <Input id="add-channel-id" value={id} onChange={(event) => setId(event.target.value)} placeholder="my_bot" />
+          <FieldDescription>{intl.formatMessage({ id: 'channels.field.id.hint' })}</FieldDescription>
         </Field>
-        <Field label={intl.formatMessage({ id: 'channels.field.token' })}>
-          <TextInput value={token} onChange={(event) => setToken(event.target.value)} placeholder="123456:bot-token" />
+        <Field>
+          <FieldLabel htmlFor="add-channel-token">{intl.formatMessage({ id: 'channels.field.token' })}</FieldLabel>
+          <Input
+            id="add-channel-token"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="123456:bot-token"
+          />
         </Field>
       </div>
 
       <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'channels.addForm.hint' })}</p>
-      <ErrorText message={error} />
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || token.trim() === ''} onClick={() => void submit()}>
+        <Button disabled={busy || token.trim() === ''} onClick={() => void submit()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
-        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+        <Button variant="outline" onClick={onDone}>
+          {intl.formatMessage({ id: 'common.cancel' })}
+        </Button>
       </div>
     </div>
   )

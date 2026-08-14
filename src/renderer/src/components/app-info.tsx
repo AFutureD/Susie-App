@@ -4,8 +4,10 @@ import { useAtomValue } from 'jotai'
 import type { AppInfo } from '../../../shared/ipc/contract'
 import { ipc } from '../lib/ipc'
 import { updateStateAtom } from '../lib/update-atoms'
-import { Button } from './form'
-import { toast } from '../lib/toast'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { toast } from '@/components/ui/toast'
 
 function formatMegabytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -21,12 +23,12 @@ function UpdateSection() {
     setBusy(true)
     const result = await ipc.update.check()
     setBusy(false)
-    if (!result.ok) toast(result.message, 'error')
+    if (!result.ok) toast.add({ title: result.message, type: 'error' })
   }
 
   const install = async () => {
     const result = await ipc.update.install()
-    if (!result.ok) toast(result.message, 'error')
+    if (!result.ok) toast.add({ title: result.message, type: 'error' })
   }
 
   const statusText = (() => {
@@ -63,11 +65,12 @@ function UpdateSection() {
           {statusText}
         </p>
         {update.status === 'ready' ? (
-          <Button variant="primary" onClick={() => void install()}>
+          <Button onClick={() => void install()}>
             <FormattedMessage id="update.install" />
           </Button>
         ) : (
           <Button
+            variant="outline"
             disabled={busy || update.status === 'checking' || update.status === 'downloading'}
             onClick={() => void check()}
           >
@@ -96,7 +99,11 @@ export function AppInfoCard() {
   }, [])
 
   if (error) {
-    return <div className="rounded-xl border border-line bg-raised p-4 text-sm text-red-500">{error}</div>
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    )
   }
   if (!info) return null
 
@@ -110,29 +117,33 @@ export function AppInfoCard() {
   ]
 
   return (
-    <div className="mt-6 rounded-xl border border-line bg-raised p-5">
-      <h2 className="mb-3 text-sm font-medium text-ink-muted">
-        <FormattedMessage id="appinfo.title" />
-      </h2>
-      <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
-        {rows.map(([id, value]) => (
-          <div key={id} className="contents">
+    <Card className="mt-6">
+      <CardHeader>
+        <CardTitle>
+          <FormattedMessage id="appinfo.title" />
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 text-sm">
+          {rows.map(([id, value]) => (
+            <div key={id} className="contents">
+              <dt className="text-ink-muted">
+                <FormattedMessage id={id} />
+              </dt>
+              <dd className="font-mono text-xs leading-5">{value}</dd>
+            </div>
+          ))}
+          <div className="contents">
             <dt className="text-ink-muted">
-              <FormattedMessage id={id} />
+              <FormattedMessage id="appinfo.headless" />
             </dt>
-            <dd className="font-mono text-xs leading-5">{value}</dd>
+            <dd className="font-mono text-xs leading-5">
+              <FormattedMessage id={info.headless ? 'common.yes' : 'common.no'} />
+            </dd>
           </div>
-        ))}
-        <div className="contents">
-          <dt className="text-ink-muted">
-            <FormattedMessage id="appinfo.headless" />
-          </dt>
-          <dd className="font-mono text-xs leading-5">
-            <FormattedMessage id={info.headless ? 'common.yes' : 'common.no'} />
-          </dd>
-        </div>
-      </dl>
-      <UpdateSection />
-    </div>
+        </dl>
+        <UpdateSection />
+      </CardContent>
+    </Card>
   )
 }

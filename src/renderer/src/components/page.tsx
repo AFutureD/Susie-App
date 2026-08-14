@@ -14,11 +14,3 @@ export function Page({ titleId, actions, children }: { titleId: string; actions?
     </div>
   )
 }
-
-export function PlaceholderCard({ messageId }: { messageId: string }) {
-  return (
-    <div className="rounded-xl border border-dashed border-line bg-raised/50 p-6 text-sm text-ink-muted">
-      <FormattedMessage id={messageId} />
-    </div>
-  )
-}

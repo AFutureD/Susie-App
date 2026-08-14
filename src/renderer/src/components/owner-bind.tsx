@@ -7,7 +7,10 @@ import { transferOwner } from '../../../shared/users'
 import { channelStatusesAtom, managerStatusesAtom } from '../lib/service-atoms'
 import { ipc } from '../lib/ipc'
 import { tgResolveLink } from '../lib/telegram'
-import { Button, ErrorText } from './form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
 import { useSenders } from './member-picker'
 
 // Owner 绑定件：监听频道的私聊发送者（实时），选中即设为 owner。
@@ -54,7 +57,6 @@ export function OwnerBindPanel({
         <p className="text-sm leading-6 text-ink-muted">{intl.formatMessage({ id: 'ownerBind.hint' })}</p>
         <div className="mt-3 flex items-center gap-3">
           <Button
-            variant="primary"
             disabled={botUsername === null}
             onClick={() => void ipc.app.openExternal({ url: tgResolveLink(botUsername ?? '') })}
           >
@@ -78,16 +80,15 @@ export function OwnerBindPanel({
 
       <div className="rounded-lg border border-line">
         {senders.length === 0 ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-ink-muted">
-            <span className="size-2 animate-pulse rounded-full bg-amber-500" />
-            {intl.formatMessage({ id: 'ownerBind.waiting' })}
-          </div>
+          <Empty>
+            <EmptyDescription>{intl.formatMessage({ id: 'ownerBind.waiting' })}</EmptyDescription>
+          </Empty>
         ) : (
           <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto p-2">
             {senders.map((sender) => (
               <div key={sender.id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
                 <span className="min-w-0 flex-1 truncate text-sm">{sender.name ?? sender.id}</span>
-                <Button disabled={busy} onClick={() => void bindOwner(sender)}>
+                <Button variant="outline" disabled={busy} onClick={() => void bindOwner(sender)}>
                   {intl.formatMessage({ id: 'ownerBind.bind' })}
                 </Button>
               </div>
@@ -96,7 +97,11 @@ export function OwnerBindPanel({
         )}
       </div>
 
-      <ErrorText message={error} />
+      {error !== null && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
     </div>
   )
 }
@@ -132,15 +137,12 @@ export function OwnerBindModal({
   }, [botUsername, token])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={onClose}>
-      <div
-        className="flex max-h-[80vh] w-[28rem] flex-col gap-3 overflow-y-auto rounded-xl border border-line bg-raised p-4 shadow-xl"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div>
-          <h3 className="text-sm font-semibold">{intl.formatMessage({ id: 'ownerBind.title' })}</h3>
-          <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'ownerBind.subtitle' })}</p>
-        </div>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[80vh] overflow-y-auto sm:max-w-[28rem]">
+        <DialogHeader>
+          <DialogTitle>{intl.formatMessage({ id: 'ownerBind.title' })}</DialogTitle>
+          <DialogDescription>{intl.formatMessage({ id: 'ownerBind.subtitle' })}</DialogDescription>
+        </DialogHeader>
         <OwnerBindPanel
           state={state}
           channelId={channelId}
@@ -148,14 +150,10 @@ export function OwnerBindModal({
           linkError={linkError}
           onBound={onClose}
         />
-        <button
-          type="button"
-          onClick={onClose}
-          className="self-start text-xs text-ink-muted underline-offset-2 hover:underline"
-        >
+        <Button variant="link" className="justify-self-start" onClick={onClose}>
           {intl.formatMessage({ id: 'ownerBind.later' })}
-        </button>
-      </div>
-    </div>
+        </Button>
+      </DialogContent>
+    </Dialog>
   )
 }

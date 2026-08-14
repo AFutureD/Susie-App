@@ -3,7 +3,10 @@ import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { Link } from 'react-router'
 import type { TaskRunRecord, TaskRunStatus } from '../../../../shared/messages'
-import { Select } from '../../components/form'
+import { Badge } from '@/components/ui/badge'
+import { Card, CardContent } from '@/components/ui/card'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Page } from '../../components/page'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc, onIpcEvent } from '../../lib/ipc'
@@ -11,19 +14,15 @@ import { ipc, onIpcEvent } from '../../lib/ipc'
 // 执行历史子页（/tasks/history）：全部任务的执行记录，实时刷新、可展开、可按任务筛选。
 
 /** 执行记录状态 → 徽章样式（对齐 intelligence 页配色）；任务卡片的「上次」徽章共用 */
-const RUN_BADGE: Record<TaskRunStatus, string> = {
-  running: 'bg-accent/10 text-accent',
-  ok: 'bg-emerald-500/10 text-emerald-600',
-  error: 'bg-red-500/10 text-red-500',
+const RUN_BADGE: Record<TaskRunStatus, 'default' | 'secondary' | 'destructive'> = {
+  running: 'default',
+  ok: 'secondary',
+  error: 'destructive',
 }
 
 export function RunStatusBadge({ status }: { status: TaskRunStatus }) {
   const intl = useIntl()
-  return (
-    <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${RUN_BADGE[status]}`}>
-      {intl.formatMessage({ id: `tasks.history.status.${status}` })}
-    </span>
-  )
+  return <Badge variant={RUN_BADGE[status]}>{intl.formatMessage({ id: `tasks.history.status.${status}` })}</Badge>
 }
 
 export function TaskHistoryPage() {
@@ -70,32 +69,36 @@ export function TaskHistoryPage() {
         <div className="flex-1" />
         {/* Select 自带 w-full，用容器限宽 */}
         <div className="w-44 shrink-0">
-          <Select value={filter} onChange={(event) => setFilter(event.target.value)}>
-            <option value="">{intl.formatMessage({ id: 'tasks.history.filter.all' })}</option>
+          <NativeSelect value={filter} onChange={(event) => setFilter(event.target.value)}>
+            <NativeSelectOption value="">{intl.formatMessage({ id: 'tasks.history.filter.all' })}</NativeSelectOption>
             {[...options].map(([id, name]) => (
-              <option key={id} value={id}>
+              <NativeSelectOption key={id} value={id}>
                 {name}
-              </option>
+              </NativeSelectOption>
             ))}
-          </Select>
+          </NativeSelect>
         </div>
       </div>
 
-      <section className="rounded-xl border border-line bg-raised p-5">
-        <p className="text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'tasks.history.hint' })}</p>
+      <Card>
+        <CardContent>
+          <p className="text-xs leading-5 text-ink-muted">{intl.formatMessage({ id: 'tasks.history.hint' })}</p>
 
-        {records !== null && filtered.length === 0 && (
-          <p className="mt-3 text-sm text-ink-muted">{intl.formatMessage({ id: 'tasks.history.empty' })}</p>
-        )}
+          {records !== null && filtered.length === 0 && (
+            <Empty>
+              <EmptyDescription>{intl.formatMessage({ id: 'tasks.history.empty' })}</EmptyDescription>
+            </Empty>
+          )}
 
-        {filtered.length > 0 && (
-          <div className="mt-3 divide-y divide-line/60">
-            {filtered.map((record) => (
-              <RunRow key={record.id} record={record} />
-            ))}
-          </div>
-        )}
-      </section>
+          {filtered.length > 0 && (
+            <div className="mt-3 divide-y divide-line/60">
+              {filtered.map((record) => (
+                <RunRow key={record.id} record={record} />
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </Page>
   )
 }

@@ -2,6 +2,8 @@ import { Fragment, useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { DEFAULT_ASSISTANT_ID, type ConfigState } from '../../../../shared/config'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { ipc } from '../../lib/ipc'
 import { configStateAtom } from '../../lib/config-atoms'
 import { canonicalizeBindings, expandBindings } from '../../../../shared/bindings'
@@ -68,7 +70,7 @@ export function OnboardingOverlay() {
       <header className="app-drag h-12 shrink-0" />
       <div className="flex min-h-0 flex-1 justify-center overflow-y-auto px-8 pb-10">
         {/* manager 步右侧带示范视频，容器加宽 */}
-        <div className={`w-full ${effectiveStep === 'manager' ? 'max-w-3xl' : 'max-w-xl'}`}>
+        <div className={cn('w-full', effectiveStep === 'manager' ? 'max-w-3xl' : 'max-w-xl')}>
           <div className="mb-5">
             <h1 className="text-xl font-semibold">{intl.formatMessage({ id: 'onboarding.welcome.title' })}</h1>
             <p className="mt-1 text-sm text-ink-muted">{intl.formatMessage({ id: 'onboarding.welcome.subtitle' })}</p>
@@ -112,13 +114,9 @@ export function OnboardingOverlay() {
 
           {effectiveStep !== 'done' && (
             <div className="mt-8">
-              <button
-                type="button"
-                onClick={closeWizard}
-                className="text-xs text-ink-muted underline-offset-2 hover:underline"
-              >
+              <Button variant="link" className="h-auto p-0 text-xs" onClick={closeWizard}>
                 {intl.formatMessage({ id: 'onboarding.skip' })}
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -160,20 +158,21 @@ function StepIndicator({ current }: { current: number }) {
         const active = index === current
         return (
           <Fragment key={key}>
-            {index > 0 && <span className={`mx-2 h-px min-w-3 flex-1 ${done ? 'bg-accent/50' : 'bg-line'}`} />}
+            {index > 0 && <span className={cn('mx-2 h-px min-w-3 flex-1', done ? 'bg-primary/50' : 'bg-line')} />}
             <span className="flex shrink-0 items-center gap-1.5">
               <span
-                className={`flex size-5 items-center justify-center rounded-full text-[11px] font-medium ${
+                className={cn(
+                  'flex size-5 items-center justify-center rounded-full text-[11px] font-medium',
                   done
-                    ? 'bg-accent text-white'
+                    ? 'bg-primary text-primary-foreground'
                     : active
-                      ? 'border border-accent text-accent'
-                      : 'border border-line text-ink-muted'
-                }`}
+                      ? 'border border-primary text-primary'
+                      : 'border border-line text-ink-muted',
+                )}
               >
                 {done ? '✓' : index + 1}
               </span>
-              <span className={`text-xs ${active ? 'font-medium text-ink' : 'text-ink-muted'}`}>
+              <span className={cn('text-xs', active ? 'font-medium text-ink' : 'text-ink-muted')}>
                 {intl.formatMessage({ id: `onboarding.progress.${key}` })}
               </span>
             </span>

@@ -1,11 +1,23 @@
-import { useEffect } from 'react'
+import { useEffect, type CSSProperties } from 'react'
 import { FormattedMessage, useIntl } from 'react-intl'
 import { useAtomValue, useSetAtom } from 'jotai'
-import { NavLink, Navigate, Route, Routes } from 'react-router'
+import { NavLink, Navigate, Route, Routes, useLocation } from 'react-router'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from '@/components/ui/sidebar'
+import { Toaster } from '@/components/ui/toast'
 import { OnboardingOverlay } from './components/onboarding/onboarding'
 import { NAV_ROUTES } from '../../shared/nav'
 import { configStateAtom } from './lib/config-atoms'
-import { ToastHost } from './lib/toast'
 import { ipc, onIpcEvent } from './lib/ipc'
 import { channelStatusesAtom, managerStatusesAtom } from './lib/service-atoms'
 import { updateStateAtom } from './lib/update-atoms'
@@ -67,39 +79,50 @@ function ConfigErrorBanner() {
   const state = useAtomValue(configStateAtom)
   if (!state?.lastError) return null
   return (
-    <div className="mx-8 mb-4 rounded-lg bg-red-500/10 px-4 py-2.5 text-xs leading-5 text-red-500">
-      <span className="font-medium">{intl.formatMessage({ id: 'config.errorBanner' })}</span> {state.lastError}
-    </div>
+    <Alert variant="destructive" className="mx-8 mb-4 w-auto">
+      <AlertTitle>{intl.formatMessage({ id: 'config.errorBanner' })}</AlertTitle>
+      <AlertDescription>{state.lastError}</AlertDescription>
+    </Alert>
   )
 }
 
 export function App() {
+  const location = useLocation()
+  const intl = useIntl()
+
   return (
-    <div className="flex h-full">
+    <SidebarProvider className="h-full min-h-0" style={{ '--sidebar-width': '13rem' } as CSSProperties}>
       <ConfigBootstrap />
       <OnboardingOverlay />
-      <aside className="app-drag flex w-52 shrink-0 flex-col border-r border-line bg-surface">
-        {/* 顶部留白给 hiddenInset 红绿灯 */}
-        <div className="flex items-center gap-2 px-4 pt-12 pb-4">
+      <Sidebar collapsible="none">
+        <SidebarHeader className="app-drag flex-row items-center gap-2 px-4 pt-12 pb-4">
           <span className="text-xl">🐾</span>
           <span className="text-sm font-semibold">Susie</span>
-        </div>
-        <nav className="app-no-drag flex flex-col gap-0.5 px-2">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `rounded-md px-3 py-1.5 text-sm transition-colors ${
-                  isActive ? 'bg-raised font-medium text-ink shadow-sm' : 'text-ink-muted hover:text-ink'
-                }`
-              }
-            >
-              <FormattedMessage id={item.id} />
-            </NavLink>
-          ))}
-        </nav>
-      </aside>
+        </SidebarHeader>
+        <SidebarContent className="app-no-drag">
+          <SidebarGroup>
+            <SidebarGroupContent>
+              <nav aria-label={intl.formatMessage({ id: 'nav.ariaLabel' })}>
+                <SidebarMenu>
+                  {NAV_ITEMS.map((item) => (
+                    <SidebarMenuItem key={item.to}>
+                      <SidebarMenuButton
+                        render={<NavLink to={item.to} />}
+                        isActive={
+                          location.pathname === item.to ||
+                          (item.to !== `/${NAV_ROUTES[0]}` && location.pathname.startsWith(`${item.to}/`))
+                        }
+                      >
+                        <FormattedMessage id={item.id} />
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  ))}
+                </SidebarMenu>
+              </nav>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        </SidebarContent>
+      </Sidebar>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="app-drag h-12 shrink-0" />
@@ -122,8 +145,8 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
         </main>
-        <ToastHost />
       </div>
-    </div>
+      <Toaster />
+    </SidebarProvider>
   )
 }

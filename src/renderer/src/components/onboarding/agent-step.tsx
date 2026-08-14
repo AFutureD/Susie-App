@@ -3,7 +3,9 @@ import { useIntl } from 'react-intl'
 import type { AgentCliDetection, AgentInfo, AgentProgress } from '../../../../shared/messages'
 import { ipc } from '../../lib/ipc'
 import { AgentProgressLine, useAgentProgress } from '../agent-progress'
-import { Button } from '../form'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent } from '@/components/ui/card'
 
 // 向导第 5 步（最后一步）：准备 Agent。检测本机 codex/claude CLI——检测到即推荐对应 agent
 // （可复用其登录）；安装必须由用户手动点击（复用 agents.install 与进度事件流），
@@ -69,9 +71,7 @@ export function AgentStep({ onNext }: { onNext: () => void }) {
 
       <p className="text-xs leading-5 text-ink-muted/70">{intl.formatMessage({ id: 'onboarding.agent.hint' })}</p>
       <div>
-        <Button variant="primary" onClick={onNext}>
-          {intl.formatMessage({ id: 'onboarding.agent.next' })}
-        </Button>
+        <Button onClick={onNext}>{intl.formatMessage({ id: 'onboarding.agent.next' })}</Button>
       </div>
     </section>
   )
@@ -113,33 +113,33 @@ function SuggestedAgentRow({
   }
 
   return (
-    <div className="rounded-xl border border-line bg-raised p-4">
-      <div className="flex items-center gap-3">
-        <span className={`size-2.5 shrink-0 rounded-full ${available ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{agent?.name ?? fallbackName}</span>
-            {!available && cliPath !== null && (
-              <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                {intl.formatMessage({ id: 'onboarding.agent.recommended' })}
-              </span>
+    <Card>
+      <CardContent>
+        <div className="flex items-center gap-3">
+          <span className={`size-2.5 shrink-0 rounded-full ${available ? 'bg-emerald-500' : 'bg-neutral-400'}`} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold">{agent?.name ?? fallbackName}</span>
+              {!available && cliPath !== null && (
+                <Badge>{intl.formatMessage({ id: 'onboarding.agent.recommended' })}</Badge>
+              )}
+            </div>
+            <div className="mt-0.5 text-xs text-ink-muted">{statusText()}</div>
+            {agent === undefined && (
+              <div className="mt-0.5 text-xs text-amber-600">
+                {intl.formatMessage({ id: 'onboarding.agent.unavailable' })}
+              </div>
             )}
           </div>
-          <div className="mt-0.5 text-xs text-ink-muted">{statusText()}</div>
-          {agent === undefined && (
-            <div className="mt-0.5 text-xs text-amber-600">
-              {intl.formatMessage({ id: 'onboarding.agent.unavailable' })}
-            </div>
+
+          {!available && agent !== undefined && (
+            <Button disabled={!agent.installable || busy} onClick={onInstall}>
+              {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.install' })}
+            </Button>
           )}
         </div>
-
-        {!available && agent !== undefined && (
-          <Button variant="primary" disabled={!agent.installable || busy} onClick={onInstall}>
-            {busy ? intl.formatMessage({ id: 'agents.installing' }) : intl.formatMessage({ id: 'agents.install' })}
-          </Button>
-        )}
-      </div>
-      {progress !== undefined && <AgentProgressLine progress={progress} />}
-    </div>
+        {progress !== undefined && <AgentProgressLine progress={progress} />}
+      </CardContent>
+    </Card>
   )
 }

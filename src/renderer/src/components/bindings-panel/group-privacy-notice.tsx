@@ -3,8 +3,9 @@ import { useIntl } from 'react-intl'
 import type { BotIdentity } from '../../../../shared/messages'
 import privacyDemoVideo from '../../assets/group-privacy-mode.mp4'
 import { ipc } from '../../lib/ipc'
-import { Button } from '../form'
-import { Modal } from '../modal'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { groupPrivacyStatus } from './model'
 
 /**
@@ -45,9 +46,9 @@ export function GroupPrivacyNotice({
   }
 
   return (
-    <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-600">
-      <p className="font-medium">{intl.formatMessage({ id: 'bindings.detail.group.privacyMode.warn.title' })}</p>
-      <p className="mt-1">{intl.formatMessage({ id: 'bindings.detail.group.privacyMode.warn.body' })}</p>
+    <Alert>
+      <AlertTitle>{intl.formatMessage({ id: 'bindings.detail.group.privacyMode.warn.title' })}</AlertTitle>
+      <AlertDescription>{intl.formatMessage({ id: 'bindings.detail.group.privacyMode.warn.body' })}</AlertDescription>
       <div className="mt-2 flex items-center gap-2">
         <Button onClick={() => setVideoOpen(true)}>
           {intl.formatMessage({ id: 'bindings.detail.group.privacyMode.watchVideo' })}
@@ -62,22 +63,23 @@ export function GroupPrivacyNotice({
         </p>
       )}
       {videoOpen && (
-        <Modal
-          title={intl.formatMessage({ id: 'bindings.detail.group.privacyMode.video.title' })}
-          panelClassName="w-80 p-4"
-          onClose={() => setVideoOpen(false)}
-        >
-          <video
-            src={privacyDemoVideo}
-            className="w-full rounded-lg border border-line"
-            autoPlay
-            loop
-            muted
-            playsInline
-            controls
-          />
-        </Modal>
+        <Dialog open onOpenChange={setVideoOpen}>
+          <DialogContent className="sm:max-w-80">
+            <DialogHeader>
+              <DialogTitle>{intl.formatMessage({ id: 'bindings.detail.group.privacyMode.video.title' })}</DialogTitle>
+            </DialogHeader>
+            <video
+              src={privacyDemoVideo}
+              className="w-full rounded-lg border border-line"
+              autoPlay
+              loop
+              muted
+              playsInline
+              controls
+            />
+          </DialogContent>
+        </Dialog>
       )}
-    </div>
+    </Alert>
   )
 }

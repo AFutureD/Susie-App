@@ -18,6 +18,7 @@ export const zhHans: Record<string, string> = {
   'common.close': '关闭',
   'common.yes': '是',
   'common.no': '否',
+  'nav.ariaLabel': '主导航',
 
   // 选人通用件（用户管理页）
   'members.addMember': '添加成员',

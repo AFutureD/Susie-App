@@ -2,11 +2,16 @@ import { useEffect, useState } from 'react'
 import { useIntl } from 'react-intl'
 import { useAtomValue } from 'jotai'
 import { AppInfoCard } from '../components/app-info'
-import { Button, CheckboxField, ErrorText, TextArea } from '../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { Textarea } from '@/components/ui/textarea'
 import { Page } from '../components/page'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
-import { toast } from '../lib/toast'
+import { toast } from '@/components/ui/toast'
 
 function LoginItemToggle() {
   const intl = useIntl()
@@ -21,20 +26,27 @@ function LoginItemToggle() {
     const result = await ipc.app.setLoginItem({ enabled: value })
     if (!result.ok) {
       setEnabled(!value)
-      toast(result.message, 'error')
+      toast.add({ title: result.message, type: 'error' })
     }
   }
 
   if (enabled === null) return null
   return (
-    <div className="mb-6 rounded-xl border border-line bg-raised p-5">
-      <CheckboxField
-        label={intl.formatMessage({ id: 'settings.loginItem' })}
-        checked={enabled}
-        onChange={(value) => void toggle(value)}
-      />
-      <p className="mt-1.5 text-xs text-ink-muted">{intl.formatMessage({ id: 'settings.loginItem.hint' })}</p>
-    </div>
+    <Card className="mb-6">
+      <CardContent>
+        <Field orientation="horizontal">
+          <Checkbox
+            id="settings-login-item"
+            checked={enabled}
+            onCheckedChange={(value) => void toggle(value === true)}
+          />
+          <div>
+            <FieldLabel htmlFor="settings-login-item">{intl.formatMessage({ id: 'settings.loginItem' })}</FieldLabel>
+            <FieldDescription>{intl.formatMessage({ id: 'settings.loginItem.hint' })}</FieldDescription>
+          </div>
+        </Field>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -81,36 +93,45 @@ export function SettingsPage() {
             <dd className="font-mono text-xs leading-5">v{state.version}</dd>
           </dl>
           {state.lastError && (
-            <div className="mt-3 rounded-md bg-red-500/10 px-3 py-2 text-xs leading-5 text-red-500">
-              {state.lastError}
-            </div>
+            <Alert variant="destructive" className="mt-3">
+              <AlertDescription>{state.lastError}</AlertDescription>
+            </Alert>
           )}
         </div>
       )}
 
-      <section className="rounded-xl border border-line bg-raised p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-medium text-ink-muted">{intl.formatMessage({ id: 'settings.raw.title' })}</h2>
+      <Card>
+        <CardHeader className="flex-row items-center justify-between">
+          <CardTitle>{intl.formatMessage({ id: 'settings.raw.title' })}</CardTitle>
           <div className="flex gap-2">
-            <Button onClick={loadRaw}>{intl.formatMessage({ id: 'settings.raw.reload' })}</Button>
-            <Button variant="primary" disabled={busy || raw === null} onClick={() => void save()}>
+            <Button variant="outline" onClick={loadRaw}>
+              {intl.formatMessage({ id: 'settings.raw.reload' })}
+            </Button>
+            <Button disabled={busy || raw === null} onClick={() => void save()}>
               {intl.formatMessage({ id: 'settings.raw.save' })}
             </Button>
           </div>
-        </div>
-        {outdated && (
-          <p className="mb-2 rounded-md bg-accent/10 px-3 py-2 text-xs text-accent">
-            {intl.formatMessage({ id: 'settings.raw.conflictHint' })}
-          </p>
-        )}
-        <TextArea
-          rows={18}
-          spellCheck={false}
-          value={raw?.text ?? ''}
-          onChange={(event) => setRaw(raw === null ? null : { ...raw, text: event.target.value })}
-        />
-        <ErrorText message={error} />
-      </section>
+        </CardHeader>
+        <CardContent>
+          {outdated && (
+            <Alert className="mb-2">
+              <AlertDescription>{intl.formatMessage({ id: 'settings.raw.conflictHint' })}</AlertDescription>
+            </Alert>
+          )}
+          <Textarea
+            id="settings-raw-config"
+            rows={18}
+            spellCheck={false}
+            value={raw?.text ?? ''}
+            onChange={(event) => setRaw(raw === null ? null : { ...raw, text: event.target.value })}
+          />
+          {error && (
+            <Alert variant="destructive" className="mt-2">
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
 
       <AppInfoCard />
     </Page>

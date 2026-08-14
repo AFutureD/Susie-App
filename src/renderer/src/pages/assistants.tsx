@@ -6,13 +6,28 @@ import { THINKING_LEVELS } from '../../../shared/config'
 import { DEFAULT_ASSISTANT_ID } from '../../../shared/config'
 import type { AgentModelOption } from '../../../shared/messages'
 import { AssistantSkillsModal } from '../components/assistant-skills-modal'
-import { Button, ErrorText, Field, FormSection, Select, TextInput } from '../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Field, FieldDescription, FieldLabel, FieldLegend, FieldSet } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Page } from '../components/page'
 import { DEFAULT_ASSISTANT_LABEL, assistantLabel } from '../lib/assistant-label'
 import { configStateAtom } from '../lib/config-atoms'
 import { ipc } from '../lib/ipc'
 import { useConfigMutation } from '../lib/ipc-mutation'
-import { toast } from '../lib/toast'
+import { toast } from '@/components/ui/toast'
 
 /** Codex 直连 agent 的固定 id（对位 main 的 CODEX_AGENT_ID） */
 const CODEX_AGENT_ID = 'codex'
@@ -20,7 +35,7 @@ const CODEX_AGENT_ID = 'codex'
 /** 在 Finder 打开 assistant 的生效工作目录（目录由 main 侧解析并确保存在） */
 async function openWorkDir(id: string): Promise<void> {
   const result = await ipc.assistants.openWorkdir({ id })
-  if (!result.ok) toast(result.message, 'error')
+  if (!result.ok) toast.add({ title: result.message, type: 'error' })
 }
 
 export function AssistantsPage() {
@@ -28,6 +43,7 @@ export function AssistantsPage() {
   const state = useAtomValue(configStateAtom)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
   const [skillsFor, setSkillsFor] = useState<string | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<AssistantConfig | null>(null)
   const mutation = useConfigMutation()
 
   if (!state) {
@@ -35,13 +51,19 @@ export function AssistantsPage() {
   }
 
   const deleteAssistant = async (assistant: AssistantConfig) => {
-    if (!window.confirm(intl.formatMessage({ id: 'assistants.deleteConfirm' }, { id: assistantLabel(assistant) })))
-      return
+    setDeleteTarget(null)
     await mutation.run((expectedVersion) => ipc.config.deleteAssistant({ id: assistant.id, expectedVersion }))
   }
 
   return (
-    <Page titleId="page.assistants.title">
+    <Page
+      titleId="page.assistants.title"
+      actions={
+        <Button disabled={editing === 'new'} onClick={() => setEditing('new')}>
+          {intl.formatMessage({ id: 'assistants.add' })}
+        </Button>
+      }
+    >
       <div className="flex flex-col gap-3">
         {state.config.assistants.map((assistant) => (
           <div key={assistant.id} className="rounded-xl border border-line bg-raised p-4">
@@ -49,12 +71,8 @@ export function AssistantsPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-semibold">{assistantLabel(assistant)}</span>
-                  <span className="rounded bg-ink/5 px-1.5 py-0.5 font-mono text-[11px] text-ink-muted">
-                    {assistant.id}
-                  </span>
-                  <span className="rounded bg-accent/10 px-1.5 py-0.5 text-[11px] font-medium text-accent">
-                    {assistant.agent_id}
-                  </span>
+                  <Badge variant="secondary">{assistant.id}</Badge>
+                  <Badge>{assistant.agent_id}</Badge>
                 </div>
                 <div className="mt-1 flex gap-4 font-mono text-xs text-ink-muted">
                   {assistant.work_dir && <span>cwd {assistant.work_dir}</span>}
@@ -62,20 +80,20 @@ export function AssistantsPage() {
                 </div>
               </div>
               {editing !== assistant.id && (
-                <Button onClick={() => setSkillsFor(assistant.id)}>
+                <Button variant="outline" onClick={() => setSkillsFor(assistant.id)}>
                   {intl.formatMessage({ id: 'assistants.skills' })}
                 </Button>
               )}
               {editing !== assistant.id && (
-                <Button onClick={() => void openWorkDir(assistant.id)}>
+                <Button variant="outline" onClick={() => void openWorkDir(assistant.id)}>
                   {intl.formatMessage({ id: 'assistants.openWorkdir' })}
                 </Button>
               )}
-              <Button onClick={() => setEditing(editing === assistant.id ? null : assistant.id)}>
+              <Button variant="outline" onClick={() => setEditing(editing === assistant.id ? null : assistant.id)}>
                 {intl.formatMessage({ id: 'common.edit' })}
               </Button>
               {assistant.id !== DEFAULT_ASSISTANT_ID && (
-                <Button variant="danger" onClick={() => void deleteAssistant(assistant)}>
+                <Button variant="destructive" onClick={() => setDeleteTarget(assistant)}>
                   {intl.formatMessage({ id: 'common.delete' })}
                 </Button>
               )}
@@ -91,15 +109,9 @@ export function AssistantsPage() {
           </div>
         ))}
 
-        {editing === 'new' ? (
+        {editing === 'new' && (
           <div className="rounded-xl border border-line bg-raised p-4">
             <AssistantForm state={state} onDone={() => setEditing(null)} />
-          </div>
-        ) : (
-          <div>
-            <Button variant="primary" onClick={() => setEditing('new')}>
-              {intl.formatMessage({ id: 'assistants.add' })}
-            </Button>
           </div>
         )}
       </div>
@@ -114,6 +126,35 @@ export function AssistantsPage() {
           onClose={() => setSkillsFor(null)}
         />
       )}
+      <AlertDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{intl.formatMessage({ id: 'common.delete' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {intl.formatMessage(
+                { id: 'assistants.deleteConfirm' },
+                { id: deleteTarget === null ? '' : assistantLabel(deleteTarget) },
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (deleteTarget !== null) void deleteAssistant(deleteTarget)
+              }}
+            >
+              {intl.formatMessage({ id: 'common.delete' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Page>
   )
 }
@@ -205,34 +246,41 @@ function AssistantForm({
 
   return (
     <div className="mt-4 flex flex-col gap-5 border-t border-line pt-4">
-      <FormSection title={intl.formatMessage({ id: 'assistants.section.basic' })}>
+      <FieldSet>
+        <FieldLegend>{intl.formatMessage({ id: 'assistants.section.basic' })}</FieldLegend>
         <div className="grid grid-cols-2 gap-3">
-          <Field label={intl.formatMessage({ id: 'assistants.field.id' })}>
-            <TextInput value={id} onChange={(event) => setId(event.target.value)} disabled={initial !== undefined} />
+          <Field>
+            <FieldLabel htmlFor="assistant-id">{intl.formatMessage({ id: 'assistants.field.id' })}</FieldLabel>
+            <Input
+              id="assistant-id"
+              value={id}
+              onChange={(event) => setId(event.target.value)}
+              disabled={initial !== undefined}
+            />
           </Field>
-          <Field
-            label={intl.formatMessage({ id: 'assistants.field.name' })}
-            hint={intl.formatMessage({
-              id: isDefault ? 'assistants.field.name.fixedHint' : 'assistants.field.name.hint',
-            })}
-          >
-            <TextInput
+          <Field>
+            <FieldLabel htmlFor="assistant-name">{intl.formatMessage({ id: 'assistants.field.name' })}</FieldLabel>
+            <Input
+              id="assistant-name"
               value={isDefault ? DEFAULT_ASSISTANT_LABEL : name}
               disabled={isDefault}
               onChange={(event) => setName(event.target.value)}
               placeholder={id.trim() === '' ? undefined : id.trim()}
             />
+            <FieldDescription>
+              {intl.formatMessage({ id: isDefault ? 'assistants.field.name.fixedHint' : 'assistants.field.name.hint' })}
+            </FieldDescription>
           </Field>
         </div>
-      </FormSection>
+      </FieldSet>
 
-      <FormSection title={intl.formatMessage({ id: 'assistants.section.agent' })}>
+      <FieldSet>
+        <FieldLegend>{intl.formatMessage({ id: 'assistants.section.agent' })}</FieldLegend>
         <div className="grid grid-cols-2 gap-3">
-          <Field
-            label={intl.formatMessage({ id: 'assistants.field.agent' })}
-            hint={intl.formatMessage({ id: 'assistants.field.agent.hint' })}
-          >
-            <Select
+          <Field>
+            <FieldLabel htmlFor="assistant-agent">{intl.formatMessage({ id: 'assistants.field.agent' })}</FieldLabel>
+            <NativeSelect
+              id="assistant-agent"
               value={agentId}
               onChange={(event) => {
                 // 换 agent 后旧模型大概率无效，回落到 agent 默认
@@ -241,85 +289,101 @@ function AssistantForm({
               }}
             >
               {agentOptions.map((option) => (
-                <option key={option} value={option}>
+                <NativeSelectOption key={option} value={option}>
                   {option}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>{intl.formatMessage({ id: 'assistants.field.agent.hint' })}</FieldDescription>
           </Field>
-          <Field
-            label={intl.formatMessage({ id: 'assistants.field.model' })}
-            hint={intl.formatMessage({ id: 'assistants.field.model.hint' })}
-          >
-            <Select value={model} onChange={(event) => setModel(event.target.value)}>
-              <option value="">
+          <Field>
+            <FieldLabel htmlFor="assistant-model">{intl.formatMessage({ id: 'assistants.field.model' })}</FieldLabel>
+            <NativeSelect id="assistant-model" value={model} onChange={(event) => setModel(event.target.value)}>
+              <NativeSelectOption value="">
                 {intl.formatMessage({
                   id: modelOptions === null ? 'assistants.models.loading' : 'assistants.model.default',
                 })}
-              </option>
-              {modelMissing && <option value={model}>{model}</option>}
+              </NativeSelectOption>
+              {modelMissing && <NativeSelectOption value={model}>{model}</NativeSelectOption>}
               {models.map((option) => (
-                <option key={option.value} value={option.value} title={option.description}>
+                <NativeSelectOption key={option.value} value={option.value} title={option.description}>
                   {option.name === option.value ? option.value : `${option.name} · ${option.value}`}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>{intl.formatMessage({ id: 'assistants.field.model.hint' })}</FieldDescription>
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <Field
-            label={intl.formatMessage({ id: 'assistants.field.thinking' })}
-            hint={intl.formatMessage({ id: 'assistants.field.thinking.hint' })}
-          >
-            <Select value={thinkingLevel} onChange={(event) => setThinkingLevel(event.target.value)}>
-              <option value="">{intl.formatMessage({ id: 'assistants.thinking.default' })}</option>
+          <Field>
+            <FieldLabel htmlFor="assistant-thinking">
+              {intl.formatMessage({ id: 'assistants.field.thinking' })}
+            </FieldLabel>
+            <NativeSelect
+              id="assistant-thinking"
+              value={thinkingLevel}
+              onChange={(event) => setThinkingLevel(event.target.value)}
+            >
+              <NativeSelectOption value="">
+                {intl.formatMessage({ id: 'assistants.thinking.default' })}
+              </NativeSelectOption>
               {THINKING_LEVELS.map((level) => (
-                <option key={level} value={level}>
+                <NativeSelectOption key={level} value={level}>
                   {level}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>{intl.formatMessage({ id: 'assistants.field.thinking.hint' })}</FieldDescription>
           </Field>
         </div>
         {/* 路径可能很长，工作目录独占整行 */}
-        <Field
-          label={intl.formatMessage({ id: 'assistants.field.workdir' })}
-          hint={intl.formatMessage({ id: 'assistants.field.workdir.hint' })}
-        >
+        <Field>
+          <FieldLabel htmlFor="assistant-workdir">{intl.formatMessage({ id: 'assistants.field.workdir' })}</FieldLabel>
           <div className="flex gap-1.5">
-            <TextInput
+            <Input
+              id="assistant-workdir"
               value={workDir}
               onChange={(event) => setWorkDir(event.target.value)}
               placeholder="/absolute/path"
             />
-            <Button className="shrink-0" onClick={() => void pickWorkDir()}>
+            <Button variant="outline" className="shrink-0" onClick={() => void pickWorkDir()}>
               {intl.formatMessage({ id: 'assistants.pickDir' })}
             </Button>
           </div>
+          <FieldDescription>{intl.formatMessage({ id: 'assistants.field.workdir.hint' })}</FieldDescription>
         </Field>
-      </FormSection>
+      </FieldSet>
 
-      <FormSection title={intl.formatMessage({ id: 'assistants.section.misc' })}>
+      <FieldSet>
+        <FieldLegend>{intl.formatMessage({ id: 'assistants.section.misc' })}</FieldLegend>
         <div className="grid grid-cols-2 gap-3">
-          <Field
-            label={intl.formatMessage({ id: 'assistants.field.forward' })}
-            hint={intl.formatMessage({ id: 'assistants.field.forward.hint' })}
-          >
-            <TextInput
+          <Field>
+            <FieldLabel htmlFor="assistant-forward">
+              {intl.formatMessage({ id: 'assistants.field.forward' })}
+            </FieldLabel>
+            <Input
+              id="assistant-forward"
               value={forwardTo}
               onChange={(event) => setForwardTo(event.target.value)}
               placeholder="G:-100123456"
             />
+            <FieldDescription>{intl.formatMessage({ id: 'assistants.field.forward.hint' })}</FieldDescription>
           </Field>
         </div>
-      </FormSection>
+      </FieldSet>
 
-      <ErrorText message={error} />
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
       <div className="flex gap-2">
-        <Button variant="primary" disabled={busy || id.trim() === ''} onClick={() => void submit()}>
+        <Button disabled={busy || id.trim() === ''} onClick={() => void submit()}>
           {intl.formatMessage({ id: 'common.save' })}
         </Button>
-        <Button onClick={onDone}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+        <Button variant="outline" onClick={onDone}>
+          {intl.formatMessage({ id: 'common.cancel' })}
+        </Button>
       </div>
     </div>
   )

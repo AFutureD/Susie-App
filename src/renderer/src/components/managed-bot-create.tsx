@@ -5,7 +5,11 @@ import type { ConfigState } from '../../../shared/config'
 import type { ManagedBotDiscovery } from '../../../shared/messages'
 import { ipc, useIpcEvent } from '../lib/ipc'
 import { managerStatusesAtom } from '../lib/service-atoms'
-import { Button, ErrorText, FieldGroup } from './form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from '@/components/ui/input-group'
 
 // 「用 Manager 创建托管 Bot」面板：tg:// deeplink 去 Telegram 一键创建 → manager 常驻轮询收到
 // managed_bot 事件 → 发现实时出现在下方列表 → 点「添加」落地为渠道（发现 ≠ 添加）。
@@ -100,29 +104,36 @@ export function ManagedBotCreatePanel({
   return (
     <div className="flex flex-col gap-4">
       {status !== undefined && status.state !== 'running' && (
-        <div className="rounded-lg bg-amber-500/10 px-3 py-2 text-xs leading-5 text-amber-600">
-          {intl.formatMessage({ id: 'managedBot.managerNotRunning' }, { detail: status.detail ?? status.state })}
-        </div>
+        <Alert>
+          <AlertDescription>
+            {intl.formatMessage({ id: 'managedBot.managerNotRunning' }, { detail: status.detail ?? status.state })}
+          </AlertDescription>
+        </Alert>
       )}
 
-      <FieldGroup
-        label={intl.formatMessage({ id: 'managedBot.field.username' })}
-        hint={intl.formatMessage({ id: 'managedBot.field.username.hint' })}
-      >
-        <div className="flex items-center rounded-md border border-line bg-surface focus-within:border-accent/60">
-          <span className="shrink-0 pl-2.5 font-mono text-sm text-ink-muted select-none">{USERNAME_PREFIX}</span>
-          <input
+      <Field>
+        <FieldLabel htmlFor="managed-bot-username">
+          {intl.formatMessage({ id: 'managedBot.field.username' })}
+        </FieldLabel>
+        <InputGroup>
+          <InputGroupAddon>
+            <InputGroupText>{USERNAME_PREFIX}</InputGroupText>
+          </InputGroupAddon>
+          <InputGroupInput
+            id="managed-bot-username"
             value={core}
             onChange={(event) => setCore(event.target.value)}
             placeholder="shiny"
-            className="w-full min-w-0 bg-transparent py-1.5 font-mono text-sm outline-none"
           />
-          <span className="shrink-0 pr-2.5 font-mono text-sm text-ink-muted select-none">{USERNAME_SUFFIX}</span>
-        </div>
-      </FieldGroup>
+          <InputGroupAddon align="inline-end">
+            <InputGroupText>{USERNAME_SUFFIX}</InputGroupText>
+          </InputGroupAddon>
+        </InputGroup>
+        <FieldDescription>{intl.formatMessage({ id: 'managedBot.field.username.hint' })}</FieldDescription>
+      </Field>
 
       <div className="flex items-center gap-3">
-        <Button variant="primary" disabled={!canCreate} onClick={openTelegram}>
+        <Button disabled={!canCreate} onClick={openTelegram}>
           {intl.formatMessage({ id: 'managedBot.create' })}
         </Button>
         {core.trim() !== '' && coreValid(core.trim()) && (
@@ -132,10 +143,9 @@ export function ManagedBotCreatePanel({
 
       <div className="rounded-lg border border-line">
         {discoveries.length === 0 ? (
-          <div className="flex items-center gap-2 p-4 text-sm text-ink-muted">
-            <span className="size-2 animate-pulse rounded-full bg-amber-500" />
-            {intl.formatMessage({ id: 'managedBot.waiting' })}
-          </div>
+          <Empty>
+            <EmptyDescription>{intl.formatMessage({ id: 'managedBot.waiting' })}</EmptyDescription>
+          </Empty>
         ) : (
           <div className="flex max-h-64 flex-col gap-0.5 overflow-y-auto p-2">
             {discoveries.map((discovery) => (
@@ -151,7 +161,7 @@ export function ManagedBotCreatePanel({
                     )}
                   </div>
                 </div>
-                <Button disabled={busyBotId !== null} onClick={() => void add(discovery)}>
+                <Button variant="outline" disabled={busyBotId !== null} onClick={() => void add(discovery)}>
                   {intl.formatMessage({ id: 'managedBot.add' })}
                 </Button>
               </div>
@@ -160,7 +170,11 @@ export function ManagedBotCreatePanel({
         )}
       </div>
 
-      <ErrorText message={error} />
+      {error !== null && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
     </div>
   )
 }

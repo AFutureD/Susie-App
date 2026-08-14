@@ -5,7 +5,12 @@ import { Link } from 'react-router'
 import type { AutoReviewConfig, ConfigState, ThinkingLevel } from '../../../../shared/config'
 import { RECOMMENDED_AUTO_REVIEW, THINKING_LEVELS } from '../../../../shared/config'
 import type { AgentModelOption } from '../../../../shared/messages'
-import { Button, ErrorText, Field, Select, TextArea } from '../../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Textarea } from '@/components/ui/textarea'
 import { Page } from '../../components/page'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
@@ -97,26 +102,23 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
   const modelMissing = model !== '' && !models.some((option) => option.value === model)
 
   return (
-    <section className="rounded-xl border border-line bg-raised p-5">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'intelligence.autoReview.title' })}</h2>
-        <Link
-          to="/intelligence/history"
-          className="shrink-0 rounded-md border border-line px-2.5 py-1 text-xs font-medium text-ink transition-colors hover:bg-surface"
-        >
-          {intl.formatMessage({ id: 'intelligence.history.open' })}
-        </Link>
-      </div>
-      <p className="mt-1 text-xs leading-5 text-ink-muted">
-        {intl.formatMessage({ id: 'intelligence.autoReview.desc' })}
-      </p>
-
-      <div className="mt-4 flex flex-col gap-3">
-        <Field
-          label={intl.formatMessage({ id: 'intelligence.autoReview.content' })}
-          hint={intl.formatMessage({ id: 'intelligence.autoReview.content.hint' })}
-        >
-          <TextArea
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between gap-3">
+          <CardTitle>{intl.formatMessage({ id: 'intelligence.autoReview.title' })}</CardTitle>
+          <Button variant="outline" size="sm" render={<Link to="/intelligence/history" />}>
+            {intl.formatMessage({ id: 'intelligence.history.open' })}
+          </Button>
+        </div>
+        <CardDescription>{intl.formatMessage({ id: 'intelligence.autoReview.desc' })}</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <Field>
+          <FieldLabel htmlFor="auto-review-content">
+            {intl.formatMessage({ id: 'intelligence.autoReview.content' })}
+          </FieldLabel>
+          <Textarea
+            id="auto-review-content"
             rows={5}
             value={content}
             onChange={(event) => {
@@ -124,14 +126,16 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
               setSaved(false)
             }}
           />
+          <FieldDescription>{intl.formatMessage({ id: 'intelligence.autoReview.content.hint' })}</FieldDescription>
         </Field>
 
         <div className="grid grid-cols-3 gap-3">
-          <Field
-            label={intl.formatMessage({ id: 'intelligence.autoReview.field.agent' })}
-            hint={intl.formatMessage({ id: 'intelligence.autoReview.field.agent.hint' })}
-          >
-            <Select
+          <Field>
+            <FieldLabel htmlFor="auto-review-agent">
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.agent' })}
+            </FieldLabel>
+            <NativeSelect
+              id="auto-review-agent"
               value={agentId}
               onChange={(event) => {
                 setAgentId(event.target.value)
@@ -140,54 +144,67 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
               }}
             >
               {agentOptions.map((option) => (
-                <option key={option} value={option}>
+                <NativeSelectOption key={option} value={option}>
                   {option}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.agent.hint' })}
+            </FieldDescription>
           </Field>
-          <Field
-            label={intl.formatMessage({ id: 'intelligence.autoReview.field.model' })}
-            hint={intl.formatMessage({ id: 'intelligence.autoReview.field.model.hint' })}
-          >
-            <Select
+          <Field>
+            <FieldLabel htmlFor="auto-review-model">
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.model' })}
+            </FieldLabel>
+            <NativeSelect
+              id="auto-review-model"
               value={model}
               onChange={(event) => {
                 setModel(event.target.value)
                 setSaved(false)
               }}
             >
-              <option value="">
+              <NativeSelectOption value="">
                 {intl.formatMessage({
                   id: modelOptions === null ? 'assistants.models.loading' : 'assistants.model.default',
                 })}
-              </option>
-              {modelMissing && <option value={model}>{model}</option>}
+              </NativeSelectOption>
+              {modelMissing && <NativeSelectOption value={model}>{model}</NativeSelectOption>}
               {models.map((option) => (
-                <option key={option.value} value={option.value} title={option.description}>
+                <NativeSelectOption key={option.value} value={option.value} title={option.description}>
                   {option.name === option.value ? option.value : `${option.name} · ${option.value}`}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.model.hint' })}
+            </FieldDescription>
           </Field>
-          <Field
-            label={intl.formatMessage({ id: 'intelligence.autoReview.field.thinking' })}
-            hint={intl.formatMessage({ id: 'intelligence.autoReview.field.thinking.hint' })}
-          >
-            <Select
+          <Field>
+            <FieldLabel htmlFor="auto-review-thinking">
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.thinking' })}
+            </FieldLabel>
+            <NativeSelect
+              id="auto-review-thinking"
               value={thinkingLevel}
               onChange={(event) => {
                 setThinkingLevel(event.target.value)
                 setSaved(false)
               }}
             >
-              <option value="">{intl.formatMessage({ id: 'assistants.thinking.default' })}</option>
+              <NativeSelectOption value="">
+                {intl.formatMessage({ id: 'assistants.thinking.default' })}
+              </NativeSelectOption>
               {THINKING_LEVELS.map((level) => (
-                <option key={level} value={level}>
+                <NativeSelectOption key={level} value={level}>
                   {level}
-                </option>
+                </NativeSelectOption>
               ))}
-            </Select>
+            </NativeSelect>
+            <FieldDescription>
+              {intl.formatMessage({ id: 'intelligence.autoReview.field.thinking.hint' })}
+            </FieldDescription>
           </Field>
         </div>
 
@@ -202,20 +219,20 @@ function AutoReviewCard({ state }: { state: ConfigState }) {
           )}
         </p>
 
-        <ErrorText message={error} />
+        {error !== null && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
         <div className="flex items-center gap-3">
-          <Button
-            variant="primary"
-            disabled={busy || content.trim() === '' || agentId === ''}
-            onClick={() => void submit()}
-          >
+          <Button disabled={busy || content.trim() === '' || agentId === ''} onClick={() => void submit()}>
             {intl.formatMessage({ id: 'common.save' })}
           </Button>
           {saved && (
             <span className="text-xs text-accent">{intl.formatMessage({ id: 'intelligence.autoReview.saved' })}</span>
           )}
         </div>
-      </div>
-    </section>
+      </CardContent>
+    </Card>
   )
 }

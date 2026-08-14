@@ -1,9 +1,13 @@
 import { useState } from 'react'
 import { useIntl } from 'react-intl'
+import { ChevronRight, Plus } from 'lucide-react'
 import type { ConfigState } from '../../../../shared/config'
 import { useBotIdentityMap } from '../../lib/ipc-query'
-import { Chevron } from '../chevron'
-import { ErrorText } from '../form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Empty, EmptyDescription } from '@/components/ui/empty'
+import { Toggle } from '@/components/ui/toggle'
 import { ChatDetail, DefaultDetail, GhostDetail, chatTypeLabel } from './chat-detail'
 import { ChatPickerModal } from './chat-picker'
 import type { ChannelTree } from './model'
@@ -24,11 +28,15 @@ export function BindingsPanel({ state }: { state: ConfigState }) {
 
   return (
     <div>
-      <ErrorText message={panel.error} />
+      {panel.error !== null && (
+        <Alert variant="destructive">
+          <AlertDescription>{panel.error}</AlertDescription>
+        </Alert>
+      )}
       {tree.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-line bg-raised/50 p-6 text-sm text-ink-muted">
-          {intl.formatMessage({ id: 'bindings.empty' })}
-        </div>
+        <Empty>
+          <EmptyDescription>{intl.formatMessage({ id: 'bindings.empty' })}</EmptyDescription>
+        </Empty>
       ) : (
         <div className="mt-3 flex min-h-96 overflow-hidden rounded-xl border border-line bg-raised">
           <nav className="w-72 shrink-0 overflow-y-auto border-r border-line p-2">
@@ -119,18 +127,14 @@ function ChannelSection({
   if (entry.ghost) {
     const key = `ghost:${entry.channelId}`
     return (
-      <button
-        type="button"
-        onClick={() => onSelect({ kind: 'ghost', channelId: entry.channelId })}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-line/40 ${
-          selectedKey === key ? 'bg-accent/10' : ''
-        }`}
+      <Toggle
+        pressed={selectedKey === key}
+        onPressedChange={() => onSelect({ kind: 'ghost', channelId: entry.channelId })}
+        className="h-auto w-full justify-start gap-2 px-2 py-1.5 text-left font-normal aria-pressed:bg-accent/10"
       >
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-red-500">{label}</span>
-        <span className="rounded bg-red-500/10 px-1.5 py-0.5 text-[11px] text-red-500">
-          {intl.formatMessage({ id: 'bindings.tree.ghost' })}
-        </span>
-      </button>
+        <Badge variant="destructive">{intl.formatMessage({ id: 'bindings.tree.ghost' })}</Badge>
+      </Toggle>
     )
   }
 
@@ -138,20 +142,22 @@ function ChannelSection({
   return (
     <div className="mb-1">
       <div className="flex items-center gap-1">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="sm"
           aria-expanded={!collapsed}
           onClick={() => setCollapsed(!collapsed)}
-          className="flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1.5 py-1.5 text-left transition-colors hover:bg-line/40"
+          className="h-auto min-w-0 flex-1 justify-start gap-1.5 px-1.5 py-1.5 text-left font-normal"
         >
-          <Chevron open={!collapsed} />
+          <ChevronRight className={`size-3 text-ink-muted transition-transform ${collapsed ? '' : 'rotate-90'}`} />
           <span className="min-w-0 flex-1 truncate text-sm font-semibold">{label}</span>
           {collapsed && (
             <span className="shrink-0 text-[11px] text-ink-muted/70 tabular-nums">{entry.rows.length}</span>
           )}
-        </button>
-        <button
-          type="button"
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon-xs"
           title={intl.formatMessage({ id: 'bindings.tree.addChat' })}
           aria-label={intl.formatMessage({ id: 'bindings.tree.addChat' })}
           disabled={busy}
@@ -160,10 +166,10 @@ function ChannelSection({
             setCollapsed(false)
             onAddChat()
           }}
-          className="rounded-md px-1.5 text-base leading-6 text-ink-muted transition-colors hover:bg-line/50 hover:text-ink disabled:opacity-40"
+          className="text-ink-muted hover:text-ink"
         >
-          ＋
-        </button>
+          <Plus />
+        </Button>
       </div>
       {!collapsed && (
         <>
@@ -215,12 +221,10 @@ function TreeRow({
 }) {
   const intl = useIntl()
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`block w-full rounded-md py-1.5 pr-2 pl-6 text-left transition-colors hover:bg-line/40 ${
-        selected ? 'bg-accent/10' : ''
-      }`}
+    <Toggle
+      pressed={selected}
+      onPressedChange={onClick}
+      className="h-auto w-full flex-col items-stretch gap-0 py-1.5 pr-2 pl-6 text-left font-normal aria-pressed:bg-accent/10"
     >
       <span className="flex items-center gap-2">
         <span className={`block min-w-0 flex-1 truncate text-sm ${titleClass}`}>{title}</span>
@@ -231,6 +235,6 @@ function TreeRow({
         )}
       </span>
       {subtitle !== null && <span className="mt-0.5 block text-[11px] text-ink-muted">{subtitle}</span>}
-    </button>
+    </Toggle>
   )
 }

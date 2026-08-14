@@ -8,14 +8,28 @@ import {
   type SkillInstallResult,
   type SkillScope,
 } from '../../../../shared/skills'
-import { Button, ErrorText, Field, FieldGroup, Select, TextInput } from '../../components/form'
-import { Modal } from '../../components/modal'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Field, FieldDescription, FieldGroup, FieldLabel, FieldTitle } from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { assistantLabel } from '../../lib/assistant-label'
 import { configStateAtom } from '../../lib/config-atoms'
 import { ipc } from '../../lib/ipc'
 import { useIpcQuery } from '../../lib/ipc-query'
-import { toast } from '../../lib/toast'
-import { ScopeChip } from './index'
+import { toast } from '@/components/ui/toast'
 
 // 获取技能弹窗（技能页入口）：从 GitHub 仓库（owner/repo 或链接）选择技能；
 // 安装目标在二级弹窗中选择：位置（全局/助手）决定根目录，agent 多选决定容器目录集合
@@ -32,18 +46,26 @@ export function SkillsAcquireModal({ onClose, onInstalled }: { onClose: () => vo
 
   return (
     <>
-      <Modal
-        title={intl.formatMessage({ id: 'skills.remote.title' })}
-        panelClassName="flex max-h-[85vh] w-[44rem] max-w-[90vw] flex-col p-5"
-        onClose={onClose}
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
       >
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <RepoSection onInstall={setRequest} />
-        </div>
-        <div className="mt-4 flex shrink-0 justify-end border-t border-line pt-4">
-          <Button onClick={onClose}>{intl.formatMessage({ id: 'common.close' })}</Button>
-        </div>
-      </Modal>
+        <DialogContent className="flex max-h-[85vh] max-w-[90vw] flex-col overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{intl.formatMessage({ id: 'skills.remote.title' })}</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <RepoSection onInstall={setRequest} />
+          </div>
+          <div className="mt-4 flex shrink-0 justify-end border-t border-line pt-4">
+            <Button variant="outline" onClick={onClose}>
+              {intl.formatMessage({ id: 'common.close' })}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       {request !== null && (
         <InstallTargetModal request={request} onClose={() => setRequest(null)} onInstalled={onInstalled} />
       )}
@@ -79,7 +101,7 @@ function RepoSection({ onInstall }: { onInstall: (request: InstallRequest) => vo
       <h2 className="text-sm font-semibold">{intl.formatMessage({ id: 'skills.remote.repo.title' })}</h2>
       <p className="mt-1 text-xs text-ink-muted">{intl.formatMessage({ id: 'skills.remote.repo.hint' })}</p>
       <div className="mt-3 flex gap-2">
-        <TextInput
+        <Input
           value={source}
           placeholder="owner/repo 或 https://github.com/..."
           onChange={(event) => setSource(event.target.value)}
@@ -93,7 +115,9 @@ function RepoSection({ onInstall }: { onInstall: (request: InstallRequest) => vo
       </div>
       {error !== null && (
         <div className="mt-3">
-          <ErrorText message={error} />
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         </div>
       )}
       {result !== null && (
@@ -161,6 +185,11 @@ function InstallTargetModal({
   const [picked, setPicked] = useState<string[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [overwritePending, setOverwritePending] = useState<{
+    existing: SkillDir[]
+    done: string[]
+    failures: string[]
+  } | null>(null)
 
   // agent 候选：本机可用（codex 内建恒可用）且技能目录在支持范围；
   // 助手维度额外并入其绑定的 agent（可能未安装——映射非空即可作为安装目标）
@@ -187,9 +216,6 @@ function InstallTargetModal({
         ? [candidates[0] as string]
         : []
   const selected = (picked ?? defaultPick).filter((id) => candidates.includes(id))
-  const toggleAgent = (id: string) =>
-    setPicked(selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id])
-
   // 选中 agent → 容器目录去重分组（同目录的 agent 合并展示、只装一次）
   const dirGroups: { dir: SkillDir; agents: string[] }[] = []
   for (const id of selected) {
@@ -205,6 +231,19 @@ function InstallTargetModal({
     return ipc.skills.installFromRepo({ sessionId: request.sessionId, relPath: request.relPath, target, overwrite })
   }
 
+  const finishInstall = (done: string[], failures: string[]): void => {
+    setBusy(false)
+    if (failures.length > 0) {
+      setError(failures.join('\n'))
+      return
+    }
+    if (done.length > 0) {
+      toast.add({ title: intl.formatMessage({ id: 'skills.install.done' }, { path: done.join('、') }), type: 'info' })
+      onInstalled()
+      onClose()
+    }
+  }
+
   const submit = async () => {
     setBusy(true)
     setError(null)
@@ -218,146 +257,196 @@ function InstallTargetModal({
       else if (result.exists) existing.push(dir)
       else failures.push(result.message)
     }
-    if (existing.length > 0 && window.confirm(intl.formatMessage({ id: 'skills.install.overwriteConfirm' }))) {
-      for (const dir of existing) {
-        const result = await doInstall(dir, true)
-        if (result.ok) done.push(result.path)
-        else failures.push(result.message)
-      }
-      existing.length = 0
-    }
-    setBusy(false)
-    if (failures.length > 0) {
-      setError(failures.join('\n'))
+    if (existing.length > 0) {
+      setBusy(false)
+      setOverwritePending({ existing, done, failures })
       return
     }
-    if (done.length > 0) {
-      toast(intl.formatMessage({ id: 'skills.install.done' }, { path: done.join('、') }))
-      onInstalled()
-      onClose()
+    finishInstall(done, failures)
+  }
+
+  const overwrite = async (): Promise<void> => {
+    if (overwritePending === null) return
+    const { existing, done, failures } = overwritePending
+    setOverwritePending(null)
+    setBusy(true)
+    for (const dir of existing) {
+      const result = await doInstall(dir, true)
+      if (result.ok) done.push(result.path)
+      else failures.push(result.message)
     }
-    // done 为空且用户放弃覆盖：什么都没发生，留在弹窗
+    finishInstall(done, failures)
+  }
+
+  const cancelOverwrite = (): void => {
+    if (overwritePending === null) return
+    const { done, failures } = overwritePending
+    setOverwritePending(null)
+    finishInstall(done, failures)
   }
 
   const rootLabel = scope === 'global' ? '~' : intl.formatMessage({ id: 'skills.install.dir.workdir' })
   const missingAssistant = scope === 'assistant' && effectiveAssistant === ''
 
   return (
-    <Modal
-      title={intl.formatMessage({ id: 'skills.install.title' })}
-      panelClassName="max-h-[70vh] w-[26rem] overflow-y-auto p-5"
-      onClose={onClose}
-    >
-      <p className="truncate rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs text-ink-muted">
-        {request.label}
-      </p>
-      <div className="mt-4 flex flex-col gap-4">
-        <FieldGroup label={intl.formatMessage({ id: 'skills.install.scope' })}>
-          <div className="flex gap-1.5">
-            <ScopeChip
-              label={intl.formatMessage({ id: 'skills.scope.global' })}
-              active={scope === 'global'}
-              onClick={() => {
-                setScope('global')
-                setPicked(null)
-              }}
-            />
-            <ScopeChip
-              label={intl.formatMessage({ id: 'skills.scope.assistant' })}
-              active={scope === 'assistant'}
-              onClick={() => {
-                setScope('assistant')
-                setPicked(null)
-              }}
-            />
-          </div>
-        </FieldGroup>
-
-        {scope === 'assistant' &&
-          (assistants.length === 0 ? (
-            <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'skills.assistant.none' })}</p>
-          ) : (
-            <Field
-              label={intl.formatMessage({ id: 'skills.install.assistant' })}
-              hint={intl.formatMessage({ id: 'skills.install.assistant.hint' })}
-            >
-              <Select
-                value={effectiveAssistant}
-                onChange={(event) => {
-                  setAssistantId(event.target.value)
+    <>
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+      >
+        <DialogContent className="max-h-[70vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{intl.formatMessage({ id: 'skills.install.title' })}</DialogTitle>
+          </DialogHeader>
+          <p className="truncate rounded-lg border border-line bg-surface px-3 py-2 font-mono text-xs text-ink-muted">
+            {request.label}
+          </p>
+          <div className="mt-4 flex flex-col gap-4">
+            <FieldGroup>
+              <FieldTitle>{intl.formatMessage({ id: 'skills.install.scope' })}</FieldTitle>
+              <ToggleGroup
+                variant="outline"
+                size="sm"
+                value={[scope]}
+                onValueChange={(value) => {
+                  const next = value[0]
+                  if (next !== 'global' && next !== 'assistant') return
+                  setScope(next)
                   setPicked(null)
                 }}
               >
-                {assistants.map((assistant) => (
-                  <option key={assistant.id} value={assistant.id}>
-                    {assistantLabel(assistant)}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          ))}
+                <ToggleGroupItem value="global">{intl.formatMessage({ id: 'skills.scope.global' })}</ToggleGroupItem>
+                <ToggleGroupItem value="assistant">
+                  {intl.formatMessage({ id: 'skills.scope.assistant' })}
+                </ToggleGroupItem>
+              </ToggleGroup>
+            </FieldGroup>
 
-        <FieldGroup
-          label={intl.formatMessage({ id: 'skills.install.agent' })}
-          hint={
-            candidates.length > 0 && selected.length === 0
-              ? intl.formatMessage({ id: 'skills.install.agents.empty' })
-              : undefined
-          }
-        >
-          {candidates.length === 0 ? (
-            <p className="py-1.5 text-xs text-ink-muted">
-              {agentsQuery.error ?? intl.formatMessage({ id: 'common.loading' })}
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {candidates.map((id) => (
-                <ScopeChip key={id} label={id} active={selected.includes(id)} onClick={() => toggleAgent(id)} />
-              ))}
-            </div>
-          )}
-        </FieldGroup>
-
-        {dirGroups.length > 0 && (
-          <FieldGroup label={intl.formatMessage({ id: 'skills.install.dir' })}>
-            <div className="flex flex-col gap-1.5">
-              {dirGroups.map(({ dir, agents }) => (
-                <div
-                  key={dir}
-                  className="flex items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5"
-                >
-                  <span className="flex shrink-0 flex-wrap gap-1">
-                    {agents.map((id) => (
-                      <span
-                        key={id}
-                        className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent"
-                      >
-                        {id}
-                      </span>
+            {scope === 'assistant' &&
+              (assistants.length === 0 ? (
+                <p className="text-xs text-ink-muted">{intl.formatMessage({ id: 'skills.assistant.none' })}</p>
+              ) : (
+                <Field>
+                  <FieldLabel htmlFor="skill-install-assistant">
+                    {intl.formatMessage({ id: 'skills.install.assistant' })}
+                  </FieldLabel>
+                  <NativeSelect
+                    id="skill-install-assistant"
+                    value={effectiveAssistant}
+                    onChange={(event) => {
+                      setAssistantId(event.target.value)
+                      setPicked(null)
+                    }}
+                  >
+                    {assistants.map((assistant) => (
+                      <NativeSelectOption key={assistant.id} value={assistant.id}>
+                        {assistantLabel(assistant)}
+                      </NativeSelectOption>
                     ))}
-                  </span>
-                  <span className="text-xs text-ink-muted/70">→</span>
-                  <span className="truncate font-mono text-xs">
-                    {rootLabel}/{dir}
-                  </span>
-                </div>
+                  </NativeSelect>
+                  <FieldDescription>{intl.formatMessage({ id: 'skills.install.assistant.hint' })}</FieldDescription>
+                </Field>
               ))}
-            </div>
-          </FieldGroup>
-        )}
 
-        <ErrorText message={error} />
-      </div>
-      <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">
-        <Button onClick={onClose}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
-        <Button
-          variant="primary"
-          disabled={busy || missingAssistant || dirGroups.length === 0}
-          onClick={() => void submit()}
-        >
-          {intl.formatMessage({ id: 'skills.install.confirm' })}
-        </Button>
-      </div>
-    </Modal>
+            <FieldGroup>
+              <FieldTitle>{intl.formatMessage({ id: 'skills.install.agent' })}</FieldTitle>
+              {candidates.length > 0 && selected.length === 0 && (
+                <FieldDescription>{intl.formatMessage({ id: 'skills.install.agents.empty' })}</FieldDescription>
+              )}
+              {candidates.length === 0 ? (
+                <p className="py-1.5 text-xs text-ink-muted">
+                  {agentsQuery.error ?? intl.formatMessage({ id: 'common.loading' })}
+                </p>
+              ) : (
+                <ToggleGroup
+                  multiple
+                  variant="outline"
+                  size="sm"
+                  className="flex-wrap"
+                  value={selected}
+                  onValueChange={setPicked}
+                >
+                  {candidates.map((id) => (
+                    <ToggleGroupItem key={id} value={id}>
+                      {id}
+                    </ToggleGroupItem>
+                  ))}
+                </ToggleGroup>
+              )}
+            </FieldGroup>
+
+            {dirGroups.length > 0 && (
+              <FieldGroup>
+                <FieldTitle>{intl.formatMessage({ id: 'skills.install.dir' })}</FieldTitle>
+                <div className="flex flex-col gap-1.5">
+                  {dirGroups.map(({ dir, agents }) => (
+                    <div
+                      key={dir}
+                      className="flex items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5"
+                    >
+                      <span className="flex shrink-0 flex-wrap gap-1">
+                        {agents.map((id) => (
+                          <span
+                            key={id}
+                            className="rounded bg-accent/10 px-1.5 py-0.5 font-mono text-[11px] font-medium text-accent"
+                          >
+                            {id}
+                          </span>
+                        ))}
+                      </span>
+                      <span className="text-xs text-ink-muted/70">→</span>
+                      <span className="truncate font-mono text-xs">
+                        {rootLabel}/{dir}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </FieldGroup>
+            )}
+
+            {error !== null && (
+              <Alert variant="destructive">
+                <AlertDescription>{error}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+          <div className="mt-5 flex justify-end gap-2 border-t border-line pt-4">
+            <Button variant="outline" onClick={onClose}>
+              {intl.formatMessage({ id: 'common.cancel' })}
+            </Button>
+            <Button
+              variant="default"
+              disabled={busy || missingAssistant || dirGroups.length === 0}
+              onClick={() => void submit()}
+            >
+              {intl.formatMessage({ id: 'skills.install.confirm' })}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <AlertDialog
+        open={overwritePending !== null}
+        onOpenChange={(open) => {
+          if (!open) cancelOverwrite()
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{intl.formatMessage({ id: 'skills.install.confirm' })}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {intl.formatMessage({ id: 'skills.install.overwriteConfirm' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{intl.formatMessage({ id: 'common.cancel' })}</AlertDialogCancel>
+            <AlertDialogAction variant="destructive" onClick={() => void overwrite()}>
+              {intl.formatMessage({ id: 'skills.install.confirm' })}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }

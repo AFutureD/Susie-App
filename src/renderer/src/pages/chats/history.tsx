@@ -3,9 +3,21 @@ import { useIntl, type IntlShape } from 'react-intl'
 import { Link } from 'react-router'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ChevronRight } from 'lucide-react'
 import type { ChatInfo, MessagePart, StoredMessage } from '../../../../shared/messages'
-import { Chevron } from '../../components/chevron'
-import { Button, TextInput } from '../../components/form'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Message, MessageContent, MessageGroup, MessageHeader } from '@/components/ui/message'
+import {
+  MessageScroller,
+  MessageScrollerButton,
+  MessageScrollerContent,
+  MessageScrollerItem,
+  MessageScrollerProvider,
+  MessageScrollerViewport,
+} from '@/components/ui/message-scroller'
+import { Toggle } from '@/components/ui/toggle'
 import { ipc, onIpcEvent } from '../../lib/ipc'
 import { useBotIdentityMap, useChatsQuery } from '../../lib/ipc-query'
 
@@ -83,15 +95,15 @@ function ReplyPreview({ target, replyToId }: { target: StoredMessage | null; rep
     document.getElementById(replyDomId(target.rowid))?.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
       onClick={scrollTo}
       disabled={target === null}
-      className="mb-1.5 flex w-full flex-col gap-0.5 rounded-sm border-l-2 border-accent/60 bg-accent/5 py-0.5 pr-2 pl-2 text-left transition-colors hover:bg-accent/10 disabled:cursor-default disabled:opacity-70"
+      className="mb-1.5 h-auto w-full flex-col items-stretch gap-0.5 rounded-sm border-l-2 border-accent/60 bg-accent/5 py-0.5 pr-2 pl-2 text-left font-normal hover:bg-accent/10 disabled:cursor-default disabled:opacity-70"
     >
       <span className="truncate text-[11px] font-medium text-accent">{name}</span>
       <span className="line-clamp-2 text-xs break-words whitespace-pre-wrap text-ink-muted">{preview}</span>
-    </button>
+    </Button>
   )
 }
 
@@ -105,24 +117,24 @@ function MessageRow({
   const mine = message.out
   const replyTarget = message.replyTo === null ? null : resolveReplyTarget(message.replyTo)
   return (
-    <div id={replyDomId(message.rowid)} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-      <div
-        className={`max-w-[78%] rounded-xl px-3.5 py-2.5 ${
+    <Message id={replyDomId(message.rowid)} align={mine ? 'end' : 'start'}>
+      <MessageContent
+        className={`w-auto max-w-[78%] gap-1.5 rounded-xl px-3.5 py-2.5 ${
           mine ? 'bg-accent/12 border border-accent/20' : 'border border-line bg-raised'
         }`}
       >
-        <div className="mb-1 flex items-baseline gap-2 text-[11px] text-ink-muted">
+        <MessageHeader className="gap-2 p-0 text-[11px]">
           <span className="font-medium">{mine ? 'Susie' : (message.sender ?? '?')}</span>
           <span>{formatTime(message.timestamp)}</span>
-        </div>
+        </MessageHeader>
         {message.replyTo !== null && <ReplyPreview target={replyTarget} replyToId={message.replyTo} />}
         <div className="flex flex-col gap-1.5">
           {message.parts.map((part, index) => (
             <PartView key={index} part={part} />
           ))}
         </div>
-      </div>
-    </div>
+      </MessageContent>
+    </Message>
   )
 }
 
@@ -137,7 +149,6 @@ export function ChatHistoryPage() {
   const [sendError, setSendError] = useState<string | null>(null)
   // 按渠道折叠（默认全展开；本地状态即可，不持久化）
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
-  const bottomRef = useRef<HTMLDivElement | null>(null)
   const selectedRef = useRef(selected)
   selectedRef.current = selected
 
@@ -186,10 +197,6 @@ export function ChatHistoryPage() {
     void ipc.history.messages({ channelId: selected.channelId, chatId: selected.chatId, limit: 120 }).then(setMessages)
   }, [selected])
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages])
-
   const runSearch = async () => {
     if (query.trim() === '') {
       setSearchResults(null)
@@ -233,7 +240,7 @@ export function ChatHistoryPage() {
       <div className="flex min-h-0 flex-1 gap-4">
         <aside className="flex w-64 shrink-0 flex-col gap-2">
           <div className="flex gap-1.5">
-            <TextInput
+            <Input
               placeholder={intl.formatMessage({ id: 'history.search.placeholder' })}
               value={query}
               onChange={(event) => setQuery(event.target.value)}
@@ -252,32 +259,33 @@ export function ChatHistoryPage() {
                 return (
                   <div key={channelId}>
                     {/* sticky 组头：滚动时钉在列表顶部，随时知道身处哪个渠道 */}
-                    <button
-                      type="button"
+                    <Button
+                      variant="ghost"
                       aria-expanded={!isCollapsed}
                       onClick={() => toggleGroup(channelId)}
-                      className="sticky top-0 z-10 flex w-full items-center gap-1.5 rounded-md bg-surface px-2 py-1.5 text-left transition-colors hover:bg-raised/80"
+                      className="sticky top-0 z-10 h-auto w-full justify-start gap-1.5 bg-surface px-2 py-1.5 text-left font-normal hover:bg-raised/80"
                     >
-                      <Chevron open={!isCollapsed} />
+                      <ChevronRight
+                        className={`size-3 text-ink-muted transition-transform ${isCollapsed ? '' : 'rotate-90'}`}
+                      />
                       <span className="min-w-0 flex-1 truncate text-xs font-semibold text-ink-muted">
                         {identityMap.get(channelId)?.name ?? channelId}
                       </span>
                       <span className="shrink-0 text-[11px] text-ink-muted/70 tabular-nums">{groupChats.length}</span>
-                    </button>
+                    </Button>
                     {!isCollapsed && (
                       <div className="mt-0.5 ml-3.5 flex flex-col gap-0.5 border-l border-line/70 pl-1.5">
                         {groupChats.map((chat) => {
                           const active = selected?.channelId === chat.channelId && selected.chatId === chat.chatId
                           return (
-                            <button
+                            <Toggle
                               key={chatKey(chat.channelId, chat.chatId)}
-                              onClick={() => {
+                              pressed={active}
+                              onPressedChange={() => {
                                 setSearchResults(null)
                                 setSelected({ channelId: chat.channelId, chatId: chat.chatId })
                               }}
-                              className={`rounded-md px-2.5 py-1.5 text-left transition-colors ${
-                                active ? 'bg-accent/10' : 'hover:bg-raised/60'
-                              }`}
+                              className="h-auto w-full flex-col items-stretch gap-0 px-2.5 py-1.5 text-left font-normal hover:bg-raised/60 aria-pressed:bg-accent/10"
                             >
                               <div
                                 className={`truncate ${chat.name === null ? 'font-mono text-xs' : 'text-[13px] font-medium'}`}
@@ -289,7 +297,7 @@ export function ChatHistoryPage() {
                                   {chat.chatId}
                                 </div>
                               )}
-                            </button>
+                            </Toggle>
                           )
                         })}
                       </div>
@@ -308,13 +316,15 @@ export function ChatHistoryPage() {
                 <span className="text-xs text-ink-muted">
                   {intl.formatMessage({ id: 'history.search.results' }, { count: String(searchResults.length) })}
                 </span>
-                <Button onClick={() => setSearchResults(null)}>{intl.formatMessage({ id: 'common.cancel' })}</Button>
+                <Button variant="outline" onClick={() => setSearchResults(null)}>
+                  {intl.formatMessage({ id: 'common.cancel' })}
+                </Button>
               </div>
-              <div className="flex flex-col gap-2">
+              <MessageGroup>
                 {searchResults.map((message) => (
                   <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInSearch} />
                 ))}
-              </div>
+              </MessageGroup>
             </div>
           ) : selected === null ? (
             <div className="flex flex-1 items-center justify-center text-sm text-ink-muted">
@@ -322,18 +332,32 @@ export function ChatHistoryPage() {
             </div>
           ) : (
             <>
-              <div className="min-h-0 flex-1 overflow-y-auto p-4">
-                <div className="flex flex-col gap-2.5">
-                  {messages.map((message) => (
-                    <MessageRow key={message.rowid} message={message} resolveReplyTarget={resolveInMessages} />
-                  ))}
-                  <div ref={bottomRef} />
-                </div>
-              </div>
+              <MessageScrollerProvider
+                key={chatKey(selected.channelId, selected.chatId)}
+                autoScroll
+                defaultScrollPosition="end"
+              >
+                <MessageScroller className="flex-1">
+                  <MessageScrollerViewport className="p-4">
+                    <MessageScrollerContent className="gap-2.5">
+                      {messages.map((message) => (
+                        <MessageScrollerItem key={message.rowid} messageId={String(message.rowid)}>
+                          <MessageRow message={message} resolveReplyTarget={resolveInMessages} />
+                        </MessageScrollerItem>
+                      ))}
+                    </MessageScrollerContent>
+                  </MessageScrollerViewport>
+                  <MessageScrollerButton />
+                </MessageScroller>
+              </MessageScrollerProvider>
               <div className="border-t border-line p-3">
-                {sendError !== null && <p className="mb-2 text-xs text-red-500">{sendError}</p>}
+                {sendError !== null && (
+                  <Alert variant="destructive" className="mb-2">
+                    <AlertDescription>{sendError}</AlertDescription>
+                  </Alert>
+                )}
                 <div className="flex gap-2">
-                  <TextInput
+                  <Input
                     placeholder={intl.formatMessage({ id: 'history.composer.placeholder' })}
                     value={draft}
                     onChange={(event) => setDraft(event.target.value)}
@@ -341,12 +365,7 @@ export function ChatHistoryPage() {
                       if (event.key === 'Enter' && !event.nativeEvent.isComposing) void send()
                     }}
                   />
-                  <Button
-                    variant="primary"
-                    className="shrink-0"
-                    disabled={draft.trim() === ''}
-                    onClick={() => void send()}
-                  >
+                  <Button className="shrink-0" disabled={draft.trim() === ''} onClick={() => void send()}>
                     {intl.formatMessage({ id: 'history.composer.send' })}
                   </Button>
                 </div>

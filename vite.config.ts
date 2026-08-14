@@ -1,5 +1,6 @@
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type PluginOption } from 'vite'
 
 // 只在生产构建注入 CSP（dev 下 react-refresh 需要内联预导语，无法满足 script-src 'self'）。
@@ -34,6 +35,11 @@ function prodCsp(): PluginOption {
 export default defineConfig({
   root: 'src/renderer',
   base: './',
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src/renderer/src', import.meta.url)),
+    },
+  },
   plugins: [react(), tailwindcss(), prodCsp()],
   server: {
     port: 5175,

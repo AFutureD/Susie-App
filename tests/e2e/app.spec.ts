@@ -161,8 +161,9 @@ test('会话页树形面板：切换通道默认的「是否响应」并落盘',
   // 受控 checkbox 经 IPC 写盘 + config 广播后才更新，用 click + 重试断言而非 check()
   await defaultRow.click()
   await expect(win.getByLabel('助手')).toHaveValue('default')
-  await win.getByLabel('响应未列出的会话').click()
-  await expect(win.getByLabel('响应未列出的会话')).toBeChecked()
+  const defaultRespond = win.getByRole('checkbox', { name: '响应未列出的会话' })
+  await defaultRespond.click()
+  await expect(defaultRespond).toBeChecked()
 
   // respond 翻转落盘（canonical 序列化省写默认值 true 与否取决于 schema——此处断言不再是 false）
   await expect.poll(() => readFileSync(configPath, 'utf-8')).not.toContain('respond = false')
@@ -252,7 +253,7 @@ test('会话页：添加会话即落盘（跟随渠道默认助手）', async ()
 
   // 右栏详情默认选中新会话：跟随渠道默认 + 响应开启
   await expect(win.getByLabel('助手')).toHaveValue('')
-  await expect(win.getByLabel('响应此会话')).toBeChecked()
+  await expect(win.getByRole('checkbox', { name: '响应此会话' })).toBeChecked()
 })
 
 test('会话页：群会话显示隐私模式警告，教程视频可弹出，重新检测后翻转', async () => {
